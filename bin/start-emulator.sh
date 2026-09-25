@@ -2,8 +2,9 @@
 # Boots the development emulator and returns once Android has finished booting, so it can be
 # chained: start-emulator.sh && ./gradlew installDebug
 #
-# Usage:   start-emulator.sh [avd-name] [extra emulator flags...]
-#            start-emulator.sh                       # the default AVD (see below)
+# Usage:   start-emulator.sh [--quick] [avd-name] [extra emulator flags...]
+#            start-emulator.sh                       # the default AVD (see below), cold boot
+#            start-emulator.sh --quick               # boot from the Quick Boot snapshot instead
 #            start-emulator.sh -wipe-data            # default AVD, factory reset
 #            start-emulator.sh my_tv -gpu host       # another AVD, hardware rendering
 #          EMULATOR_TOOLBAR=show start-emulator.sh   # keep a clickable side toolbar (WSL)
@@ -11,7 +12,15 @@
 # Which AVD: the name given, else $ADT_AVD, else tv_api25 if it exists, else the only
 #          Android TV AVD. Anything else is an error that lists the AVDs.
 # Log:     ${TMPDIR:-/tmp}/emulator-<avd-name>.log  (look here first if the window never appears)
-# Stop:    adb -s <serial> emu kill   (saves a Quick Boot snapshot, so the next start takes seconds)
+# Stop:    adb -s <serial> emu kill   (saves a Quick Boot snapshot, which --quick boots from)
+#
+# Cold boot or Quick Boot: a cold boot (the default, -no-snapshot-load) starts Android from scratch
+# (~10-20 s). --quick restores the snapshot saved when the emulator was last stopped (~7 s), but
+# that snapshot also holds adbd's old connection, and sometimes adb then lists the emulator as
+# "offline" for good. So with --quick, an emulator that stays offline for $ADT_OFFLINE_TIMEOUT
+# seconds (default 30) gets `adb reconnect offline`, and if it's still offline that long after,
+# the script gives up instead of waiting forever. A cold boot is offline for a while too, until
+# adbd starts, which is normal, so it's never cut short.
 #
 # Common errors:
 #   "No access to /dev/kvm"
@@ -21,22 +30,27 @@
 #       (in the firmware, or nested virtualization for WSL).
 #   "the emulator exited"
 #       It failed to start or crashed; the log's last lines are printed. Hangs at "Emulator
-#       starting..." without that error mean Android can't boot (e.g. a corrupt snapshot:
-#       add -no-snapshot-load).
+#       starting..." without that error mean Android can't boot (try -wipe-data).
+#   "adb can't reach it" (--quick only)
+#       The restored snapshot left adb offline, even after a reconnect: stop the emulator and
+#       start it without --quick.
 #
 # Everything below exists for a reason; see the comment on each step before removing one.
 set -euo pipefail
 
 usage() {
     cat <<'EOF'
-Usage: start-emulator.sh [avd-name] [emulator flags...]
+Usage: start-emulator.sh [--quick] [avd-name] [emulator flags...]
 
 Boots an Android TV emulator in the background and returns once Android is ready, so it can be
-chained: start-emulator.sh && ./gradlew installDebug
+chained: start-emulator.sh && ./gradlew installDebug. Cold boot by default (~10-20 s).
 
+  --quick         boot from the Quick Boot snapshot saved when the emulator was last stopped
+                  (~7 s); if adb can't reach the restored emulator for 30 s, reconnect adb once,
+                  then give up
   avd-name        the AVD to boot. Default: $ADT_AVD, else tv_api25 if it exists, else the
                   only Android TV AVD
-  emulator flags  passed on to the emulator, e.g. -wipe-data, -no-snapshot-load, -no-window,
+  emulator flags  passed on to the emulator, e.g. -wipe-data, -no-window,
                   -gpu host (replaces the default -gpu swiftshader_indirect)
   -h, --help      show this help
 
@@ -57,6 +71,14 @@ esac
 source "$(dirname "$(readlink -f "$0")")/../lib/lib.sh"
 require "$EMULATOR" "emulator"
 require "$ADB" "platform-tools"
+
+# --quick is this script's own flag, allowed anywhere; the emulator's flags have a single dash.
+QUICK=""
+ARGS=()
+for arg in "$@"; do
+    if [ "$arg" = --quick ]; then QUICK=1; else ARGS+=("$arg"); fi
+done
+set -- ${ARGS[@]+"${ARGS[@]}"}
 
 # The first argument is the AVD name, unless it's already an emulator flag (e.g. just -wipe-data).
 AVD_NAME=""
@@ -128,7 +150,8 @@ and to keep that across restarts:
     echo 'z $KVM_DEVICE 0660 root kvm -' | sudo tee /etc/tmpfiles.d/kvm.conf"
     fi
     if printf '%s' "$KVM_GROUP_LINE" | grep -qw "$USER" && [ -z "${_IN_SG_KVM:-}" ]; then
-        exec sg kvm -c "_IN_SG_KVM=1 $(printf '%q ' "$BIN_DIR/start-emulator.sh" "$AVD_NAME" "$@")"
+        exec sg kvm -c "_IN_SG_KVM=1 $(printf '%q ' "$BIN_DIR/start-emulator.sh" "$AVD_NAME" \
+            ${QUICK:+--quick} "$@")"
     fi
     die "No access to $KVM_DEVICE. Run: sudo usermod -aG kvm \$USER"
 fi
@@ -147,17 +170,24 @@ done
 #   create-avd.sh). Left out when the caller passes their own -gpu.
 # -no-audio: sound is rarely needed; one less host integration (PulseAudio) to go wrong.
 # -no-boot-anim: faster cold boots.
+# -no-snapshot-load: cold boot, unless --quick (see the header). The emulator still saves a
+#   snapshot when it's stopped, for a later --quick.
 # nohup + & keeps the emulator running after this script (and the terminal) exits.
 GPU=(-gpu swiftshader_indirect)
 if in_list -gpu "$@"; then GPU=(); fi
+BOOT=(-no-snapshot-load)
+BOOT_KIND="cold boot"
+if [ -n "$QUICK" ]; then BOOT=(); BOOT_KIND="Quick Boot"; fi
+if in_list -no-snapshot-load "$@"; then BOOT=(); fi
 LOG="${TMPDIR:-/tmp}/emulator-$AVD_NAME.log"
 nohup "$EMULATOR" -avd "$AVD_NAME" \
     "${GPU[@]}" \
+    ${BOOT[@]+"${BOOT[@]}"} \
     -no-boot-anim \
     -no-audio \
     "$@" > "$LOG" 2>&1 &
 EMULATOR_PID=$!
-echo "Emulator '$AVD_NAME' starting (log: $LOG)..."
+echo "Emulator '$AVD_NAME' starting ($BOOT_KIND, log: $LOG)..."
 
 # Without this, a crashed emulator would leave the loops below waiting forever.
 check_alive() {
@@ -176,10 +206,39 @@ while [ -z "$SERIAL" ]; do
     if [ -z "$SERIAL" ]; then sleep 1; fi
 done
 
+# With --quick, an emulator adb keeps listing as offline gets one `adb reconnect offline` after
+# OFFLINE_TIMEOUT seconds, and after as long again the script gives up (see the header).
+# The reconnect only touches offline devices, which adb can't use anyway.
+OFFLINE_TIMEOUT="${ADT_OFFLINE_TIMEOUT:-30}"
+offline_since=""
+reconnected=""
+check_offline() {
+    [ -n "$QUICK" ] || return 0
+    if [ "$("$ADB" devices 2>/dev/null | awk -v s="$SERIAL" '$1 == s { print $2 }')" != offline ]; then
+        offline_since=""
+        return 0
+    fi
+    [ -n "$offline_since" ] || offline_since=$SECONDS
+    [ $((SECONDS - offline_since)) -ge "$OFFLINE_TIMEOUT" ] || return 0
+    if [ -z "$reconnected" ]; then
+        echo "adb has seen $SERIAL as offline for ${OFFLINE_TIMEOUT} s; reconnecting adb..."
+        "$ADB" reconnect offline > /dev/null 2>&1 || true
+        reconnected=1
+        offline_since=""
+        return 0
+    fi
+    die "'$AVD_NAME' ($SERIAL) was restored from its Quick Boot snapshot, but adb can't reach it
+(still offline after adb reconnect). Stop it and start it without --quick, for a cold boot:
+  adb -s $SERIAL emu kill && $(command_for start-emulator.sh) $AVD_NAME"
+}
+
 # adbd answers long before the package manager is up, and installing at that point fails, so wait
-# for sys.boot_completed. tr strips the '\r' that adb shell appends.
-until [ "$("$ADB" -s "$SERIAL" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ]; do
+# for sys.boot_completed. tr strips the '\r' that adb shell appends; </dev/null keeps adb shell
+# from using up the stdin of whatever called this script.
+until [ "$("$ADB" -s "$SERIAL" shell getprop sys.boot_completed < /dev/null 2>/dev/null \
+        | tr -d '\r')" = "1" ]; do
     check_alive
+    check_offline
     sleep 2
 done
 echo "Emulator '$AVD_NAME' booted as $SERIAL."

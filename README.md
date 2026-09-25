@@ -7,8 +7,8 @@ AVDs and emulators on their own (see [Finding your setup](#finding-your-setup)).
 
 | Script | Purpose |
 |---|---|
-| [`bin/create-avd.sh`](bin/create-avd.sh) | Creates the `tv_api25` Android TV emulator with the right hardware settings. |
-| [`bin/start-emulator.sh`](bin/start-emulator.sh) | Boots it, waits until Android is ready, applies the WSLg toolbar fix. |
+| [`bin/create-avd.sh`](bin/create-avd.sh) | Creates an Android TV emulator with the right hardware settings: `tv_api25`, or another API level with `--api` (e.g. `tv_api28`, `tv_api30`). |
+| [`bin/start-emulator.sh`](bin/start-emulator.sh) | Boots it (cold boot, or Quick Boot with `--quick`), waits until Android is ready, applies the WSLg toolbar fix. |
 | [`bin/remote.sh`](bin/remote.sh) | TV remote in the terminal (D-pad, OK, Back, Home, Menu, …). |
 | [`bin/wslg-toolbar.py`](bin/wslg-toolbar.py) | Works around the emulator toolbar's input problems under WSLg. |
 
@@ -59,10 +59,24 @@ Nothing about the SDK, AVD or device is hardcoded; each is taken from the first 
 | Android SDK | `$ANDROID_HOME`, `$ANDROID_SDK_ROOT`, `sdk.dir` in the current project's `local.properties`, the SDK of the `adb` on `$PATH`, `~/Android/Sdk` |
 | `adb`, `emulator`, `avdmanager`, `android` | inside that SDK (`cmdline-tools/latest`, else the newest `cmdline-tools/<version>`), else on `$PATH` |
 | AVD folder | `$ANDROID_AVD_HOME`, `$ANDROID_EMULATOR_HOME/avd`, `$ANDROID_USER_HOME/avd`, `$ANDROID_SDK_HOME/.android/avd`, `~/.android/avd`; each AVD is located through its `<name>.ini` |
-| AVD to create or boot | the name given on the command line, `$ADT_AVD`, `tv_api25`; `start-emulator.sh` then also accepts the only Android TV AVD |
-| Emulator to talk to | `start-emulator.sh` matches running emulators by AVD name; `remote.sh` takes the serial given, `$ANDROID_SERIAL`, or the only running emulator; `wslg-toolbar.py` the AVD given or the only emulator window |
+| AVD to create or boot | the name given on the command line, `$ADT_AVD`, `tv_api25` (`create-avd.sh --api <level>`: the name given, else `tv_api<level>`); `start-emulator.sh` then also accepts the only Android TV AVD |
+| Emulator to talk to | `start-emulator.sh` matches running emulators by AVD name; `remote.sh` takes the serial given (any device), `$ANDROID_SERIAL`, or the only running emulator; `wslg-toolbar.py` the AVD given or the only emulator window |
 
 To use your own TV AVD without typing its name each time: `export ADT_AVD=<name>`.
+
+### Several Android versions
+
+To test an app on more than one Android version, create one AVD per API level and boot the ones
+you need; they run side by side, each on its own serial:
+
+```bash
+create-avd.sh --api 28 && create-avd.sh --api 30        # tv_api28 (Android 9), tv_api30 (Android 11)
+for avd in tv_api25 tv_api28 tv_api30; do start-emulator.sh "$avd"; done
+./gradlew connectedDebugAndroidTest                     # runs on every connected device
+```
+
+Each needs its system image first ([`setup.md`](setup.md), step 5). Three emulators take ~6 GB of
+RAM together. `remote.sh` needs the serial when several are running.
 
 With several devices connected (another emulator, a phone, a TV over adb), `adb` refuses to guess
 and `./gradlew installDebug` installs on all of them. `start-emulator.sh` prints the emulator's
@@ -78,5 +92,5 @@ serial; `export ANDROID_SERIAL=<serial>` makes both use only that one.
 | [`setup.md`](setup.md) | Setting up the toolchain (WSL2, JDK, Android SDK, emulator). |
 | [`AGENTS.md`](AGENTS.md) | Guidance for coding agents (`CLAUDE.md` links to it). |
 
-Tests: `tests/run.py` (~100 tests, ~50 s, no SDK or emulator needed); see
+Tests: `tests/run.py` (~115 tests, ~75 s, no SDK or emulator needed); see
 [`tests/README.md`](tests/README.md).

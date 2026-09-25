@@ -6,7 +6,7 @@ exit codes, messages, the files they write, and every call they make to `adb`, `
 `avdmanager`. Python standard library only (Python 3.9+), nothing to install.
 
 ```bash
-tests/run.py                  # hermetic tier: ~100 tests, ~50 s, no SDK or emulator needed
+tests/run.py                  # hermetic tier: ~115 tests, ~75 s, no SDK or emulator needed
 tests/run.py -k remote -v     # only tests whose name contains "remote", one line each
 tests/run.py --emulator       # real-emulator tier: boots your AVD headless (see below)
 tests/run.py --all            # both
@@ -17,7 +17,7 @@ tests/run.py --all            # both
 | Tier | Folder | Needs | Checks |
 |---|---|---|---|
 | hermetic | [`hermetic/`](hermetic) | Python 3; optional: Xvfb, shellcheck | Each script's behavior against fake tools and a fake machine. Run it after every script change. |
-| emulator | [`emulator/`](emulator) | Your SDK and AVD (`ADT_AVD` picks one) | What fakes can't show: booting really completes, and `remote.sh`'s scan codes arrive in Android as the right keys. |
+| emulator | [`emulator/`](emulator) | Your SDK and AVD (`ADT_AVD` picks one) | What fakes can't show: booting really completes, and `remote.sh`'s keys arrive in Android as the right keys. |
 
 Some hermetic tests skip, with the reason printed, when an optional tool is missing:
 - **Xvfb** (`apt install xvfb`, `dnf install xorg-x11-server-Xvfb`) for the `wslg-toolbar.py`
@@ -29,7 +29,16 @@ Some hermetic tests skip, with the reason printed, when an optional tool is miss
 - **shellcheck** for static analysis of the shell scripts.
 
 The emulator tier reuses the AVD if it's already running and leaves it running. Otherwise it boots
-it with `-no-window -no-snapshot-save` and stops it at the end.
+it (cold) with `-no-window -no-snapshot-save` and stops it at the end. It tests one AVD per run, so to
+cover every Android version you use:
+
+```bash
+for avd in tv_api25 tv_api28 tv_api30; do ADT_AVD=$avd tests/run.py --emulator; done
+```
+
+On API 30 and newer, Android's input dump doesn't show key codes, so there the tier checks only
+that each key press arrived; which Android key it was is still checked on older ones, and by the
+hermetic tests for all of them.
 
 ## Layout
 
@@ -76,7 +85,8 @@ symlinks in `~/.local/bin`. `cwd` defaults to the project folder. Behavior that 
 script was called (finding `lib.sh`, suggested commands) is tested every way.
 
 Arrange failures and odd situations with `sandbox.set_behavior(...)` (see `DEFAULT_BEHAVIOR` in
-`fake_tools.py`), `connect_device()`, `wsl()` and file permissions on `sandbox.kvm`. Check the
+`fake_tools.py`; e.g. `adb_offline` for an emulator adb can't reach, with `ADT_OFFLINE_TIMEOUT=1`
+in the script's environment so `start-emulator.sh --quick` doesn't wait 30 s), `connect_device()`, `wsl()` and file permissions on `sandbox.kvm`. Check the
 results with `result.code/out/err`, `sandbox.calls()`/`argvs(tool)`, `sandbox.running()` and the
 files in `sandbox.home`.
 

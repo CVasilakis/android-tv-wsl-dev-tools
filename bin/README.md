@@ -8,8 +8,8 @@ devices: [Finding your setup](../README.md#finding-your-setup).
 
 | Script | Purpose |
 |---|---|
-| [`create-avd.sh`](create-avd.sh) | Creates the `tv_api25` Android TV emulator with the right hardware settings. |
-| [`start-emulator.sh`](start-emulator.sh) | Boots it, waits until Android is ready, applies the WSLg toolbar fix. |
+| [`create-avd.sh`](create-avd.sh) | Creates an Android TV emulator with the right hardware settings (`tv_api25`, or `--api <level>`). |
+| [`start-emulator.sh`](start-emulator.sh) | Boots it (cold boot, or Quick Boot with `--quick`), waits until Android is ready, applies the WSLg toolbar fix. |
 | [`remote.sh`](remote.sh) | TV remote in the terminal (D-pad, OK, Back, Home, Menu, …). |
 | [`wslg-toolbar.py`](wslg-toolbar.py) | Works around the emulator toolbar's input problems under WSLg. |
 
@@ -17,15 +17,30 @@ Each script has a header comment with usage, common errors and the reasons behin
 obvious lines. Read it before changing a script, and run `tests/run.py` after changing one.
 Every change needs a test in `tests/hermetic/test_<script>.py`; see [`../tests/README.md`](../tests/README.md).
 
-## `create-avd.sh [name]`
+## `create-avd.sh [--api <level>] [name]`
 
-Creates the AVD (default name `$ADT_AVD`, else `tv_api25`) from `system-images;android-25;android-tv;x86`:
+```bash
+create-avd.sh                  # tv_api25: Android 7.1 (default name: $ADT_AVD, else tv_api25)
+create-avd.sh --api 28         # tv_api28: Android 9
+create-avd.sh --api 30         # tv_api30: Android 11
+create-avd.sh --api 30 my_tv   # the same image under another name
+```
+
+Creates the AVD from the Android TV image of that API level (default 25),
+`system-images;android-<level>;android-tv;x86`, which must be installed first
+([`../setup.md`](../setup.md), step 5; the script prints the install command if it's missing):
 
 ```bash
 avdmanager create avd --name tv_api25 \
     --package "system-images;android-25;android-tv;x86" \
     --tag android-tv --abi x86 --device tv_1080p --sdcard 512M
 ```
+
+With `--api`, the default name is `tv_api<level>` even when `$ADT_AVD` is set, so a second AVD
+doesn't take the name of your everyday one. Any level with an Android TV x86 image works; 25, 28
+and 30 are tested. The API 30 image makes avdmanager print
+`Error: Could not load devices from …/android-30/android-tv/x86/devices.xml`: that file is
+missing from the image, avdmanager uses its own `tv_1080p` profile instead, and the AVD is fine.
 
 and then sets these in the new AVD's `config.ini`, wherever avdmanager put it (by default
 `~/.android/avd/tv_api25.avd/config.ini`; avdmanager has no flags for them):
@@ -36,7 +51,7 @@ and then sets these in the new AVD's `config.ini`, wherever avdmanager put it (b
 | `--sdcard` | 512M | storage for test wallpapers/images (`adb push img.jpg /sdcard/Pictures/`) |
 | `hw.keyboard` | yes | the PC keyboard acts as the remote in the emulator window |
 | `hw.dPad` | yes | the device reports D-pad navigation, like a real TV |
-| `hw.ramSize` | 2048 | enough for API 25 while leaving memory to Gradle |
+| `hw.ramSize` | 2048 | enough for the TV images while leaving memory to Gradle and other emulators |
 | `hw.cpu.ncore` | 4 | |
 | `disk.dataPartition.size` | 4G | room for many test apps (the default is ~550 MB) |
 | `hw.gpu.mode` | swiftshader_indirect | software rendering: works on any host, including WSLg |
@@ -47,23 +62,32 @@ The TV profile has **no touchscreen** (`hw.screen=no-touch`), like a real TV.
 
 It never overwrites an existing AVD. To recreate one: `avdmanager delete avd -n tv_api25 && create-avd.sh`.
 
-## `start-emulator.sh [name] [emulator flags…]`
+## `start-emulator.sh [--quick] [name] [emulator flags…]`
 
 ```bash
-start-emulator.sh                          # boot the default AVD (see Finding your setup)
+start-emulator.sh                          # cold boot the default AVD (see Finding your setup)
+start-emulator.sh --quick                  # boot from its Quick Boot snapshot instead
 start-emulator.sh -wipe-data               # factory reset (also re-enables a disabled stock launcher)
-start-emulator.sh -no-snapshot-load        # cold boot, ignore the Quick Boot snapshot
 start-emulator.sh my_tv -gpu host          # another AVD, with hardware rendering
 EMULATOR_TOOLBAR=show start-emulator.sh    # keep a clickable side toolbar (see below)
-adb -s emulator-5554 emu kill              # stop it (saves a Quick Boot snapshot)
+adb -s emulator-5554 emu kill              # stop it (saves a Quick Boot snapshot for --quick)
 ```
 
-It runs `emulator -avd <name> -gpu swiftshader_indirect -no-boot-anim -no-audio` in the background
-(a `-gpu` flag of your own replaces the default), logs to `${TMPDIR:-/tmp}/emulator-<name>.log`,
+It runs `emulator -avd <name> -gpu swiftshader_indirect -no-snapshot-load -no-boot-anim -no-audio`
+in the background (a `-gpu` flag of your own replaces the default), logs to `${TMPDIR:-/tmp}/emulator-<name>.log`,
 finds the emulator's serial by asking each running emulator for its AVD name, waits until
 `sys.boot_completed=1` (so it can be chained with `./gradlew installDebug`), and on WSL finishes
 with `wslg-toolbar.py <name> hide`. If the emulator exits during boot, it stops waiting and prints
 the end of the log. If the AVD is already running, it only prints its serial.
+
+**Cold boot or Quick Boot.** By default Android starts from scratch (`-no-snapshot-load`): ~8 s
+on API 25, ~11 s on API 28, ~18 s on API 30. `--quick` (anywhere on the command line) instead
+restores the snapshot the emulator saved when it was last stopped, ~7 s on all three. A snapshot
+also restores `adbd`, the adb service inside Android, in the middle of its old connection, and
+sometimes adb then lists the emulator as `offline` and never gets through. So with `--quick`, if
+the emulator stays `offline` for 30 s, the script runs `adb reconnect offline`, and if it's still
+offline 30 s later it stops and says how to cold boot instead of waiting forever. A cold boot is
+also `offline` until `adbd` starts, which is normal, so it's never cut short.
 
 It checks KVM before starting anything, and distinguishes three cases: the device is missing
 (virtualization is off), the device belongs to a group other than `kvm` (joining `kvm` can't
@@ -89,10 +113,16 @@ Notes on the emulator window:
 - Holding Ctrl draws a ring of circles around the mouse pointer. That's the emulator's multi-touch
   simulator: cosmetic, it sends nothing to the TV and can't be turned off. `remote.sh` needs no Ctrl.
 
-`remote.sh` injects Linux key codes through the emulator console (`adb emu event send`), so it
-works regardless of window focus and responds faster than `adb shell input keyevent`. It only works with emulators.
-It picks the only running emulator, ignoring physical devices; with several emulators, pass the serial
+`remote.sh` sends each key with `adb shell input keyevent` (the adb column above), so it works
+the same on every Android version, on emulators and physical devices, whatever window has focus.
+Each key takes ~0.15 s (API 25) to ~0.55 s (API 30), because every call starts a process on the
+device; quick presses queue up and arrive in order. By default it picks the only running emulator,
+ignoring physical devices; with several emulators, or for a physical TV, pass the serial
 (`remote.sh emulator-5554`) or set `ANDROID_SERIAL`.
+
+The emulator console (`adb emu event send`) would be ~0.01 s per key, but it only works on
+emulators, and on the API 30 Android TV image its key events never arrive (the image has no
+`goldfish_events` keyboard for the console to reach), so `remote.sh` doesn't use it.
 
 ## The side toolbar under WSLg (`wslg-toolbar.py`)
 
@@ -120,13 +150,13 @@ windows (`xwininfo`, `xprop`) and which approaches don't work.
 ```bash
 adb shell dumpsys window | grep mCurrentFocus                       # activity in front
 adb exec-out screencap -p > screen.png                             # screenshot
-adb shell dumpsys input | sed -n '/RecentQueue/,/PendingEvent/p'   # last 10 key events Android received
+adb shell dumpsys input | sed -n '/RecentQueue/,/PendingEvent/p'   # last 10 input events (key codes up to API 29)
 adb shell cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME
 ```
 
 Don't use `adb shell getevent > file` to check input: without a terminal its output is buffered and
 the file stays empty. Simulated host input (xdotool/XTest) doesn't reach the emulator under WSLg, so
-automated tests should send keys with `remote.sh`'s mechanism or `adb shell input keyevent`.
+automated tests should send keys with `adb shell input keyevent`, like `remote.sh` does.
 
 ## Troubleshooting
 
@@ -139,10 +169,14 @@ automated tests should send keys with `remote.sh`'s mechanism or `adb shell inpu
 | `wslg-toolbar: no toolbar window found` | wrong AVD name or emulator not running; inspect with `xwininfo -root -tree \| grep qemu-system` |
 | `wslg-toolbar: no running emulator window found` | emulator not running, or started with `-no-window` |
 | `start-emulator.sh: the emulator exited` | the printed log lines say why (e.g. an unknown flag); full log in `${TMPDIR:-/tmp}/emulator-<name>.log` |
-| `start-emulator.sh` hangs at "Emulator starting…" | Android can't boot: try `-no-snapshot-load` |
+| `start-emulator.sh` hangs at "Emulator starting…" | Android can't boot: without `--quick` if you used it, else try `-wipe-data` (factory reset) |
+| `start-emulator.sh: … adb can't reach it` (with `--quick`) | the restored snapshot left adb offline: `adb -s <serial> emu kill`, then start it without `--quick` |
+| `adb devices` shows `offline` for a running emulator | `adb reconnect offline`; if that doesn't help, `adb kill-server && adb start-server`; else stop the emulator and cold boot it |
 | `can't tell which AVD to use` / `there's no AVD named …` | pass the AVD name or set `ADT_AVD`; the message lists the AVDs found |
 | `'avdmanager' not found` (or `emulator`, `platform-tools`) | the SDK wasn't found, or lacks that package: set `ANDROID_HOME` (see [Finding your setup](../README.md#finding-your-setup)) |
 | `adb: more than one device/emulator` | `export ANDROID_SERIAL=<serial>` (printed by `start-emulator.sh`) |
-| Black emulator window | try once with `-no-snapshot-load` |
+| `Error: Could not load devices from …/devices.xml` from `create-avd.sh --api 30` | harmless, the AVD is created correctly (see [`create-avd.sh`](#create-avdsh---api-level-name)) |
+| `remote.sh` keys lag behind (up to ~0.5 s each) | expected: each key is an `adb shell input keyevent` call (see [Controlling the TV](#controlling-the-tv)) |
+| Black emulator window | if started with `--quick`, start it without |
 | `No access to /dev/kvm` | not in the `kvm` group, or the device belongs to another group: the message says which, see [`../setup.md`](../setup.md#make-devkvm-writable) |
 | `error while loading shared libraries: libpulse.so.0` | `sudo apt-get install -y libpulse0` ([`../setup.md`](../setup.md), step 1) |
