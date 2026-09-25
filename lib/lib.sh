@@ -4,8 +4,8 @@
 #
 # Finds the Android SDK, its tools and AVDs wherever the user keeps them, so the scripts work with
 # any setup, not only the one in setup.md. After sourcing: $TOOLS_DIR (this repository), $BIN_DIR,
-# $SDK, $ADB, $EMULATOR, $AVDMANAGER (each tool is empty if it isn't installed) and the functions
-# below.
+# $SDK, $ADB, $EMULATOR, $AVDMANAGER, $ANDROID_CLI, $SDKMANAGER (each tool is empty if it isn't
+# installed) and the functions below.
 #
 # The scripts are called by a relative path, through $PATH, or through a symlink to them, from any
 # folder. So nothing here depends on the current folder, except local.properties, which belongs to
@@ -63,16 +63,35 @@ EMULATOR="$(find_tool emulator "$SDK/emulator/emulator")"
 # newest first.
 mapfile -t _versioned_avdmanagers < <(printf "%s\n" "$SDK"/cmdline-tools/*/bin/avdmanager | sort -rV)
 AVDMANAGER="$(find_tool avdmanager "$SDK/cmdline-tools/latest/bin/avdmanager" "${_versioned_avdmanagers[@]}")"
+# The 'android' CLI replaces the deprecated sdkmanager, but only exists from cmdline-tools 22.0,
+# so install hints fall back to sdkmanager on older ones (see install_hint).
+mapfile -t _versioned_android_clis < <(printf "%s\n" "$SDK"/cmdline-tools/*/bin/android | sort -rV)
+ANDROID_CLI="$(find_tool android "$SDK/cmdline-tools/latest/bin/android" "${_versioned_android_clis[@]}")"
+mapfile -t _versioned_sdkmanagers < <(printf "%s\n" "$SDK"/cmdline-tools/*/bin/sdkmanager | sort -rV)
+SDKMANAGER="$(find_tool sdkmanager "$SDK/cmdline-tools/latest/bin/sdkmanager" "${_versioned_sdkmanagers[@]}")"
+
+# The command that installs an SDK package, for messages that suggest one. 'android sdk install'
+# is the current tool; sdkmanager is deprecated but is all there is before cmdline-tools 22.0, so
+# suggest whichever this SDK actually has, and the new one when it has neither. --no-metrics keeps
+# the suggested command from reporting usage to Google, which the android CLI does by default and
+# can only be turned off per call (setup.md, "Telemetry").
+install_hint() {
+    if [ -z "$ANDROID_CLI" ] && [ -n "$SDKMANAGER" ]; then
+        echo "sdkmanager \"$1\""
+    else
+        echo "android sdk install --no-metrics \"$1\""
+    fi
+}
 
 # Exits with an install hint if a tool wasn't found. $1 = variable value, $2 = SDK package name.
-# Without any SDK, sdkmanager doesn't exist either, so that case points to setup.md instead.
+# Without any SDK there's nothing to install with either, so that case points to setup.md instead.
 require() {
     [ -n "$1" ] && return 0
     [ -d "$SDK" ] || die "no Android SDK found. Set \$ANDROID_HOME to your SDK, or install one
 as described in $TOOLS_DIR/setup.md (steps 2-5). Looked in: \$ANDROID_HOME, \$ANDROID_SDK_ROOT,
 sdk.dir in local.properties, the adb on \$PATH, $SDK."
     die "'$2' not found in the SDK ($SDK) or on \$PATH. Install it with:
-  sdkmanager \"$2\"
+  $(install_hint "$2")
 or point \$ANDROID_HOME at your SDK (see $TOOLS_DIR/setup.md)."
 }
 

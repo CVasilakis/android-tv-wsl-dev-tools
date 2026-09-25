@@ -30,6 +30,8 @@ DEFAULT_BEHAVIOR = {
     "avd_home": None,             # avdmanager/emulator use this AVD folder, ignoring the env vars
     "avdmanager_error": None,     # avdmanager create prints this and exits 1
     "kvm_group_members": [],      # users listed by `getent group kvm`
+    "kvm_group_gid": None,        # gid of the kvm group; None = the gid of $ADT_KVM_DEVICE,
+                                  # i.e. the device belongs to the kvm group
     "python3_exit": 0,            # exit code of the fake python3 (the WSLg toolbar script)
 }
 
@@ -248,9 +250,23 @@ def avdmanager(args):
 
 def getent(args):
     if args == ["group", "kvm"]:
-        print("kvm:x:993:" + ",".join(behavior()["kvm_group_members"]))
+        # The gid decides whether the kvm group owns the device: start-emulator.sh compares it
+        # with the device's own gid, and a mismatch means joining the group can't grant access.
+        gid = behavior()["kvm_group_gid"]
+        if gid is None:
+            gid = os.stat(os.environ["ADT_KVM_DEVICE"]).st_gid
+        print(f"kvm:x:{gid}:" + ",".join(behavior()["kvm_group_members"]))
     else:
         sys.exit(2)
+
+
+def android(args):
+    # Presence-only: the scripts suggest "android sdk install ..." in messages but never run it.
+    fail("fake android: the scripts must not run the android CLI")
+
+
+def sdkmanager(args):
+    fail("fake sdkmanager: the scripts must not run sdkmanager")
 
 
 def sg(args):
@@ -266,6 +282,7 @@ def python3(args):
 
 
 TOOLS = {"adb": adb, "emulator": emulator, "avdmanager": avdmanager,
+         "android": android, "sdkmanager": sdkmanager,
          "getent": getent, "sg": sg, "python3": python3}
 
 

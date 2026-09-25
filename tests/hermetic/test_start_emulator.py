@@ -181,6 +181,17 @@ class Kvm(EmulatorTestCase):
         self.assertEqual(self.sandbox.argvs("sg"), [])
         self.assertEqual(self.launched(), [])
 
+    def test_the_device_belongs_to_another_group_than_kvm(self):
+        # Seen on WSL: /dev/kvm is created before udev applies the kvm group, so it keeps a gid
+        # no group owns and joining kvm changes nothing. Say so instead of suggesting usermod.
+        self.sandbox.kvm.chmod(0o444)
+        self.sandbox.set_behavior(kvm_group_gid=4242, kvm_group_members=["tester"])
+        result = self.start()
+        self.assertFailed(result, "but the kvm group is")
+        self.assertIn("sudo chgrp kvm", result.output)
+        self.assertEqual(self.sandbox.argvs("sg"), [], "sg can't help, so it isn't tried")
+        self.assertEqual(self.launched(), [])
+
     def test_in_the_kvm_group_but_not_this_session_reruns_through_sg_once(self):
         self.sandbox.kvm.chmod(0o444)
         self.sandbox.set_behavior(kvm_group_members=["someone", "tester"])
@@ -245,4 +256,4 @@ class Usage(EmulatorTestCase):
     def test_missing_emulator_package(self):
         self.sandbox.install_sdk(self.sandbox.root / "partial", tools=["adb"])
         result = self.start(env={"ANDROID_HOME": str(self.sandbox.root / "partial")})
-        self.assertFailed(result, 'sdkmanager "emulator"')
+        self.assertFailed(result, 'android sdk install --no-metrics "emulator"')

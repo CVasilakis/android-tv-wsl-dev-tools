@@ -56,6 +56,8 @@ Each of these fixes a real problem. The reasons are in the linked file; read the
 | `readlink -f` when sourcing `lib.sh` and in `TOOLS_DIR` | `bin/*.sh`, `lib/lib.sh` | Scripts called through a symlink on `PATH` must still find the repository. |
 | AVD settings (`hw.keyboard`, `swiftshader_indirect`, landscape, …) | `bin/create-avd.sh` | Keyboard input, WSLg rendering, orientation. |
 | `sg kvm` re-exec (by the real path), waiting for `sys.boot_completed` | `bin/start-emulator.sh` | KVM access without restarting WSL; installing too early fails. |
+| Comparing `/dev/kvm`'s gid with the `kvm` group's | `bin/start-emulator.sh` | On WSL the device often belongs to no group, and then `usermod -aG kvm` can never help. |
+| `install_hint`'s fallback to `sdkmanager` | `lib/lib.sh` | `android` only ships from cmdline-tools 22.0; on older SDKs the hint would name a command the user doesn't have. |
 | Toolbar hidden by default under WSL | `bin/start-emulator.sh`, `bin/wslg-toolbar.py` | Otherwise typed keys never reach Android. |
 | No `set -e`, Esc read timeout | `bin/remote.sh` | Keep the remote alive; tell Esc from arrow keys. |
 | `ADT_KVM_DEVICE`, `ADT_PROC_VERSION`, `WSLG_TOOLBAR_TIMEOUT` | `lib/lib.sh`, `bin/wslg-toolbar.py` | Let the tests simulate other machines ([`tests/README.md`](tests/README.md)). |

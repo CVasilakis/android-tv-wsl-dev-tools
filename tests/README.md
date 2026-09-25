@@ -37,7 +37,7 @@ it with `-no-window -no-snapshot-save` and stops it at the end.
 |---|---|
 | [`run.py`](run.py) | Entry point: picks the tiers, filters, prints skip reasons. |
 | [`support/sandbox.py`](support/sandbox.py) | `Sandbox`: a throwaway machine per test. `ScriptTestCase`: the base class. |
-| [`support/fake_tools.py`](support/fake_tools.py) | Fakes for `adb`, `emulator`, `avdmanager`, `python3`, `getent`, `sg`. |
+| [`support/fake_tools.py`](support/fake_tools.py) | Fakes for `adb`, `emulator`, `avdmanager`, `android`, `sdkmanager`, `python3`, `getent`, `sg`. |
 | [`support/x11.py`](support/x11.py) | Private Xvfb server and fake emulator windows. |
 | `hermetic/test_<script>.py` | One file per script, plus [`test_conventions.py`](hermetic/test_conventions.py) for the rules all scripts follow. |
 | [`emulator/test_on_emulator.py`](emulator/test_on_emulator.py) | The real-emulator tier. |

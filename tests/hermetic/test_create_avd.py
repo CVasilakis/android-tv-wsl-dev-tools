@@ -78,7 +78,8 @@ class RefusesOrExplains(ScriptTestCase):
 
     def test_names_the_missing_package(self):
         self.sandbox.install_sdk(tools=["adb", "emulator"])
-        self.assertFailed(self.sandbox.run("create-avd.sh"), 'sdkmanager "cmdline-tools;latest"')
+        self.assertFailed(self.sandbox.run("create-avd.sh"),
+                          'android sdk install --no-metrics "cmdline-tools;latest"')
 
     def test_without_any_sdk(self):
         self.assertFailed(self.sandbox.run("create-avd.sh"), "no Android SDK found")
