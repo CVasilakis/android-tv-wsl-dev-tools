@@ -1,30 +1,31 @@
 #!/usr/bin/env bash
-# A TV remote in the terminal: each key press is injected into the emulator's input device.
+# A TV remote in the terminal: each key press is sent to the device as an Android key.
 #
 # Usage:   remote.sh [adb-serial]
 #          remote.sh --help
-# Target:  the serial given, else $ANDROID_SERIAL, else the only running emulator (phones and
-#          TVs connected at the same time are ignored, since this only works with emulators)
+# Target:  the serial given, else $ANDROID_SERIAL, else the only running emulator. Phones and
+#          TVs connected at the same time are only used when named, so keys never go to one by
+#          accident.
 # Keys:    arrows = D-pad, Enter = OK, Esc/Backspace = Back, h = Home, m = Menu,
 #          p = Play/Pause, +/- = Volume, q = quit
 #
-# Why not `adb shell input keyevent`? Each call starts a Java process on the device (~0.2 s per
-# key on this AVD). `adb emu event send` goes through the emulator console (~0.02 s).
-# It also works whatever window has focus, which matters under WSLg (see wslg-toolbar.py).
-# The trade-off: it only works with emulators, not physical TVs (use `adb shell input keyevent` there).
+# Each key is sent with `adb shell input keyevent <KEY>`: one mechanism for every Android version,
+# emulators and physical devices alike, whatever window has focus (which matters under WSLg, see
+# wslg-toolbar.py). Each call starts a Java process on the device, so a key takes ~0.15-0.6 s
+# (more on newer Android versions); quick presses queue up and arrive in order. The emulator
+# console (`adb emu event send`) would be faster, but it only exists on emulators and its key
+# events never arrive on the API 30 TV image.
 #
-# Codes sent are *Linux input scan codes* (not Android KEYCODE_* values). The guest translates them
-# with /system/usr/keylayout/qwerty.kl, e.g. scan code 232 -> DPAD_CENTER, 158 -> BACK. To check a
-# mapping: adb shell cat /system/usr/keylayout/qwerty.kl | grep -w <code>
-# To see what Android actually received:
+# Android sees these keys come from its virtual keyboard (deviceId -1, source keyboard), not from
+# a D-pad device like a real remote; only code that checks a KeyEvent's device or source can tell.
+# To see what Android received (Android 11 and newer list no key codes there):
 #   adb shell dumpsys input | sed -n '/RecentQueue/,/PendingEvent/p'
 #
 # Troubleshooting:
 #   "several emulators are running"  -> pass the serial: remote.sh emulator-5554
-#   an error, or nothing happens     -> the target isn't an emulator, or its console is
-#                                       unreachable (restart the emulator)
+#   an error for each key            -> the device is gone, offline or unauthorized: adb devices
 #
-# Deliberately no `set -e`: one failed adb call (e.g. the emulator is briefly busy) must not
+# Deliberately no `set -e`: one failed adb call (e.g. the device is briefly busy) must not
 # kill the remote in the middle of a session.
 set -uo pipefail
 
@@ -32,16 +33,14 @@ usage() {
     cat <<'EOF'
 Usage: remote.sh [adb-serial]
 
-A TV remote in the terminal: each key press is sent to a running emulator.
+A TV remote in the terminal: each key press is sent to an emulator or Android device.
 
-  adb-serial  the emulator to control, e.g. emulator-5554. Default: $ANDROID_SERIAL, else the
+  adb-serial  the device to control, e.g. emulator-5554. Default: $ANDROID_SERIAL, else the
               only running emulator
   -h, --help  show this help
 
 Keys: arrows = D-pad, Enter = OK, Esc/Backspace = Back, h = Home, m = Menu,
       p = Play/Pause, +/- = Volume, q = quit
-
-Works with emulators only; for a physical TV use: adb shell input keyevent <KEY>
 EOF
 }
 case "${1:-}" in
@@ -62,11 +61,11 @@ if [ -z "$SERIAL" ]; then
         *) die "several emulators are running (${EMULATORS[*]}). Pass one: $(command_for remote.sh) <serial>" ;;
     esac
 fi
-[[ "$SERIAL" == emulator-* ]] || die "'$SERIAL' isn't an emulator. For a physical device use: adb shell input keyevent <KEY>"
 ADB=("$ADB" -s "$SERIAL")
 
-# Key down + key up in one console command, i.e. a full key press.
-press() { "${ADB[@]}" emu event send "EV_KEY:$1:1" "EV_KEY:$1:0" > /dev/null; }
+# press <Android key>: one full key press (down + up). `adb shell` forwards its stdin to the
+# device, so without </dev/null it would swallow the keys typed (or piped) after it.
+press() { "${ADB[@]}" shell input keyevent "$1" < /dev/null > /dev/null; }
 
 echo "Controlling $SERIAL"
 cat <<'EOF'
@@ -83,20 +82,20 @@ while IFS= read -rsn1 key; do
             # timeout tells the two apart. Don't remove the timeout, or Esc waits for more keys.
             read -rsn2 -t 0.05 rest || true
             case "$rest" in
-                "[A") press 103 ;;      # KEY_UP        -> DPAD_UP
-                "[B") press 108 ;;      # KEY_DOWN      -> DPAD_DOWN
-                "[C") press 106 ;;      # KEY_RIGHT     -> DPAD_RIGHT
-                "[D") press 105 ;;      # KEY_LEFT      -> DPAD_LEFT
-                "")   press 158 ;;      # KEY_BACK      -> BACK
+                "[A") press DPAD_UP ;;
+                "[B") press DPAD_DOWN ;;
+                "[C") press DPAD_RIGHT ;;
+                "[D") press DPAD_LEFT ;;
+                "")   press BACK ;;
             esac ;;
-        "")        press 232 ;;         # KEY_REPLY     -> DPAD_CENTER, what a real remote's OK
-                                        #                  button sends (ENTER=28 is a keyboard key)
-        $'\x7f')   press 158 ;;         # Backspace     -> BACK
-        h)         press 102 ;;         # KEY_HOME      -> HOME
-        m)         press 139 ;;         # KEY_MENU      -> MENU
-        p)         press 164 ;;         # KEY_PLAYPAUSE -> MEDIA_PLAY_PAUSE
-        +|=)       press 115 ;;         # KEY_VOLUMEUP  -> VOLUME_UP   ('=' is '+' without Shift)
-        -)         press 114 ;;         # KEY_VOLUMEDOWN -> VOLUME_DOWN
+        "")        press DPAD_CENTER ;;         # what a real remote's OK button sends
+                                                # (ENTER is a keyboard key)
+        $'\x7f')   press BACK ;;                # Backspace
+        h)         press HOME ;;
+        m)         press MENU ;;
+        p)         press MEDIA_PLAY_PAUSE ;;
+        +|=)       press VOLUME_UP ;;           # '=' is '+' without Shift
+        -)         press VOLUME_DOWN ;;
         q)         break ;;
     esac
 done

@@ -15,10 +15,10 @@ on the current folder or on any particular app. Start with [`README.md`](README.
 ## Commands
 
 ```bash
-tests/run.py                  # hermetic tests (~50 s), no SDK or emulator needed
+tests/run.py                  # hermetic tests (~75 s), no SDK or emulator needed
 tests/run.py -k remote -v     # a subset, one line per test
 tests/run.py --emulator       # real-emulator tier: boots your AVD headless
-bin/start-emulator.sh         # boot the TV emulator (returns when booted)
+bin/start-emulator.sh         # cold boot the TV emulator (returns when booted); --quick: from its snapshot
 bin/remote.sh                 # TV remote in the terminal
 adb emu kill                  # stop the emulator (with several devices: adb -s <serial> emu kill)
 ```
@@ -57,22 +57,29 @@ Each of these fixes a real problem. The reasons are in the linked file; read the
 | AVD settings (`hw.keyboard`, `swiftshader_indirect`, landscape, …) | `bin/create-avd.sh` | Keyboard input, WSLg rendering, orientation. |
 | `sg kvm` re-exec (by the real path), waiting for `sys.boot_completed` | `bin/start-emulator.sh` | KVM access without restarting WSL; installing too early fails. |
 | Comparing `/dev/kvm`'s gid with the `kvm` group's | `bin/start-emulator.sh` | On WSL the device often belongs to no group, and then `usermod -aG kvm` can never help. |
+| Cold boot by default, the offline watchdog only with `--quick` | `bin/start-emulator.sh` | A restored snapshot can leave adb `offline` for good; a cold boot is offline for a while normally. |
 | `install_hint`'s fallback to `sdkmanager` | `lib/lib.sh` | `android` only ships from cmdline-tools 22.0; on older SDKs the hint would name a command the user doesn't have. |
 | Toolbar hidden by default under WSL | `bin/start-emulator.sh`, `bin/wslg-toolbar.py` | Otherwise typed keys never reach Android. |
 | No `set -e`, Esc read timeout | `bin/remote.sh` | Keep the remote alive; tell Esc from arrow keys. |
-| `ADT_KVM_DEVICE`, `ADT_PROC_VERSION`, `WSLG_TOOLBAR_TIMEOUT` | `lib/lib.sh`, `bin/wslg-toolbar.py` | Let the tests simulate other machines ([`tests/README.md`](tests/README.md)). |
+| `input keyevent` instead of the faster `adb emu event send`, `< /dev/null` on `adb shell` | `bin/remote.sh` | Console key events are emulator-only and vanish on the API 30 TV image; `adb shell` swallows the keys typed after it. |
+| `ADT_KVM_DEVICE`, `ADT_PROC_VERSION`, `WSLG_TOOLBAR_TIMEOUT`, `ADT_OFFLINE_TIMEOUT` | `lib/lib.sh`, `bin/wslg-toolbar.py`, `bin/start-emulator.sh` | Let the tests simulate other machines and not wait 30 s ([`tests/README.md`](tests/README.md)). |
 
 ## Emulator facts that save time
 
 (Details in [`bin/README.md`](bin/README.md).)
 
 - The TV emulator has **no touchscreen**: clicks on the screen do nothing by design.
-- Sending keys from a script: `adb shell input keyevent DPAD_DOWN` (any device) or
-  `adb emu event send EV_KEY:108:1 EV_KEY:108:0` (emulator only, faster). Host-level simulated
-  input (xdotool/XTest, XSetInputFocus) does **not** reach the emulator under WSLg.
-- To check which keys Android received: `adb shell dumpsys input | sed -n '/RecentQueue/,/PendingEvent/p'`.
+- Sending keys from a script: `adb shell input keyevent DPAD_DOWN`, like `remote.sh` (any device,
+  any API level). `adb emu event send EV_KEY:108:1 EV_KEY:108:0` is faster but emulator-only, and
+  its keys are lost on the API 30 TV image. Host-level simulated input (xdotool/XTest,
+  XSetInputFocus) does **not** reach the emulator under WSLg.
+- To check which keys Android received: `adb shell dumpsys input | sed -n '/RecentQueue/,/PendingEvent/p'`
+  (key codes up to API 29; API 30 prints only `KeyEvent, age=…`).
   `adb shell getevent > file` doesn't work for this (output is buffered without a terminal).
+- AVDs of several API levels (`create-avd.sh --api 28`, `--api 30`) run side by side; 25, 28 and
+  30 are the tested ones.
 - In the emulator window, Esc and F1 don't reach Android; Back is Ctrl+Backspace, Home Ctrl+H, Menu Ctrl+M.
 - The stock TV launcher's HOME filter has priority 2, so `set-home-activity` and the home chooser
-  don't work on this image; another home app only takes over while the stock one is disabled
-  (`adb shell pm disable-user --user 0 com.google.android.leanbacklauncher`).
+  don't work on these images; another home app only takes over while the stock one is disabled
+  (`adb shell pm disable-user --user 0 <package>`). The stock launcher is
+  `com.google.android.leanbacklauncher` on API 25 and `com.google.android.tvlauncher` on API 28 and 30.

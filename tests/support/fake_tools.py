@@ -10,9 +10,9 @@ that was made. They never touch the real SDK, emulator or devices.
 State directory ($FAKE_STATE):
   calls.jsonl             one JSON line per call: {"tool", "argv", "android_serial"}
   behavior.json           knobs set by the test, see DEFAULT_BEHAVIOR
-  running/<serial>.json   a running fake emulator: {"avd", "pid", "polls"}
+  running/<serial>.json   a running fake emulator: {"avd", "pid", "polls", "offline"}
   devices.json            serials of connected physical devices
-  counters.json           per-knob counters (e.g. how many event sends failed so far)
+  counters.json           per-knob counters (e.g. how many key events failed so far)
 """
 import json
 import os
@@ -24,9 +24,13 @@ from pathlib import Path
 
 DEFAULT_BEHAVIOR = {
     "boot_polls": 0,              # getprop sys.boot_completed answers "" this many times, then "1"
+    "adb_offline": None,          # a booting emulator shows as "offline" in adb devices and its
+                                  # adb shell calls fail: for this many boot polls (a slow cold
+                                  # boot), "until_reconnect" (a stale Quick Boot snapshot, fixed by
+                                  # adb reconnect offline) or "forever"
     "emulator_crash": None,       # emulator prints this and exits 1 instead of booting
     "emulator_noise": True,       # emulator -list-avds prints a log line before the names
-    "event_send_failures": 0,     # the first N `adb emu event send` calls fail
+    "keyevent_failures": 0,       # the first N `adb shell input keyevent` calls fail
     "avd_home": None,             # avdmanager/emulator use this AVD folder, ignoring the env vars
     "avdmanager_error": None,     # avdmanager create prints this and exits 1
     "kvm_group_members": [],      # users listed by `getent group kvm`
@@ -112,6 +116,11 @@ def physical_devices():
     return json.loads(path.read_text()) if path.exists() else []
 
 
+def is_offline(info):
+    state = info.get("offline")
+    return state in ("until_reconnect", "forever") or (isinstance(state, int) and state > 0)
+
+
 def write_running(serial, info):
     tmp = RUNNING / f".{serial}.tmp"
     tmp.write_text(json.dumps(info))
@@ -126,9 +135,19 @@ def adb(args):
         serial, args = args[1], args[2:]
     if args[:1] == ["devices"]:
         print("List of devices attached")
-        for s in list(running()) + physical_devices():
+        for s, info in running().items():
+            print(f"{s}\t{'offline' if is_offline(info) else 'device'}")
+        for s in physical_devices():
             print(f"{s}\tdevice")
         print()
+        return
+    if args == ["reconnect", "offline"]:
+        for s, info in running().items():
+            if is_offline(info):
+                print(f"reconnecting {s}")
+                if info["offline"] == "until_reconnect":
+                    info["offline"] = None
+                    write_running(s, info)
         return
     if args[:1] in (["start-server"], ["kill-server"]):
         return
@@ -147,6 +166,14 @@ def adb(args):
 
     if args[:1] == ["wait-for-device"]:
         return
+    if args[:1] == ["shell"] and not sys.stdin.isatty():
+        sys.stdin.read()   # the real adb shell forwards its stdin to the device, using it up
+    if args[:1] == ["shell"] and serial in emulators and is_offline(emulators[serial]):
+        info = emulators[serial]
+        if isinstance(info["offline"], int):
+            info["offline"] -= 1
+            write_running(serial, info)
+        fail("error: device offline")
     if args[:1] == ["emu"]:
         if serial not in emulators:
             fail(f"error: {serial} is not an emulator")
@@ -160,6 +187,9 @@ def adb(args):
         else:
             ready = True
         sys.stdout.write("1\r\n" if ready else "\r\n")   # real adb shell output ends in \r\n
+    elif args[:3] == ["shell", "input", "keyevent"] and len(args) == 4:
+        if take("keyevent", behavior()["keyevent_failures"]):
+            fail("error: closed")
     else:
         fail(f"fake adb: unsupported command {args}")
 
@@ -167,10 +197,6 @@ def adb(args):
 def adb_emu(serial, info, args):
     if args == ["avd", "name"]:
         sys.stdout.write(f"{info['avd']}\r\nOK\r\n")
-    elif args[:2] == ["event", "send"]:
-        if take("event_send", behavior()["event_send_failures"]):
-            fail("KO: emulator console busy")
-        print("OK")
     elif args == ["kill"]:
         (RUNNING / f"{serial}.json").unlink(missing_ok=True)
         os.kill(info["pid"], signal.SIGTERM)
@@ -208,7 +234,8 @@ def boot(name):
         port += 2
     serial = f"emulator-{port}"
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
-    write_running(serial, {"avd": name, "pid": os.getpid(), "polls": 0})
+    write_running(serial, {"avd": name, "pid": os.getpid(), "polls": 0,
+                           "offline": behavior()["adb_offline"]})
     print(f"INFO         | Booted {name} as {serial} (fake)", flush=True)
     deadline = time.time() + 120   # never outlive a test run, even if cleanup is skipped
     while time.time() < deadline and (RUNNING / f"{serial}.json").exists():

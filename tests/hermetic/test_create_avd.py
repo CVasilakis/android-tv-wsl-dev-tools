@@ -49,6 +49,36 @@ class CreatesTheTvAvd(ScriptTestCase):
         self.assertSucceeded(self.sandbox.run("create-avd.sh", env={"ADT_AVD": "den_tv"}))
         self.assertTrue((self.sandbox.home / ".android/avd/den_tv.avd").is_dir())
 
+    def test_api_picks_the_tv_image_of_that_level_and_names_the_avd_after_it(self):
+        for level in ("28", "30"):
+            with self.subTest(level):
+                result = self.sandbox.run("create-avd.sh", "--api", level)
+                self.assertSucceeded(result)
+                argv = self.sandbox.argvs("avdmanager")[-1]
+                self.assertEqual(argv[argv.index("--name") + 1], f"tv_api{level}")
+                self.assertEqual(argv[argv.index("--package") + 1],
+                                 f"system-images;android-{level};android-tv;x86")
+                self.assertIn(("hw.keyboard", "yes"),
+                              read_config(self.sandbox.home / f".android/avd/tv_api{level}.avd"))
+                self.assertIn(f"start-emulator.sh tv_api{level}", result.out)
+
+    def test_api_with_a_name(self):
+        self.assertSucceeded(self.sandbox.run("create-avd.sh", "--api", "28", "pie_tv"))
+        [argv] = self.sandbox.argvs("avdmanager")
+        self.assertEqual(argv[argv.index("--name") + 1], "pie_tv")
+        self.assertEqual(argv[argv.index("--package") + 1], "system-images;android-28;android-tv;x86")
+
+    def test_name_before_api(self):
+        self.assertSucceeded(self.sandbox.run("create-avd.sh", "pie_tv", "--api", "28"))
+        [argv] = self.sandbox.argvs("avdmanager")
+        self.assertEqual(argv[argv.index("--name") + 1], "pie_tv")
+        self.assertEqual(argv[argv.index("--package") + 1], "system-images;android-28;android-tv;x86")
+
+    def test_api_names_the_avd_after_its_level_even_with_adt_avd_set(self):
+        # ADT_AVD usually names the everyday AVD; an AVD of another level must not take its name.
+        self.assertSucceeded(self.sandbox.run("create-avd.sh", "--api", "30", env={"ADT_AVD": "den_tv"}))
+        self.assertTrue((self.sandbox.home / ".android/avd/tv_api30.avd").is_dir())
+
     def test_patches_the_avd_in_a_custom_avd_home(self):
         home = self.sandbox.root / "avds"
         self.assertSucceeded(self.sandbox.run("create-avd.sh", env={"ANDROID_AVD_HOME": str(home)}))
@@ -83,6 +113,18 @@ class RefusesOrExplains(ScriptTestCase):
 
     def test_without_any_sdk(self):
         self.assertFailed(self.sandbox.run("create-avd.sh"), "no Android SDK found")
+
+    def test_api_must_be_a_number_and_one_name_at_most(self):
+        for args in (["--api"], ["--api", "pie"], ["--api", "-1"], ["one_tv", "two_tv"]):
+            with self.subTest(args):
+                self.assertFailed(self.sandbox.run("create-avd.sh", *args), "Usage:", code=2)
+        self.assertEqual(self.sandbox.argvs("avdmanager"), [])
+
+    def test_explains_a_missing_system_image(self):
+        self.sandbox.install_sdk()
+        self.sandbox.set_behavior(avdmanager_error="Error: Package path is not valid. Valid system image paths are:")
+        result = self.sandbox.run("create-avd.sh", "--api", "30")
+        self.assertFailed(result, 'android sdk install --no-metrics "system-images;android-30;android-tv;x86"')
 
     def test_unknown_option_prints_usage(self):
         result = self.sandbox.run("create-avd.sh", "--force")

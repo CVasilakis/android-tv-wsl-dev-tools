@@ -22,7 +22,8 @@ need installing. The commands that run a script assume you're in this repository
 | Build-tools | 36.0.0, installed automatically by the Android Gradle Plugin on the first build | `~/Android/Sdk/build-tools` |
 | Emulator | 37.1.11 | `~/Android/Sdk/emulator` |
 | System image | `system-images;android-25;android-tv;x86` rev 16 (Android 7.1.1 TV) | `~/Android/Sdk/system-images/android-25/android-tv/x86` |
-| AVD | `tv_api25` (tv_1080p) | `~/.android/avd/tv_api25.avd` |
+| Optional: more system images, to test on other Android versions | `system-images;android-28;android-tv;x86` rev 10 (Android 9 TV), `system-images;android-30;android-tv;x86` rev 4 (Android 11 TV) | `~/Android/Sdk/system-images/android-<level>/android-tv/x86` |
+| AVD | `tv_api25` (tv_1080p); optionally `tv_api28`, `tv_api30` | `~/.android/avd/tv_api<level>.avd` |
 | Gradle | per project, through its wrapper (`./gradlew`) | `~/.gradle` |
 
 ### Sizes
@@ -37,16 +38,17 @@ Downloads are what goes over the network; "on disk" is what the finished install
 | platforms;android-36 | ~66 MB | 146 MB |
 | build-tools (automatic, first build) | ~64 MB | 147 MB |
 | emulator | ~354 MB | 821 MB |
-| Android TV API 25 x86 system image | ~700 MB | 3.1 GB (can be copied instead, see step 5) |
+| Android TV API 25 x86 system image | ~420 MB | 3.1 GB (can be copied instead, see step 5) |
 | `libpulse0` and the optional `xvfb`, `shellcheck` packages | a few MB | |
 | the `android` CLI, on its first run | ~250 MB | ~250 MB (`~/.android`) |
 | **The SDK once everything above is installed** | | **~4.4 GB** (`~/Android/Sdk`) |
-| The `tv_api25` AVD, once booted and used for tests | | 1–2.5 GB (`~/.android/avd`), it grows with snapshots |
+| Optional: Android TV API 28 / API 30 x86 system images | ~450 MB / ~670 MB | 2.7 GB / 3.2 GB more in the SDK |
+| The `tv_api25` AVD, once booted and used for tests | | 1–2.5 GB (`~/.android/avd`), it grows with snapshots; about the same for each other AVD |
 | A Gradle distribution (first `./gradlew` of a project) | ~150 MB | |
 | Gradle/Maven dependencies of a project (AGP, Kotlin, test libraries, …) | a few hundred MB | ~1.1 GB (`~/.gradle`) |
 
 Plan for **~8 GB** in `$HOME` for a full first-time setup with one project built and its emulator
-booted.
+booted, and **4–6 GB more** for each other Android version (its system image and AVD).
 
 ## Prerequisites
 
@@ -253,16 +255,27 @@ The folder must contain `system.img`, `userdata.img`, `ramdisk.img`, `kernel-ran
 `source.properties` and `package.xml`; `source.properties` must say `AndroidVersion.ApiLevel=25`,
 `SystemImage.TagId=android-tv` and `SystemImage.Abi=x86`.
 
-**Option B: download it (~700 MB, 3.1 GB on disk):**
+**Option B: download it (~420 MB, 3.1 GB on disk):**
 
 ```bash
 android sdk install --no-metrics "system-images;android-25;android-tv;x86"
 ```
 
+**Optional: other Android versions.** To also test on Android 9 (API 28) and Android 11 (API 30),
+install their images too (~450 MB and ~670 MB; 2.7 GB and 3.2 GB on disk):
+
+```bash
+android sdk install --no-metrics "system-images;android-28;android-tv;x86" "system-images;android-30;android-tv;x86"
+```
+
+`android sdk list --no-metrics --all | grep android-tv` lists the other levels available.
+
 ### 6. Emulator (AVD)
 
 ```bash
 bin/create-avd.sh            # creates the AVD "tv_api25"
+bin/create-avd.sh --api 28   # optional: "tv_api28", from the API 28 image of step 5
+bin/create-avd.sh --api 30   # optional: "tv_api30" (prints a harmless devices.xml error)
 ```
 
 `create-avd.sh` only writes files, so it works without KVM access; booting the AVD (step 7) is the
@@ -279,7 +292,8 @@ From the project's folder (here cloned next to this repository):
 ```
 
 Typical timings: the first `assembleDebug` takes several minutes (mostly downloads), later builds
-take seconds. A cold emulator boot takes ~20 s, a Quick Boot restart ~5 s.
+take seconds. `start-emulator.sh` cold boots by default, ~8–18 s depending on the API level;
+`start-emulator.sh --quick` restores the last Quick Boot snapshot instead, ~7 s.
 
 `local.properties` (git-ignored in Android projects) is created by Gradle/IDEs, or by hand:
 
@@ -301,7 +315,7 @@ The tests of the scripts need only Python 3.9+. Two optional tools enable more o
 | shellcheck | static analysis of the shell scripts (skips without it) | `sudo apt-get install -y shellcheck` / `sudo dnf install -y ShellCheck` |
 
 ```bash
-tests/run.py                   # ~100 tests; prints what it skipped and why
+tests/run.py                   # ~115 tests; prints what it skipped and why
 ```
 
 ## Troubleshooting

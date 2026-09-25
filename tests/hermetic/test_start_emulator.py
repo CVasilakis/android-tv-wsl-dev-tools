@@ -51,7 +51,18 @@ class ChoosesTheAvd(EmulatorTestCase):
         [argv] = self.launched()
         self.assertEqual(argv[1], "tv_api25")
         self.assertIn("-wipe-data", argv)
-        self.assertIn("-no-snapshot-load", argv)
+        self.assertEqual(argv.count("-no-snapshot-load"), 1, "not added a second time")
+
+    def test_quick_before_or_after_the_name(self):
+        self.sandbox.add_avd("tv_api25")
+        self.sandbox.add_avd("my_tv")
+        for args in (["--quick", "my_tv"], ["my_tv", "--quick", "-no-window"]):
+            with self.subTest(args):
+                self.assertSucceeded(self.start(*args))
+                argv = self.launched()[-1]
+                self.assertEqual(argv[1], "my_tv")
+                self.assertNotIn("--quick", argv)
+                self.sandbox.stop_emulators()
 
     def test_refuses_to_guess_between_several_tv_avds(self):
         self.sandbox.add_avd("tv_a")
@@ -129,6 +140,64 @@ class Boots(EmulatorTestCase):
         self.assertLess(time.time() - started, 10, "must not keep waiting for a dead emulator")
 
 
+class ColdOrQuickBoot(EmulatorTestCase):
+    """Cold boot by default; --quick boots from the Quick Boot snapshot, whose restored adb
+    connection can stay offline, so --quick watches for that (ADT_OFFLINE_TIMEOUT, 30 s)."""
+
+    FAST = {"ADT_OFFLINE_TIMEOUT": "1"}
+
+    def setUp(self):
+        super().setUp()
+        self.sandbox.add_avd("tv_api25")
+
+    def reconnects(self):
+        return [argv for argv in self.sandbox.argvs("adb") if argv[:1] == ["reconnect"]]
+
+    def test_cold_boot_by_default(self):
+        result = self.start()
+        self.assertSucceeded(result)
+        [argv] = self.launched()
+        self.assertIn("-no-snapshot-load", argv)
+        self.assertIn("cold boot", result.out)
+
+    def test_quick_boots_from_the_snapshot(self):
+        result = self.start("--quick")
+        self.assertSucceeded(result)
+        [argv] = self.launched()
+        self.assertNotIn("-no-snapshot-load", argv)
+        self.assertNotIn("--quick", argv, "the emulator doesn't know --quick")
+        self.assertIn("Quick Boot", result.out)
+
+    def test_quick_reconnects_adb_when_the_restored_emulator_stays_offline(self):
+        self.sandbox.set_behavior(adb_offline="until_reconnect")
+        result = self.start("--quick", env=self.FAST)
+        self.assertSucceeded(result)
+        self.assertIn("booted as emulator-5554", result.out)
+        self.assertEqual(self.reconnects(), [["reconnect", "offline"]])
+
+    def test_quick_gives_up_when_reconnecting_does_not_help(self):
+        self.sandbox.set_behavior(adb_offline="forever")
+        started = time.time()
+        result = self.start("--quick", env=self.FAST)
+        self.assertFailed(result, "adb can't reach it")
+        self.assertIn("adb -s emulator-5554 emu kill", result.output)
+        self.assertIn("without --quick", result.output)
+        self.assertEqual(len(self.reconnects()), 1, "reconnects once, then gives up")
+        self.assertLess(time.time() - started, 20)
+
+    def test_a_slow_cold_boot_is_waited_for_without_reconnecting(self):
+        # adbd isn't up yet early in a cold boot, so "offline" for a while is normal there.
+        self.sandbox.set_behavior(adb_offline=2)
+        result = self.start(env=self.FAST)
+        self.assertSucceeded(result)
+        self.assertEqual(self.reconnects(), [])
+
+    def test_quick_does_not_reconnect_a_briefly_offline_emulator(self):
+        self.sandbox.set_behavior(adb_offline=1)
+        self.assertSucceeded(self.start("--quick"))
+        self.assertEqual(self.reconnects(), [])
+
+
 class FindsItsOwnEmulator(EmulatorTestCase):
     def setUp(self):
         super().setUp()
@@ -203,6 +272,13 @@ class Kvm(EmulatorTestCase):
         self.assertEqual(argv[:2], ["kvm", "-c"])
         self.assertIn("_IN_SG_KVM=1", argv[2])
         self.assertIn("tv_api25 -no-window", argv[2], "the re-run keeps the AVD and flags")
+
+    def test_the_sg_rerun_keeps_quick(self):
+        self.sandbox.kvm.chmod(0o444)
+        self.sandbox.set_behavior(kvm_group_members=["tester"])
+        self.start("--quick")
+        [argv] = self.sandbox.argvs("sg")
+        self.assertIn("tv_api25 --quick", argv[2])
 
     def test_the_sg_rerun_finds_the_script_when_called_through_a_symlink(self):
         self.sandbox.kvm.chmod(0o444)
