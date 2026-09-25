@@ -64,7 +64,11 @@ finds the emulator's serial by asking each running emulator for its AVD name, wa
 `sys.boot_completed=1` (so it can be chained with `./gradlew installDebug`), and on WSL finishes
 with `wslg-toolbar.py <name> hide`. If the emulator exits during boot, it stops waiting and prints
 the end of the log. If the AVD is already running, it only prints its serial.
-Without `kvm` group access in the current session it re-runs itself through `sg kvm`.
+
+It checks KVM before starting anything, and distinguishes three cases: the device is missing
+(virtualization is off), the device belongs to a group other than `kvm` (joining `kvm` can't
+help, so it prints the `chgrp` fix), or the user is in the `kvm` group but this session predates
+it — then it re-runs itself through `sg kvm` instead of asking for a new session.
 
 ## Controlling the TV
 
@@ -140,4 +144,5 @@ automated tests should send keys with `remote.sh`'s mechanism or `adb shell inpu
 | `'avdmanager' not found` (or `emulator`, `platform-tools`) | the SDK wasn't found, or lacks that package: set `ANDROID_HOME` (see [Finding your setup](../README.md#finding-your-setup)) |
 | `adb: more than one device/emulator` | `export ANDROID_SERIAL=<serial>` (printed by `start-emulator.sh`) |
 | Black emulator window | try once with `-no-snapshot-load` |
-| `No access to /dev/kvm` | see [`../setup.md`](../setup.md), step 1 |
+| `No access to /dev/kvm` | not in the `kvm` group, or the device belongs to another group: the message says which, see [`../setup.md`](../setup.md#make-devkvm-writable) |
+| `error while loading shared libraries: libpulse.so.0` | `sudo apt-get install -y libpulse0` ([`../setup.md`](../setup.md), step 1) |

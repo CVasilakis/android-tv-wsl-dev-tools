@@ -15,8 +15,10 @@
 #
 # Common errors:
 #   "No access to /dev/kvm"
-#       The user isn't in the kvm group: sudo usermod -aG kvm $USER. If /dev/kvm doesn't exist
-#       at all, hardware virtualization is off (in the firmware, or nested virtualization for WSL).
+#       The user isn't in the kvm group: sudo usermod -aG kvm $USER. When the message says the
+#       device belongs to another group, the kvm group can't help; chgrp the device instead (the
+#       message shows how). If /dev/kvm doesn't exist at all, hardware virtualization is off
+#       (in the firmware, or nested virtualization for WSL).
 #   "the emulator exited"
 #       It failed to start or crashed; the log's last lines are printed. Hangs at "Emulator
 #       starting..." without that error mean Android can't boot (e.g. a corrupt snapshot:
@@ -101,17 +103,31 @@ $(command_for create-avd.sh)."
 fi
 
 # KVM is mandatory for x86 images (without it the emulator exits with "x86 emulation currently
-# requires hardware acceleration"). After 'usermod -aG kvm' the new group only applies to new
-# login sessions (on WSL: after `wsl --shutdown`), so re-run this script through 'sg kvm', which
-# grants the group right away. _IN_SG_KVM prevents an endless re-exec loop if /dev/kvm is
-# still not writable inside sg. The getent check matters: 'sg' asks for a group password
-# when the user isn't a member.
+# requires hardware acceleration"). Three things can be wrong, and they need different fixes, so
+# they're told apart here rather than reported as one "no access":
+#   1. the device is missing entirely -> virtualization is off;
+#   2. it belongs to a group that isn't the kvm group -> joining kvm can never help (seen on WSL,
+#      where /dev/kvm is created before udev applies 50-udev-default.rules);
+#   3. the user is in the kvm group but this session predates it -> re-run through 'sg kvm', which
+#      grants the group right away, instead of making the user restart the session.
+# _IN_SG_KVM prevents an endless re-exec loop if the device is still not writable inside sg. The
+# getent membership check matters: 'sg' asks for a group password when the user isn't a member.
 if [ ! -e "$KVM_DEVICE" ]; then
     die "$KVM_DEVICE doesn't exist: enable hardware virtualization (VT-x/AMD-V in the firmware
 settings; nested virtualization when running inside WSL or a VM)."
 fi
 if [ ! -w "$KVM_DEVICE" ]; then
-    if getent group kvm | grep -qw "$USER" && [ -z "${_IN_SG_KVM:-}" ]; then
+    KVM_GROUP_LINE="$(getent group kvm || true)"
+    DEVICE_GID="$(stat -c %g "$KVM_DEVICE")"
+    KVM_GID="$(printf '%s' "$KVM_GROUP_LINE" | awk -F: '{print $3}')"
+    if [ -n "$KVM_GID" ] && [ "$DEVICE_GID" != "$KVM_GID" ]; then
+        die "No access to $KVM_DEVICE: it belongs to group $DEVICE_GID, but the kvm group is
+$KVM_GID, so joining the kvm group can't grant access. Give the device to the kvm group:
+    sudo chgrp kvm $KVM_DEVICE && sudo chmod 660 $KVM_DEVICE
+and to keep that across restarts:
+    echo 'z $KVM_DEVICE 0660 root kvm -' | sudo tee /etc/tmpfiles.d/kvm.conf"
+    fi
+    if printf '%s' "$KVM_GROUP_LINE" | grep -qw "$USER" && [ -z "${_IN_SG_KVM:-}" ]; then
         exec sg kvm -c "_IN_SG_KVM=1 $(printf '%q ' "$BIN_DIR/start-emulator.sh" "$AVD_NAME" "$@")"
     fi
     die "No access to $KVM_DEVICE. Run: sudo usermod -aG kvm \$USER"

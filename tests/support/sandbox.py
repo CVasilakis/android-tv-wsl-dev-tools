@@ -27,11 +27,16 @@ SUPPORT = Path(__file__).resolve().parent
 # Real system utilities the scripts may call. Anything else is missing on the sandbox's $PATH,
 # which catches accidental dependencies on the host.
 UTILITIES = ["bash", "sed", "grep", "awk", "tr", "head", "tail", "dirname", "basename", "readlink",
-             "ls", "sort", "cat", "wc", "sleep", "nohup", "env", "rm", "mkdir", "printf", "kill"]
+             "ls", "sort", "cat", "wc", "sleep", "nohup", "env", "rm", "mkdir", "printf", "kill",
+             "stat"]
 HOST_FAKES = ["python3", "getent", "sg"]               # host commands replaced by fakes
 SDK_TOOLS = {"adb": "platform-tools/adb",
              "emulator": "emulator/emulator",
-             "avdmanager": "cmdline-tools/latest/bin/avdmanager"}
+             "avdmanager": "cmdline-tools/latest/bin/avdmanager",
+             # Only their presence matters: the scripts name them in install hints, never run
+             # them. 'android' exists from cmdline-tools 22.0, 'sdkmanager' in every version.
+             "android": "cmdline-tools/latest/bin/android",
+             "sdkmanager": "cmdline-tools/latest/bin/sdkmanager"}
 
 
 @dataclass

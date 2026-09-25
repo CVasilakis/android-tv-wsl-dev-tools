@@ -57,7 +57,7 @@ Nothing about the SDK, AVD or device is hardcoded; each is taken from the first 
 | What | Where from |
 |---|---|
 | Android SDK | `$ANDROID_HOME`, `$ANDROID_SDK_ROOT`, `sdk.dir` in the current project's `local.properties`, the SDK of the `adb` on `$PATH`, `~/Android/Sdk` |
-| `adb`, `emulator`, `avdmanager` | inside that SDK (`cmdline-tools/latest`, else the newest `cmdline-tools/<version>`), else on `$PATH` |
+| `adb`, `emulator`, `avdmanager`, `android` | inside that SDK (`cmdline-tools/latest`, else the newest `cmdline-tools/<version>`), else on `$PATH` |
 | AVD folder | `$ANDROID_AVD_HOME`, `$ANDROID_EMULATOR_HOME/avd`, `$ANDROID_USER_HOME/avd`, `$ANDROID_SDK_HOME/.android/avd`, `~/.android/avd`; each AVD is located through its `<name>.ini` |
 | AVD to create or boot | the name given on the command line, `$ADT_AVD`, `tv_api25`; `start-emulator.sh` then also accepts the only Android TV AVD |
 | Emulator to talk to | `start-emulator.sh` matches running emulators by AVD name; `remote.sh` takes the serial given, `$ANDROID_SERIAL`, or the only running emulator; `wslg-toolbar.py` the AVD given or the only emulator window |

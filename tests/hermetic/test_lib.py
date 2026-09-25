@@ -76,15 +76,36 @@ class ToolDiscovery(ScriptTestCase):
         self.assertEqual(self.tool("EMULATOR"), str(self.sandbox.bin / "emulator"))
 
     def test_missing_tool_names_the_package_to_install(self):
-        self.sandbox.install_sdk(tools=["adb"])
+        self.sandbox.install_sdk(tools=["adb", "android"])
+        result = self.sandbox.bash('require "$EMULATOR" emulator')
+        self.assertFailed(result, 'android sdk install --no-metrics "emulator"')
+
+    def test_the_install_hint_falls_back_to_sdkmanager_before_cmdline_tools_22(self):
+        # 'android' only ships from cmdline-tools 22.0; on older ones sdkmanager is all there is,
+        # so suggesting the new command would be a command the user doesn't have.
+        self.sandbox.install_sdk(tools=["adb", "sdkmanager"])
         result = self.sandbox.bash('require "$EMULATOR" emulator')
         self.assertFailed(result, 'sdkmanager "emulator"')
+        self.assertNotIn("android sdk install", result.output)
 
-    def test_no_sdk_at_all_points_to_setup_instead_of_sdkmanager(self):
+    def test_the_install_hint_names_the_current_tool_when_the_sdk_has_neither(self):
+        self.sandbox.install_sdk(tools=["adb"])
+        result = self.sandbox.bash('require "$EMULATOR" emulator')
+        self.assertFailed(result, 'android sdk install --no-metrics "emulator"')
+
+    def test_the_install_hint_opts_out_of_telemetry(self):
+        # The android CLI reports usage unless --no-metrics is passed, and it can only be turned
+        # off per call, so a command we tell the user to paste must carry the flag.
+        self.sandbox.install_sdk(tools=["adb", "android"])
+        result = self.sandbox.bash('require "$EMULATOR" emulator')
+        self.assertIn("--no-metrics", result.output)
+
+    def test_no_sdk_at_all_points_to_setup_instead_of_an_install_command(self):
         result = self.sandbox.bash('require "$ADB" platform-tools')
         self.assertFailed(result, "no Android SDK found")
         self.assertIn(f"{self.sandbox.tools}/setup.md", result.output, "a path that works anywhere")
         self.assertNotIn("sdkmanager", result.output)
+        self.assertNotIn("android sdk install", result.output)
 
 
 class CalledFromAnywhere(ScriptTestCase):

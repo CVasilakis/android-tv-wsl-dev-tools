@@ -12,10 +12,10 @@
 # Common errors:
 #   'Error: "emulator" package must be installed!'
 #       avdmanager refuses to create any AVD without the emulator package:
-#       sdkmanager "emulator"
+#       android sdk install --no-metrics "emulator"
 #   'Package path is not valid' / 'Invalid --tag android-tv for the selected package'
-#       The system image is missing or incomplete. `sdkmanager --list_installed` must list
-#       system-images;android-25;android-tv;x86 (its folder must contain package.xml).
+#       The system image is missing or incomplete. `android sdk list --no-metrics` must list
+#       system-images/android-25/android-tv/x86 (its folder must contain package.xml).
 #   'AVD ... already exists'
 #       Printed by this script on purpose; it never overwrites an AVD (that would wipe its data).
 #
