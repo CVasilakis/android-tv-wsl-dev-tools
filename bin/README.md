@@ -1,0 +1,143 @@
+# bin/
+
+The scripts, and nothing else: users may put this folder on their `PATH`
+(see [`../README.md`](../README.md#optional-put-the-scripts-on-your-path)), so helpers live in
+[`../lib/`](../lib/lib.sh). Commands below are shown by name; without `PATH` set up, call them by
+their path, e.g. `../android-cli-dev-tools/bin/start-emulator.sh`. Where they find the SDK, AVDs and
+devices: [Finding your setup](../README.md#finding-your-setup).
+
+| Script | Purpose |
+|---|---|
+| [`create-avd.sh`](create-avd.sh) | Creates the `tv_api25` Android TV emulator with the right hardware settings. |
+| [`start-emulator.sh`](start-emulator.sh) | Boots it, waits until Android is ready, applies the WSLg toolbar fix. |
+| [`remote.sh`](remote.sh) | TV remote in the terminal (D-pad, OK, Back, Home, Menu, …). |
+| [`wslg-toolbar.py`](wslg-toolbar.py) | Works around the emulator toolbar's input problems under WSLg. |
+
+Each script has a header comment with usage, common errors and the reasons behind its less
+obvious lines. Read it before changing a script, and run `tests/run.py` after changing one.
+Every change needs a test in `tests/hermetic/test_<script>.py`; see [`../tests/README.md`](../tests/README.md).
+
+## `create-avd.sh [name]`
+
+Creates the AVD (default name `$ADT_AVD`, else `tv_api25`) from `system-images;android-25;android-tv;x86`:
+
+```bash
+avdmanager create avd --name tv_api25 \
+    --package "system-images;android-25;android-tv;x86" \
+    --tag android-tv --abi x86 --device tv_1080p --sdcard 512M
+```
+
+and then sets these in the new AVD's `config.ini`, wherever avdmanager put it (by default
+`~/.android/avd/tv_api25.avd/config.ini`; avdmanager has no flags for them):
+
+| Setting | Value | Why |
+|---|---|---|
+| device | `tv_1080p` | 1920×1080 at 320 dpi = 960×540 dp, the resolution TV UIs are designed for |
+| `--sdcard` | 512M | storage for test wallpapers/images (`adb push img.jpg /sdcard/Pictures/`) |
+| `hw.keyboard` | yes | the PC keyboard acts as the remote in the emulator window |
+| `hw.dPad` | yes | the device reports D-pad navigation, like a real TV |
+| `hw.ramSize` | 2048 | enough for API 25 while leaving memory to Gradle |
+| `hw.cpu.ncore` | 4 | |
+| `disk.dataPartition.size` | 4G | room for many test apps (the default is ~550 MB) |
+| `hw.gpu.mode` | swiftshader_indirect | software rendering: works on any host, including WSLg |
+| `hw.initialOrientation` | landscape | the tv_1080p profile defaults to portrait |
+| `showDeviceFrame` | no | no device skin |
+
+The TV profile has **no touchscreen** (`hw.screen=no-touch`), like a real TV.
+
+It never overwrites an existing AVD. To recreate one: `avdmanager delete avd -n tv_api25 && create-avd.sh`.
+
+## `start-emulator.sh [name] [emulator flags…]`
+
+```bash
+start-emulator.sh                          # boot the default AVD (see Finding your setup)
+start-emulator.sh -wipe-data               # factory reset (also re-enables a disabled stock launcher)
+start-emulator.sh -no-snapshot-load        # cold boot, ignore the Quick Boot snapshot
+start-emulator.sh my_tv -gpu host          # another AVD, with hardware rendering
+EMULATOR_TOOLBAR=show start-emulator.sh    # keep a clickable side toolbar (see below)
+adb -s emulator-5554 emu kill              # stop it (saves a Quick Boot snapshot)
+```
+
+It runs `emulator -avd <name> -gpu swiftshader_indirect -no-boot-anim -no-audio` in the background
+(a `-gpu` flag of your own replaces the default), logs to `${TMPDIR:-/tmp}/emulator-<name>.log`,
+finds the emulator's serial by asking each running emulator for its AVD name, waits until
+`sys.boot_completed=1` (so it can be chained with `./gradlew installDebug`), and on WSL finishes
+with `wslg-toolbar.py <name> hide`. If the emulator exits during boot, it stops waiting and prints
+the end of the log. If the AVD is already running, it only prints its serial.
+Without `kvm` group access in the current session it re-runs itself through `sg kvm`.
+
+## Controlling the TV
+
+Clicking on the Android screen does nothing, because there's no touchscreen. Use the keyboard or the terminal remote:
+
+| TV remote | Emulator window (default setup) | `remote.sh` in a terminal | adb |
+|---|---|---|---|
+| D-pad | Arrow keys | Arrow keys | `adb shell input keyevent DPAD_UP` (…DOWN/LEFT/RIGHT) |
+| OK | Enter | Enter | `adb shell input keyevent DPAD_CENTER` |
+| Back | Ctrl+Backspace | Esc or Backspace | `adb shell input keyevent BACK` |
+| Home | Ctrl+H | h | `adb shell input keyevent HOME` |
+| Menu | Ctrl+M | m | `adb shell input keyevent MENU` |
+| Play/Pause, Volume | — | p, + / - | `adb shell input keyevent MEDIA_PLAY_PAUSE` |
+
+Notes on the emulator window:
+- Click the emulator screen once so it has keyboard focus.
+- **Esc and F1 don't reach Android**: the emulator window consumes them. Use Ctrl+Backspace for Back and Ctrl+M for Menu.
+- Holding Ctrl draws a ring of circles around the mouse pointer. That's the emulator's multi-touch
+  simulator: cosmetic, it sends nothing to the TV and can't be turned off. `remote.sh` needs no Ctrl.
+
+`remote.sh` injects Linux key codes through the emulator console (`adb emu event send`), so it
+works regardless of window focus and responds faster than `adb shell input keyevent`. It only works with emulators.
+It picks the only running emulator, ignoring physical devices; with several emulators, pass the serial
+(`remote.sh emulator-5554`) or set `ANDROID_SERIAL`.
+
+## The side toolbar under WSLg (`wslg-toolbar.py`)
+
+Under WSLg the emulator's side toolbar (power, volume, Back, Home, "⋯" → Extended controls) breaks input:
+
+1. **Its buttons ignore clicks.** WSLg draws the toolbar next to the emulator but places its X11
+   window at (-32768, -32768), where the mouse pointer can never go.
+2. **It steals the keyboard.** While it's shown, keys typed into the emulator window move focus
+   between the toolbar buttons instead of reaching Android.
+
+You can't have both a clickable toolbar and a working keyboard, so `wslg-toolbar.py <avd> hide|show` picks one:
+
+| Mode | Keyboard in emulator window | Toolbar |
+|---|---|---|
+| `hide` (default in `start-emulator.sh`) | works | hidden |
+| `show` | goes to the toolbar (use `remote.sh`) | clickable, including "⋯" → Extended controls → *Directional pad* |
+
+Switch at any time on a running emulator: `wslg-toolbar.py show`. Without an AVD
+name it acts on the only emulator window; with several, pass the name: `wslg-toolbar.py tv_api25 show`.
+Restarting the emulator undoes it. The script's docstring explains the mechanism, how to inspect the
+windows (`xwininfo`, `xprop`) and which approaches don't work.
+
+## Checking what the emulator is doing
+
+```bash
+adb shell dumpsys window | grep mCurrentFocus                       # activity in front
+adb exec-out screencap -p > screen.png                             # screenshot
+adb shell dumpsys input | sed -n '/RecentQueue/,/PendingEvent/p'   # last 10 key events Android received
+adb shell cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME
+```
+
+Don't use `adb shell getevent > file` to check input: without a terminal its output is buffered and
+the file stays empty. Simulated host input (xdotool/XTest) doesn't reach the emulator under WSLg, so
+automated tests should send keys with `remote.sh`'s mechanism or `adb shell input keyevent`.
+
+## Troubleshooting
+
+| Symptom | Cause / fix |
+|---|---|
+| Clicks on the Android screen do nothing | expected: no touchscreen, use the keys above |
+| No side toolbar | hidden on purpose under WSL (see above) |
+| Typed keys move focus between toolbar buttons | toolbar is shown: `wslg-toolbar.py hide` |
+| Toolbar buttons ignore clicks | `wslg-toolbar.py show` |
+| `wslg-toolbar: no toolbar window found` | wrong AVD name or emulator not running; inspect with `xwininfo -root -tree \| grep qemu-system` |
+| `wslg-toolbar: no running emulator window found` | emulator not running, or started with `-no-window` |
+| `start-emulator.sh: the emulator exited` | the printed log lines say why (e.g. an unknown flag); full log in `${TMPDIR:-/tmp}/emulator-<name>.log` |
+| `start-emulator.sh` hangs at "Emulator starting…" | Android can't boot: try `-no-snapshot-load` |
+| `can't tell which AVD to use` / `there's no AVD named …` | pass the AVD name or set `ADT_AVD`; the message lists the AVDs found |
+| `'avdmanager' not found` (or `emulator`, `platform-tools`) | the SDK wasn't found, or lacks that package: set `ANDROID_HOME` (see [Finding your setup](../README.md#finding-your-setup)) |
+| `adb: more than one device/emulator` | `export ANDROID_SERIAL=<serial>` (printed by `start-emulator.sh`) |
+| Black emulator window | try once with `-no-snapshot-load` |
+| `No access to /dev/kvm` | see [`../setup.md`](../setup.md), step 1 |
