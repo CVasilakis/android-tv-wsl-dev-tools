@@ -36,6 +36,10 @@
 # still be booting, e.g. started by another call or CI step a moment ago. So the script waits for
 # its boot like for its own, with the same timeout, but never stops it: it's not this script's.
 #
+# Home on Android TV 8.0 and 8.1: on the API 26 and 27 Android TV images, the Home key never
+# leaves an app until tv_user_setup_complete is set, so after the boot the script sets it (see
+# the code below). Any other image is left as it is.
+#
 # No display: the emulator's window needs an X display (it ships only Qt's X11 plugin). Without
 # $DISPLAY (a CI runner, an SSH session) it aborts, and its log doesn't say why, so the script
 # adds -no-window.
@@ -85,8 +89,9 @@ Environment:
                     (see bin/README.md)
 
 If the AVD is already running, it isn't started again: the script waits until it has booted,
-then prints its serial. The emulator keeps running after this script exits; stop it with:
-adb -s <serial> emu kill
+then prints its serial. On the Android TV images of API 26 and 27, it then marks the TV's
+setup as complete (tv_user_setup_complete), without which the Home key doesn't leave apps. The
+emulator keeps running after this script exits; stop it with: adb -s <serial> emu kill
 EOF
 }
 case "${1:-}" in
@@ -350,6 +355,28 @@ done
 if [ -n "$STARTED_HERE" ] || [ -n "${WAITED:-}" ]; then
     echo "Emulator '$AVD_NAME' booted as $SERIAL." >&2
 fi
+# Android TV 8.0 and 8.1 (API 26, 27) ignore the Home key until the TV setup wizard has set
+# tv_user_setup_complete ("Not starting activity because user setup is in progress" in logcat),
+# and their emulator images never run that wizard: Home would never leave an app. A real TV has
+# it set. The setting stays in the AVD's data, so it's set once per AVD; failing to set it
+# doesn't make the boot fail.
+AVD_IMAGE=""
+if dir="$(avd_dir "$AVD_NAME")"; then AVD_IMAGE="$(avd_image "$dir")"; fi
+case "$AVD_IMAGE" in
+    *android-26/android-tv/*|*android-27/android-tv/*)
+        if [ "$(adb_bounded -s "$SERIAL" shell settings get secure tv_user_setup_complete \
+                < /dev/null 2>/dev/null | tr -d '\r')" != 1 ]; then
+            if adb_bounded -s "$SERIAL" shell settings put secure tv_user_setup_complete 1 \
+                    < /dev/null > /dev/null 2>&1; then
+                echo "Marked Android TV's setup as complete (tv_user_setup_complete), so the Home key works." >&2
+            else
+                echo "Warning: couldn't set tv_user_setup_complete, so the Home key won't leave apps. Try:" >&2
+                echo "  adb -s $SERIAL shell settings put secure tv_user_setup_complete 1" >&2
+            fi
+        fi
+        ;;
+esac
+
 # With several devices connected, adb refuses to guess and `./gradlew installDebug` installs on
 # all of them. Both honor ANDROID_SERIAL.
 if [ -n "$STARTED_HERE" ] && [ "$(adb_bounded devices | awk 'NR > 1 && NF' | wc -l)" -gt 1 ]; then

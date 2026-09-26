@@ -138,16 +138,14 @@ can no longer boot such images. Use an Android TV image of API 22 or newer."
 fi
 
 # Never overwrite an AVD: that would wipe its data. With --if-missing, one made from the same
-# image counts as done; its image is config.ini's image.sysdir.1 (system-images/android-25/
-# android-tv/x86/, "key = value" once the emulator has rewritten the file).
+# image counts as done (avd_image, lib.sh).
 if existing="$(avd_dir "$AVD_NAME")"; then
     if [ -z "$IF_MISSING" ]; then
         die "AVD '$AVD_NAME' already exists ($existing). Delete it first with:
   $AVDMANAGER delete avd -n $AVD_NAME
 or pass --if-missing to keep it."
     fi
-    existing_image="$(sed -n 's/^image\.sysdir\.1 *= *//p' "$existing/config.ini" | head -n 1 \
-        | tr -d '\r')"
+    existing_image="$(avd_image "$existing")"
     existing_image="${existing_image%/}"
     if [ "$existing_image" != "${IMAGE//;//}" ]; then
         die "AVD '$AVD_NAME' already exists ($existing), but was made from

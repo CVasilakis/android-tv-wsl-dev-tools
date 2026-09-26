@@ -307,6 +307,66 @@ class BootProgress(EmulatorTestCase):
         self.assertNotIn("still booting", result.err)
 
 
+class MarksTheTvSetupComplete(EmulatorTestCase):
+    """Android TV 8.0 and 8.1 (API 26, 27) ignore the Home key until tv_user_setup_complete is
+    set, which their emulator images never do: after the boot, the script sets it."""
+
+    FLAG = "tv_user_setup_complete"
+
+    def add_tv_avd(self, level, tag="android-tv"):
+        name = f"{'gtv' if tag == 'google-tv' else 'tv'}_api{level}"
+        self.sandbox.add_avd(name, image=f"system-images/android-{level}/{tag}/x86/", tag=tag)
+        return name
+
+    def settings_puts(self):
+        return [a for a in self.sandbox.argvs("adb") if "settings" in a and "put" in a]
+
+    def test_sets_it_on_android_tv_8_0_and_8_1(self):
+        for level in (26, 27):
+            with self.subTest(level=level):
+                avd = self.add_tv_avd(level)
+                result = self.start(avd)
+                self.assertSucceeded(result)
+                serial = result.out.strip()
+                self.assertEqual(self.sandbox.device_settings(serial).get(self.FLAG), "1")
+                self.assertIn("so the Home key works", result.err)
+                self.assertEqual(result.out, f"{serial}\n", "stdout holds only the serial")
+                self.sandbox.stop_emulators()
+
+    def test_leaves_the_other_images_alone(self):
+        for level, tag in ((25, "android-tv"), (28, "android-tv"), (36, "android-tv"),
+                           (30, "google-tv")):
+            with self.subTest(level=level, tag=tag):
+                avd = self.add_tv_avd(level, tag)
+                result = self.start(avd)
+                self.assertSucceeded(result)
+                self.assertEqual(self.sandbox.device_settings(result.out.strip()), {})
+                self.assertNotIn("Home key", result.err)
+                self.sandbox.stop_emulators()
+        self.assertEqual(self.settings_puts(), [])
+
+    def test_leaves_it_alone_when_it_is_already_set(self):
+        self.sandbox.set_behavior(device_settings={self.FLAG: "1"})
+        result = self.start(self.add_tv_avd(27))
+        self.assertSucceeded(result)
+        self.assertEqual(self.settings_puts(), [])
+        self.assertNotIn("Home key", result.err)
+
+    def test_sets_it_on_an_emulator_started_elsewhere(self):
+        avd = self.add_tv_avd(26)
+        serial = self.sandbox.start_emulator(avd)
+        result = self.start(avd)
+        self.assertSucceeded(result)
+        self.assertEqual(self.sandbox.device_settings(serial).get(self.FLAG), "1")
+
+    def test_only_warns_when_it_cannot_set_it(self):
+        self.sandbox.set_behavior(settings_put_error="Error: permission denied")
+        result = self.start(self.add_tv_avd(27))
+        self.assertSucceeded(result)
+        self.assertIn("couldn't set tv_user_setup_complete", result.err)
+        self.assertEqual(result.out, "emulator-5554\n")
+
+
 class AlreadyRunning(EmulatorTestCase):
     """An AVD that's already running isn't started again, but it may still be booting (another
     call or CI step started it): the script returns only once Android has booted, as always."""

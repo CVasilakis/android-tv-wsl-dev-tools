@@ -106,6 +106,31 @@ class OnTheRealEmulator(unittest.TestCase):
         self.assertEqual(result.stdout, f"{self.serial}\n")
         self.assertIn(f"already running as {self.serial}", result.stderr)
 
+    def focused_package(self):
+        """Package of the window in front, from `dumpsys window` (e.g. com.android.tv.settings)."""
+        focus = re.search(r"mCurrentFocus=Window\{\S+ \S+ ([\w.]+)/", self.adb_shell("dumpsys", "window"))
+        return focus.group(1) if focus else None
+
+    def test_remote_home_key_leaves_an_app(self):
+        # start-emulator.sh first: on API 26 and 27 it's what makes Home work (see its header),
+        # and an emulator that was already running may not have been started by it.
+        subprocess.run([str(BIN / "start-emulator.sh"), self.avd], capture_output=True, timeout=60)
+        # Right after a boot, the home app may still be starting and come to the front over
+        # Settings (Google TV), so Settings is opened again until it stays there.
+        deadline = time.time() + 30
+        while "settings" not in (self.focused_package() or "") and time.time() < deadline:
+            self.adb_shell("am", "start", "-W", "-a", "android.settings.SETTINGS")
+            time.sleep(2)
+        settings = self.focused_package()
+        self.assertIn("settings", settings or "", "Settings didn't open")
+        result = subprocess.run([str(BIN / "remote.sh"), self.serial], input="hq",
+                                capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        deadline = time.time() + 10
+        while self.focused_package() == settings and time.time() < deadline:
+            time.sleep(0.2)
+        self.assertNotEqual(self.focused_package(), settings, "Home didn't leave Settings")
+
     def test_remote_keys_arrive_as_the_right_android_keys(self):
         # The recent queue holds the last 10 events (5 presses), so check a few keys at a time.
         # Android 11 also queues focus changes there (e.g. when OK opens something), so 3 at most.

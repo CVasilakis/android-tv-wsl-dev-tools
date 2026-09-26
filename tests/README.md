@@ -24,7 +24,7 @@ too. The emulator tier isn't run there; run it locally before a release.
 | Tier | Folder | Needs | Checks |
 |---|---|---|---|
 | hermetic | [`hermetic/`](hermetic) | Python 3; optional: Xvfb, shellcheck | Each script's behavior against fake tools and a fake machine. Run it after every script change. |
-| emulator | [`emulator/`](emulator) | Your SDK and AVD (`ADT_AVD` picks one) | What fakes can't show: booting really completes, and `remote.sh`'s keys arrive in Android as the right keys. |
+| emulator | [`emulator/`](emulator) | Your SDK and AVD (`ADT_AVD` picks one) | What fakes can't show: booting really completes, `remote.sh`'s keys arrive in Android as the right keys, and its Home key leaves an app. |
 
 Some hermetic tests skip, with the reason printed, when an optional tool is missing:
 - **Xvfb** (`sudo apt-get install -y xvfb`) for the `wslg-toolbar.py`
