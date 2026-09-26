@@ -38,7 +38,7 @@
 #
 # Home on Android TV 8.0 and 8.1: on the API 26 and 27 Android TV images, the Home key never
 # leaves an app until tv_user_setup_complete is set, so after the boot the script sets it (see
-# the code below). Any other image is left as it is.
+# the code below), and then waits 30 s so Android saves it. Any other image is left as it is.
 #
 # No display: the emulator's window needs an X display (it ships only Qt's X11 plugin). Without
 # $DISPLAY (a CI runner, an SSH session) it aborts, and its log doesn't say why, so the script
@@ -90,8 +90,9 @@ Environment:
 
 If the AVD is already running, it isn't started again: the script waits until it has booted,
 then prints its serial. On the Android TV images of API 26 and 27, it then marks the TV's
-setup as complete (tv_user_setup_complete), without which the Home key doesn't leave apps. The
-emulator keeps running after this script exits; stop it with: adb -s <serial> emu kill
+setup as complete (tv_user_setup_complete), without which the Home key doesn't leave apps, and
+waits 30 s so Android saves it (once per AVD). The emulator keeps running after this script
+exits; stop it with: adb -s <serial> emu kill
 EOF
 }
 case "${1:-}" in
@@ -359,7 +360,11 @@ fi
 # tv_user_setup_complete ("Not starting activity because user setup is in progress" in logcat),
 # and their emulator images never run that wizard: Home would never leave an app. A real TV has
 # it set. The setting stays in the AVD's data, so it's set once per AVD; failing to set it
-# doesn't make the boot fail.
+# doesn't make the boot fail. Android saves a changed setting a moment later, and `adb emu kill`
+# right after this script would lose it (a later boot through this script sets it again, but one
+# started another way wouldn't), so after setting it the script waits, and says why.
+# ADT_SAVE_DELAY exists for the tests.
+SAVE_DELAY="${ADT_SAVE_DELAY:-30}"
 AVD_IMAGE=""
 if dir="$(avd_dir "$AVD_NAME")"; then AVD_IMAGE="$(avd_image "$dir")"; fi
 case "$AVD_IMAGE" in
@@ -369,6 +374,8 @@ case "$AVD_IMAGE" in
             if adb_bounded -s "$SERIAL" shell settings put secure tv_user_setup_complete 1 \
                     < /dev/null > /dev/null 2>&1; then
                 echo "Marked Android TV's setup as complete (tv_user_setup_complete), so the Home key works." >&2
+                echo "Waiting $SAVE_DELAY s so Android saves it before the emulator can be stopped (once per AVD)..." >&2
+                sleep "$SAVE_DELAY"
             else
                 echo "Warning: couldn't set tv_user_setup_complete, so the Home key won't leave apps. Try:" >&2
                 echo "  adb -s $SERIAL shell settings put secure tv_user_setup_complete 1" >&2

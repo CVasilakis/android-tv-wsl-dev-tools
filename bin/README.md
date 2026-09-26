@@ -192,8 +192,16 @@ meanwhile, it stops waiting.
 Home key never leaves an app until the TV setup wizard has set `tv_user_setup_complete`, and
 these images never run that wizard (logcat: "Not starting activity because user setup is in
 progress"). So once the emulator has booted, the script sets it, and says so, unless it's
-already set. The setting stays in the AVD's data. Other images are left as they are; on those,
-Home works without it. By hand: `adb shell settings put secure tv_user_setup_complete 1`.
+already set; then it waits 30 s, saying why, so that Android has saved it before the emulator can
+be stopped (see below). The setting stays in the AVD's data, so that wait happens once per AVD.
+Other images are left as they are; on those, Home works without it. By hand:
+`adb shell settings put secure tv_user_setup_complete 1`.
+
+**Stopping doesn't save recent changes.** `adb emu kill` stops the emulator without shutting
+Android down, and Android saves some changes only a moment after they're made: a setting
+(`settings put`) within seconds, an app's enabled state (`pm enable`, `pm disable-user`) later.
+Stopped right after the command, the next cold boot starts as if it had never run. `adb reboot`
+doesn't save them either. After a change that should stay, wait 30 s before stopping the emulator.
 
 **Output.** stdout holds the emulator's serial (e.g. `emulator-5554`) and nothing else; every
 message goes to stderr. So scripts capture it without parsing messages:
