@@ -61,7 +61,7 @@ class OnTheRealEmulator(unittest.TestCase):
 
     def recent_key_events(self):
         """(age in ms, keyCode, is key-down) of each key event in the input dispatcher's recent
-        queue, oldest first. Android 7-8 print a key-down as action=0, 9-10 as action=DOWN, and
+        queue, oldest first. Android 5-8 print a key-down as action=0, 9-10 as action=DOWN, and
         11 and newer print no details ("KeyEvent, age=12ms"): keyCode and is key-down are None."""
         dump = self.adb_shell("dumpsys", "input")
         queue = dump.split("RecentQueue", 1)[1].split("PendingEvent", 1)[0]

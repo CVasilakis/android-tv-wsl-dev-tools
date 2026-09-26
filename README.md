@@ -7,7 +7,7 @@ AVDs and emulators on their own (see [Finding your setup](#finding-your-setup)).
 
 | Script | Purpose |
 |---|---|
-| [`bin/create-avd.sh`](bin/create-avd.sh) | Creates an Android TV emulator with the right hardware settings: `tv_api25`, or another API level with `--api` (e.g. `tv_api28`, `tv_api30`). |
+| [`bin/create-avd.sh`](bin/create-avd.sh) | Creates an Android TV emulator with the right hardware settings: `tv_api25`, or another API level from 22 on with `--api` (e.g. `tv_api22`, `tv_api36`). |
 | [`bin/start-emulator.sh`](bin/start-emulator.sh) | Boots it (cold boot, or Quick Boot with `--quick`), waits until Android is ready, applies the WSLg toolbar fix. |
 | [`bin/remote.sh`](bin/remote.sh) | TV remote in the terminal (D-pad, OK, Back, Home, Menu, …). |
 | [`bin/wslg-toolbar.py`](bin/wslg-toolbar.py) | Works around the emulator toolbar's input problems under WSLg. |
@@ -70,13 +70,14 @@ To test an app on more than one Android version, create one AVD per API level an
 you need; they run side by side, each on its own serial:
 
 ```bash
-create-avd.sh --api 28 && create-avd.sh --api 30        # tv_api28 (Android 9), tv_api30 (Android 11)
-for avd in tv_api25 tv_api28 tv_api30; do start-emulator.sh "$avd"; done
+create-avd.sh --api 22 && create-avd.sh --api 36        # tv_api22 (Android 5.1), tv_api36 (Android 16)
+for avd in tv_api22 tv_api25 tv_api36; do start-emulator.sh "$avd"; done
 ./gradlew connectedDebugAndroidTest                     # runs on every connected device
 ```
 
-Each needs its system image first ([`setup.md`](setup.md), step 5). Three emulators take ~6 GB of
-RAM together. `remote.sh` needs the serial when several are running.
+Each needs its system image first ([`setup.md`](setup.md), step 5). API 22 is the oldest Android
+TV image the emulator can boot; 22, 25, 28, 30 and 36 are tested. Each emulator takes ~2 GB of
+RAM. `remote.sh` needs the serial when several are running.
 
 With several devices connected (another emulator, a phone, a TV over adb), `adb` refuses to guess
 and `./gradlew installDebug` installs on all of them. `start-emulator.sh` prints the emulator's
