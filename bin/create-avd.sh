@@ -4,6 +4,7 @@
 # Usage:   create-avd.sh [avd-name]            (default: $ADT_AVD, else tv_api25)
 #          create-avd.sh --api 30 [avd-name]   (default: tv_api30)
 #          create-avd.sh --google-tv --api 30 [avd-name]   (Google TV image; default: gtv_api30)
+#          create-avd.sh --size 1280x720 --density 213 tv_720p   (another screen; default 1080p)
 #          create-avd.sh --if-missing [...]    (an existing AVD of that image is fine: CI caches)
 #          create-avd.sh --help
 # Result:  <avd-name>.avd and <avd-name>.ini in the folder avdmanager keeps AVDs in
@@ -25,7 +26,8 @@
 #       Printed by this script on purpose; it never overwrites an AVD (that would wipe its data).
 #       With --if-missing, an existing AVD made from the same system image is accepted instead
 #       (exit 0, left as it is), so a script or CI job can run this every time. An AVD of the same
-#       name from another image is still an error: it isn't the AVD that was asked for.
+#       name from another image, or with another --size or --density than the ones given, is
+#       still an error: it isn't the AVD that was asked for.
 #   'Error: Could not load devices from .../android-30/android-tv/x86/devices.xml'
 #       Harmless: the images from API 29 on lack that file, avdmanager uses its own tv_1080p
 #       profile. avdmanager prints it for every AVD once such an image is installed.
@@ -41,7 +43,8 @@ set -euo pipefail
 
 usage() {
     cat <<'EOF'
-Usage: create-avd.sh [--api <level>] [--google-tv] [--if-missing] [avd-name]
+Usage: create-avd.sh [--api <level>] [--google-tv] [--size <W>x<H>] [--density <dpi>]
+                     [--if-missing] [avd-name]
 
 Creates an Android TV emulator (AVD) for developing TV apps: 1080p, landscape, D-pad and
 keyboard input. Never overwrites an existing AVD.
@@ -51,8 +54,13 @@ keyboard input. Never overwrites an existing AVD.
                  22 is the oldest the emulator can boot
   --google-tv    use the Google TV image of that level instead of the Android TV one:
                  Android TV with Google's home screen. Needs --api 30 or newer
-  --if-missing   if the AVD already exists and was made from the same system image, leave
-                 it as it is and succeed (for scripts and CI caches)
+  --size <W>x<H> screen size in pixels, landscape (default: 1920x1080), e.g. 1280x720
+                 or 3840x2160
+  --density <dpi>
+                 screen density (default: 320), e.g. 213 for 720p or 640 for 4K
+  --if-missing   if the AVD already exists and was made from the same system image (and
+                 with the --size and --density given), leave it as it is and succeed
+                 (for scripts and CI caches)
   avd-name       name of the new AVD. Default: tv_api<level> with --api (gtv_api<level>
                  with --google-tv), else $ADT_AVD, else tv_api25
   -h, --help     show this help
@@ -68,6 +76,9 @@ EOF
 API=""
 AVD_NAME=""
 IF_MISSING=""
+WIDTH=""                                  # --size and --density; empty: the tv_1080p profile's
+HEIGHT=""
+DENSITY=""
 TAG=android-tv                            # the system image's tag: android-tv or google-tv
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -75,6 +86,10 @@ while [ $# -gt 0 ]; do
         --api)     [[ "${2:-}" =~ ^[0-9]+$ ]] || { usage >&2; exit 2; }
                    API="$2"; shift 2 ;;
         --google-tv) TAG=google-tv; shift ;;
+        --size)    [[ "${2:-}" =~ ^([1-9][0-9]*)x([1-9][0-9]*)$ ]] || { usage >&2; exit 2; }
+                   WIDTH="${BASH_REMATCH[1]}"; HEIGHT="${BASH_REMATCH[2]}"; shift 2 ;;
+        --density) [[ "${2:-}" =~ ^[1-9][0-9]*$ ]] || { usage >&2; exit 2; }
+                   DENSITY="$2"; shift 2 ;;
         --if-missing) IF_MISSING=1; shift ;;
         -*)        usage >&2; exit 2 ;;
         *)         [ -z "$AVD_NAME" ] || { usage >&2; exit 2; }
@@ -92,6 +107,12 @@ if [ "$TAG" = google-tv ]; then
 31, 33, 34 and 36."
     [ "$API" -ge 30 ] || die "there are no Google TV images before API 30. Use --api 30 or newer,
 or the Android TV image of API $API (without --google-tv)."
+fi
+
+# A TV's screen is landscape. A taller size makes a portrait panel, and Android TV then rotates
+# its landscape picture onto it, so the window shows it sideways.
+if [ -n "$WIDTH" ] && [ "$WIDTH" -lt "$HEIGHT" ]; then
+    die "--size ${WIDTH}x$HEIGHT is taller than wide; a TV screen is landscape: --size ${HEIGHT}x$WIDTH"
 fi
 
 # With --api, the default name follows the level (and gtv_ marks a Google TV image): $ADT_AVD
@@ -133,6 +154,20 @@ or pass --if-missing to keep it."
 ${existing_image:-an unknown system image}, not ${IMAGE//;//}. Pick another name, or delete it with:
   $AVDMANAGER delete avd -n $AVD_NAME"
     fi
+    # Only the screen settings given are compared: without --size, any existing size is fine.
+    existing_setting() {
+        sed -n "s/^$1 *= *//p" "$existing/config.ini" | head -n 1 | tr -d '\r'
+    }
+    for pair in "hw.lcd.width=$WIDTH" "hw.lcd.height=$HEIGHT" "hw.lcd.density=$DENSITY"; do
+        key="${pair%%=*}"; wanted="${pair#*=}"
+        [ -n "$wanted" ] || continue
+        have="$(existing_setting "$key")"
+        if [ "$have" != "$wanted" ]; then
+            die "AVD '$AVD_NAME' already exists ($existing), but its $key is ${have:-not set}, not
+$wanted. Pick another name, or delete it with:
+  $AVDMANAGER delete avd -n $AVD_NAME"
+        fi
+    done
     echo "AVD '$AVD_NAME' already exists ($existing), made from $IMAGE; left as it is."
     exit 0
 fi
@@ -183,5 +218,12 @@ set_prop hw.gpu.mode swiftshader_indirect # software GL: works on any host (no G
 set_prop hw.initialOrientation landscape  # the tv_1080p profile defaults to portrait, which is wrong for a TV
 set_prop showDeviceFrame no               # no device skin around the screen
 set_prop hw.audioInput no                 # no microphone needed
+# --size/--density replace the tv_1080p profile's screen. No skin is set, so the emulator window
+# takes hw.lcd.* as they are; landscape needs the width to be the larger side.
+if [ -n "$WIDTH" ]; then
+    set_prop hw.lcd.width "$WIDTH"
+    set_prop hw.lcd.height "$HEIGHT"
+fi
+if [ -n "$DENSITY" ]; then set_prop hw.lcd.density "$DENSITY"; fi
 
 echo "Created AVD '$AVD_NAME' in $AVD_DIR. Start it with: $(command_for start-emulator.sh) $AVD_NAME"

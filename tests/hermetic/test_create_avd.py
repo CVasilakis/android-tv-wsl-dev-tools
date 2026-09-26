@@ -126,6 +126,42 @@ class CreatesTheTvAvd(ScriptTestCase):
         self.assertSucceeded(self.sandbox.run("create-avd.sh", "--google-tv", "--api", "36"))
         self.assertTrue((self.sandbox.home / ".android/avd/gtv_api36.avd").is_dir())
 
+    def test_keeps_the_1080p_screen_of_the_tv_profile_by_default(self):
+        self.assertSucceeded(self.sandbox.run("create-avd.sh"))
+        config = read_config(self.sandbox.home / ".android/avd/tv_api25.avd")
+        for setting in (("hw.lcd.width", "1920"), ("hw.lcd.height", "1080"), ("hw.lcd.density", "320")):
+            self.assertIn(setting, config)
+
+    def test_size_and_density_replace_the_profiles_screen(self):
+        self.assertSucceeded(self.sandbox.run("create-avd.sh", "--size", "1280x720", "--density", "213",
+                                              "tv_720p"))
+        config = read_config(self.sandbox.home / ".android/avd/tv_720p.avd")
+        keys = [key for key, _ in config]
+        for key, value in {"hw.lcd.width": "1280", "hw.lcd.height": "720", "hw.lcd.density": "213",
+                           "hw.initialOrientation": "landscape"}.items():
+            with self.subTest(key):
+                self.assertIn((key, value), config)
+                self.assertEqual(keys.count(key), 1, "a setting must replace, not duplicate, a key")
+
+    def test_size_and_density_each_on_their_own(self):
+        self.assertSucceeded(self.sandbox.run("create-avd.sh", "--size", "3840x2160", "tv_4k"))
+        self.assertSucceeded(self.sandbox.run("create-avd.sh", "--density", "480", "dense_tv"))
+        config = read_config(self.sandbox.home / ".android/avd/tv_4k.avd")
+        self.assertIn(("hw.lcd.width", "3840"), config)
+        self.assertIn(("hw.lcd.density", "320"), config, "the profile's density is kept")
+        config = read_config(self.sandbox.home / ".android/avd/dense_tv.avd")
+        self.assertIn(("hw.lcd.density", "480"), config)
+        self.assertIn(("hw.lcd.width", "1920"), config, "the profile's size is kept")
+
+    def test_size_and_density_with_the_other_options_in_any_order(self):
+        self.assertSucceeded(self.sandbox.run("create-avd.sh", "--density", "213", "--google-tv", "gtv_720p",
+                                              "--size", "1280x720", "--api", "36"))
+        [argv] = self.sandbox.argvs("avdmanager")
+        self.assertEqual(argv[argv.index("--package") + 1], "system-images;android-36;google-tv;x86")
+        config = read_config(self.sandbox.home / ".android/avd/gtv_720p.avd")
+        self.assertIn(("hw.lcd.height", "720"), config)
+        self.assertIn(("hw.lcd.density", "213"), config)
+
     def test_patches_the_avd_in_a_custom_avd_home(self):
         home = self.sandbox.root / "avds"
         self.assertSucceeded(self.sandbox.run("create-avd.sh", env={"ANDROID_AVD_HOME": str(home)}))
@@ -198,6 +234,22 @@ class RefusesOrExplains(ScriptTestCase):
         result = self.sandbox.run("create-avd.sh", "--google-tv", "--api", "31")
         self.assertFailed(result, 'android sdk install --no-metrics "system-images;android-31;google-tv;x86"')
 
+    def test_size_and_density_must_be_positive_numbers(self):
+        for args in (["--size"], ["--size", "1280"], ["--size", "1280x"], ["--size", "1280*720"],
+                     ["--size", "0x720"], ["--size", "1280x720p"], ["--density"], ["--density", "hdpi"],
+                     ["--density", "0"], ["--density", "-213"]):
+            with self.subTest(args):
+                self.assertFailed(self.sandbox.run("create-avd.sh", *args), "Usage:", code=2)
+        self.assertEqual(self.sandbox.argvs("avdmanager"), [])
+
+    def test_refuses_a_portrait_size(self):
+        # A TV is landscape: Android TV would rotate its picture onto a portrait panel, sideways.
+        self.sandbox.install_sdk()
+        result = self.sandbox.run("create-avd.sh", "--size", "720x1280")
+        self.assertFailed(result, "--size 1280x720", code=1)
+        self.assertIn("taller than wide", result.err)
+        self.assertEqual(self.sandbox.argvs("avdmanager"), [], "avdmanager must not be called")
+
     def test_unknown_option_prints_usage(self):
         result = self.sandbox.run("create-avd.sh", "--force")
         self.assertFailed(result, "Usage:", code=2)
@@ -254,6 +306,38 @@ class IfMissing(ScriptTestCase):
         self.assertFailed(result, "system-images/android-30/android-tv/x86, not "
                                   "system-images/android-30/google-tv/x86", code=1)
         self.assertEqual(self.sandbox.argvs("avdmanager"), [])
+
+    def add_720p_avd(self):
+        # As the emulator rewrites config.ini: "key = value".
+        folder = self.sandbox.add_avd("tv_720p", image=API25_IMAGE)
+        with (folder / "config.ini").open("a") as config:
+            config.write("hw.lcd.width = 1280\nhw.lcd.height = 720\nhw.lcd.density = 213\n")
+        return folder
+
+    def test_accepts_an_existing_avd_with_the_size_and_density_given(self):
+        self.add_720p_avd()
+        for args in ([], ["--size", "1280x720"], ["--density", "213"], ["--size", "1280x720", "--density", "213"]):
+            with self.subTest(args):
+                self.assertSucceeded(self.sandbox.run("create-avd.sh", "--if-missing", "tv_720p", *args))
+        self.assertEqual(self.sandbox.argvs("avdmanager"), [])
+
+    def test_refuses_an_existing_avd_with_another_size_or_density(self):
+        folder = self.add_720p_avd()
+        before = (folder / "config.ini").read_text()
+        for args, message in ((["--size", "1920x1080"], "hw.lcd.width is 1280, not\n1920"),
+                              (["--size", "1280x800"], "hw.lcd.height is 720, not\n800"),
+                              (["--density", "320"], "hw.lcd.density is 213, not\n320")):
+            with self.subTest(args):
+                result = self.sandbox.run("create-avd.sh", "--if-missing", "tv_720p", *args)
+                self.assertFailed(result, message, code=1)
+                self.assertIn("avdmanager delete avd -n tv_720p", result.err)
+        self.assertEqual(self.sandbox.argvs("avdmanager"), [])
+        self.assertEqual((folder / "config.ini").read_text(), before)
+
+    def test_refuses_an_existing_avd_with_no_screen_setting_when_one_is_given(self):
+        self.sandbox.add_avd("tv_api25", image=API25_IMAGE)
+        self.assertFailed(self.sandbox.run("create-avd.sh", "--if-missing", "--density", "213"),
+                          "hw.lcd.density is not set", code=1)
 
     def test_refuses_an_existing_avd_whose_image_it_cannot_tell(self):
         self.sandbox.add_avd("tv_api25")

@@ -8,7 +8,7 @@ devices: [Finding your setup](../README.md#finding-your-setup).
 
 | Script | Purpose |
 |---|---|
-| [`create-avd.sh`](create-avd.sh) | Creates an Android TV emulator with the right hardware settings (`tv_api25`, or `--api <level>`, or Google TV with `--google-tv`). |
+| [`create-avd.sh`](create-avd.sh) | Creates an Android TV emulator with the right hardware settings (`tv_api25`, or `--api <level>`, or Google TV with `--google-tv`; another screen with `--size`/`--density`). |
 | [`start-emulator.sh`](start-emulator.sh) | Boots it (cold boot, or Quick Boot with `--quick`), waits until Android is ready, applies the WSLg toolbar fix. |
 | [`remote.sh`](remote.sh) | TV remote in the terminal (D-pad, OK, Back, Home, Menu, …). |
 | [`wslg-toolbar.py`](wslg-toolbar.py) | Works around the emulator toolbar's input problems under WSLg. |
@@ -17,7 +17,7 @@ Each script has a header comment with usage, common errors and the reasons behin
 obvious lines. Read it before changing a script, and run `tests/run.py` after changing one.
 Every change needs a test in `tests/hermetic/test_<script>.py`; see [`../tests/README.md`](../tests/README.md).
 
-## `create-avd.sh [--api <level>] [--google-tv] [--if-missing] [name]`
+## `create-avd.sh [--api <level>] [--google-tv] [--size <W>x<H>] [--density <dpi>] [--if-missing] [name]`
 
 ```bash
 create-avd.sh                  # tv_api25: Android 7.1 (default name: $ADT_AVD, else tv_api25)
@@ -28,6 +28,7 @@ create-avd.sh --api 33         # tv_api33: Android 13
 create-avd.sh --api 36         # tv_api36: Android 16
 create-avd.sh --api 30 my_tv   # the same image under another name
 create-avd.sh --google-tv --api 36   # gtv_api36: Google TV on Android 16
+create-avd.sh --size 1280x720 --density 213 tv_720p   # a 720p screen instead of 1080p
 ```
 
 Creates the AVD from the Android TV image of that API level (default 25),
@@ -58,6 +59,13 @@ and then sets these in the new AVD's `config.ini`, wherever avdmanager put it (b
 
 The TV profile has **no touchscreen** (`hw.screen=no-touch`), like a real TV.
 
+`--size <W>x<H>` and `--density <dpi>` replace the profile's screen (`hw.lcd.width`,
+`hw.lcd.height`, `hw.lcd.density`); each one given alone keeps the profile's value for the other.
+The size is landscape, width first: a taller one is refused, because Android TV would rotate its
+picture onto a portrait panel and the window would show it sideways. See
+[Other screen sizes and densities](#other-screen-sizes-and-densities) for common values and the
+ways that need no extra AVD.
+
 With `--api`, the default name is `tv_api<level>` even when `$ADT_AVD` is set, so a second AVD
 doesn't take the name of your everyday one. Any level from 22 on with an Android TV x86 image
 works ([tested levels](../README.md#several-android-versions)). The images from API 29 on make
@@ -81,7 +89,59 @@ ranchu kernel.
 It never overwrites an existing AVD: it fails instead (exit 1). To recreate one:
 `avdmanager delete avd -n tv_api25 && create-avd.sh`. For scripts and CI jobs that cache their
 AVDs, `create-avd.sh --if-missing` accepts an existing AVD made from the same system image and
-leaves it as it is (exit 0); one of the same name from another image is still an error.
+leaves it as it is (exit 0); one of the same name from another image, or with another `--size`
+or `--density` than the ones given, is still an error. Without `--size` or `--density`, any
+existing screen is accepted.
+
+## Other screen sizes and densities
+
+Every AVD `create-avd.sh` makes has a 1920×1080 screen at 320 dpi (960×540 dp) unless told
+otherwise. To see how an app looks on other TVs there are three ways, from quickest to most
+permanent. Common TV screens:
+
+| Screen | Size | Density | dp |
+|---|---|---|---|
+| 720p | 1280x720 | 213 (tvdpi) | 960×540 |
+| 1080p (default) | 1920x1080 | 320 (xhdpi) | 960×540 |
+| 4K | 3840x2160 | 640 (xxxhdpi) | 960×540 |
+
+Most TVs report 960×540 dp whatever their resolution, so the same layout is only scaled. A
+density that doesn't match the size (e.g. 1920x1080 at 213 = 1440×810 dp) is how to check
+that a layout copes with more or less room.
+
+**On a running emulator, `adb shell wm`.** No new AVD and no reboot: Android redraws at once,
+though an app that's already open may need a restart to pick it up.
+
+```bash
+adb shell wm size 1280x720 && adb shell wm density 213   # pretend to be a 720p TV
+adb shell wm size; adb shell wm density                  # "Physical" and, while set, "Override"
+adb shell wm size reset && adb shell wm density reset    # back to the AVD's own screen
+```
+
+The override stays across reboots until it's reset (a `-wipe-data` also clears it). Android
+accepts at most twice the physical size in each direction, so 4K works on the default 1080p AVD
+but not on a 720p one (asking for 3840x2160 there gives 2560x1440). It changes what apps see,
+not the emulator window, which keeps its own size. With several emulators, add `-s <serial>`
+after `adb`.
+
+**At boot, `start-emulator.sh … -skin <W>x<H>`.** Extra flags go to the emulator, and `-skin`
+sets the screen's physical size for that run only; the AVD keeps its own:
+
+```bash
+start-emulator.sh tv_api25 -skin 1280x720
+```
+
+It sets no density: the AVD's stays (320 by default, so 1280x720 would be 640×360 dp); follow it
+with `adb shell wm density 213`.
+
+**A separate AVD, `create-avd.sh --size --density`.** For a screen you test on often, or that
+is more than twice the size of an existing AVD, which `wm` can't do. Give it a name so
+it doesn't take the default one:
+
+```bash
+create-avd.sh --api 30 --size 1280x720 --density 213 tv30_720p
+start-emulator.sh tv30_720p
+```
 
 ## `start-emulator.sh [--quick] [name] [emulator flags…]`
 

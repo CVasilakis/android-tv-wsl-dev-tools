@@ -275,7 +275,8 @@ def avdmanager(args):
         (folder / "config.ini").write_text(
             "avd.ini.encoding=UTF-8\nhw.keyboard=no\nhw.ramSize=1536\n"
             f"image.sysdir.1={image.replace(';', '/')}/\n"
-            f"hw.initialOrientation=portrait\ntag.id={tag}\ntag.ids={tag}\n")
+            f"hw.initialOrientation=portrait\ntag.id={tag}\ntag.ids={tag}\n"
+            "hw.lcd.width=1920\nhw.lcd.height=1080\nhw.lcd.density=320\n")
     elif args[:2] == ["list", "avd"]:
         print("\n".join(avd_names()))
     else:
