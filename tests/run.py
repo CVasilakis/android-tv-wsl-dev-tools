@@ -24,6 +24,8 @@ def main():
     parser.add_argument("-k", dest="patterns", action="append", default=[], metavar="PATTERN",
                         help="only tests whose name contains PATTERN (repeatable)")
     parser.add_argument("-v", "--verbose", action="store_true", help="one line per test")
+    parser.add_argument("--strict", action="store_true",
+                        help="fail if any test was skipped, e.g. for a missing optional tool (CI)")
     args = parser.parse_args()
 
     tiers = ["emulator"] if args.emulator else list(TIERS) if args.all else ["hermetic"]
@@ -39,6 +41,11 @@ def main():
         reasons = Counter(reason for _, reason in result.skipped)
         for reason, count in reasons.items():
             print(f"skipped {count}: {reason}")
+    # In CI a skip would pass unnoticed, e.g. the X11 tests once Xvfb is missing from the runner.
+    if args.strict and result.skipped:
+        sys.stdout.flush()   # after the reasons above
+        print(f"--strict: {len(result.skipped)} tests were skipped", file=sys.stderr)
+        sys.exit(1)
     sys.exit(0 if result.wasSuccessful() else 1)
 
 

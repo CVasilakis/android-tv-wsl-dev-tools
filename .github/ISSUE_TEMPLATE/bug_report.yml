@@ -1,0 +1,44 @@
+name: Bug report
+description: A script fails or does something unexpected.
+labels: [bug]
+body:
+  - type: input
+    id: command
+    attributes:
+      label: Command
+      description: The command you ran, with its arguments.
+      placeholder: start-emulator.sh tv_api30 --quick
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      description: >
+        Everything the script printed. For start-emulator.sh, also the end of the emulator's log,
+        ${TMPDIR:-/tmp}/emulator-<avd>.log.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: >
+        The release or commit of these tools, the OS (and whether it's WSL), and the output of
+        `emulator -version | head -n 1` and `adb --version | head -n 1`. For emulator problems,
+        the API level of the system image.
+      placeholder: |
+        Tools: v1.0.0
+        OS: Ubuntu 24.04 on WSL2
+        Emulator: Android emulator version 37.1.11.0
+        adb: Android Debug Bridge version 1.0.41
+        System image: API 30
+    validations:
+      required: true

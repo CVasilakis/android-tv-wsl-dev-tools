@@ -131,6 +131,7 @@ runner and boots an emulator per API level.
 | [`SETUP.md`](SETUP.md) | Setting up the toolchain (WSL2, JDK, Android SDK, emulator). |
 | [`CI.md`](CI.md) | Using the tools in GitHub Actions. |
 | [`AGENTS.md`](AGENTS.md) | Guidance for coding agents. |
+| [`.github/`](.github/workflows/tests.yml) | CI running the tests on every push to `main` and every pull request, and the bug-report form. |
 | [`LICENSE`](LICENSE) | The license. |
 
 Tests: `tests/run.py` (no SDK or emulator needed); see [`tests/README.md`](tests/README.md).

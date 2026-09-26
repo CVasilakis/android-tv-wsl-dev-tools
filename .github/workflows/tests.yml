@@ -1,0 +1,34 @@
+# The hermetic tier (tests/README.md) on every push to main and every pull request. The
+# real-emulator tier isn't run here: run `tests/run.py --emulator` locally before a release.
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+# A newer push to the same branch or pull request makes an older run pointless.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hermetic:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.x"]                    # the oldest supported, and the newest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install Xvfb and shellcheck (their tests skip without them)
+        run: sudo apt-get update && sudo apt-get install -y xvfb shellcheck
+      - name: Run the hermetic tests
+        run: python tests/run.py --strict          # a skipped test fails the run
