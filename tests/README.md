@@ -6,7 +6,7 @@ exit codes, messages, the files they write, and every call they make to `adb`, `
 `avdmanager`. Python standard library only (Python 3.9+), nothing to install.
 
 ```bash
-tests/run.py                  # hermetic tier: ~115 tests, ~75 s, no SDK or emulator needed
+tests/run.py                  # hermetic tier: 119 tests, no SDK or emulator needed
 tests/run.py -k remote -v     # only tests whose name contains "remote", one line each
 tests/run.py --emulator       # real-emulator tier: boots your AVD headless (see below)
 tests/run.py --all            # both

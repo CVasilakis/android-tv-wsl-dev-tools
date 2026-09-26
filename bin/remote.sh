@@ -11,8 +11,8 @@
 #
 # Each key is sent with `adb shell input keyevent <KEY>`: one mechanism for every Android version,
 # emulators and physical devices alike, whatever window has focus (which matters under WSLg, see
-# wslg-toolbar.py). Each call starts a Java process on the device, so a key takes ~0.15-0.6 s
-# (more on newer Android versions); quick presses queue up and arrive in order. The emulator
+# wslg-toolbar.py). Each call starts a Java process on the device, so each key lags a little;
+# quick presses queue up and arrive in order. The emulator
 # console (`adb emu event send`) would be faster, but it only exists on emulators and its key
 # events never arrive on the API 30 TV image.
 #

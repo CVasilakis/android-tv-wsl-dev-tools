@@ -1,7 +1,6 @@
 # AGENTS.md
 
-Guidance for AI coding agents (and humans) working on this repository. `CLAUDE.md` is a symlink
-to this file; edit this one.
+Guidance for AI coding agents (and humans) working on this repository.
 
 ## Project in one paragraph
 
@@ -15,7 +14,7 @@ on the current folder or on any particular app. Start with [`README.md`](README.
 ## Commands
 
 ```bash
-tests/run.py                  # hermetic tests (~75 s), no SDK or emulator needed
+tests/run.py                  # hermetic tests, no SDK or emulator needed
 tests/run.py -k remote -v     # a subset, one line per test
 tests/run.py --emulator       # real-emulator tier: boots your AVD headless
 bin/start-emulator.sh         # cold boot the TV emulator (returns when booted); --quick: from its snapshot
@@ -40,6 +39,9 @@ adb emu kill                  # stop the emulator (with several devices: adb -s 
   test-only) need the user's agreement.
 - **Docs describe the current state, not history.** When you change something a README
   describes, update that README in the same change.
+- **No machine-specific measurements in docs.** How long a boot, build, test run or key press
+  takes depends on the host, so describe it relatively ("slower", "faster than a cold boot").
+  Sizes, RAM needs and counts are fine.
 - **No personal information in tracked files:** no names, e-mail addresses, usernames or absolute
   home paths (write `~` or `/home/<user>`), no machine-specific config.
 - Downloads can be large (the emulator is ~354 MB, a system image ~700 MB). Ask before

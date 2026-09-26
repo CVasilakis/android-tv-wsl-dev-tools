@@ -91,7 +91,7 @@ serial; `export ANDROID_SERIAL=<serial>` makes both use only that one.
 | [`lib/lib.sh`](lib/lib.sh) | Shared by the shell scripts (sourced, not run): finds the SDK, its tools and AVDs. |
 | [`tests/`](tests/README.md) | Behavior tests for the scripts: `tests/run.py`. |
 | [`setup.md`](setup.md) | Setting up the toolchain (WSL2, JDK, Android SDK, emulator). |
-| [`AGENTS.md`](AGENTS.md) | Guidance for coding agents (`CLAUDE.md` links to it). |
+| [`AGENTS.md`](AGENTS.md) | Guidance for coding agents. |
 
-Tests: `tests/run.py` (~115 tests, ~75 s, no SDK or emulator needed); see
+Tests: `tests/run.py` (119 tests, no SDK or emulator needed); see
 [`tests/README.md`](tests/README.md).

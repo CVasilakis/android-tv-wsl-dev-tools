@@ -297,9 +297,8 @@ From the project's folder (here cloned next to this repository):
 ./gradlew installDebug
 ```
 
-Typical timings: the first `assembleDebug` takes several minutes (mostly downloads), later builds
-take seconds. `start-emulator.sh` cold boots by default, ~8–27 s depending on the API level;
-`start-emulator.sh --quick` restores the last Quick Boot snapshot instead, ~6–16 s.
+`start-emulator.sh` cold boots by default; `start-emulator.sh --quick` restores the last Quick
+Boot snapshot instead, which is faster.
 
 `local.properties` (git-ignored in Android projects) is created by Gradle/IDEs, or by hand:
 
@@ -321,7 +320,7 @@ The tests of the scripts need only Python 3.9+. Two optional tools enable more o
 | shellcheck | static analysis of the shell scripts (skips without it) | `sudo apt-get install -y shellcheck` / `sudo dnf install -y ShellCheck` |
 
 ```bash
-tests/run.py                   # ~115 tests; prints what it skipped and why
+tests/run.py                   # 119 tests; prints what it skipped and why
 ```
 
 ## Troubleshooting
