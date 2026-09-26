@@ -28,7 +28,7 @@ SUPPORT = Path(__file__).resolve().parent
 # which catches accidental dependencies on the host.
 UTILITIES = ["bash", "sed", "grep", "awk", "tr", "head", "tail", "dirname", "basename", "readlink",
              "ls", "sort", "cat", "wc", "sleep", "nohup", "env", "rm", "mkdir", "printf", "kill",
-             "stat"]
+             "stat", "timeout"]
 HOST_FAKES = ["python3", "getent", "id", "sg"]         # host commands replaced by fakes
 SDK_TOOLS = {"adb": "platform-tools/adb",
              "emulator": "emulator/emulator",

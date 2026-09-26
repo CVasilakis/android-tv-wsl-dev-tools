@@ -140,12 +140,21 @@ list_avds() {
     "$EMULATOR" -list-avds 2>/dev/null | grep -E '^[A-Za-z0-9._-]+$' || true
 }
 
+# adb with a time limit, for calls that are repeated until something changes. On an emulator
+# that's half booted or starved of CPU (a small CI runner), `adb shell` or `adb emu` can hang
+# without ever answering, and a loop waiting on it would never reach its own time limit. A call
+# that runs out of time fails like one that got no answer. ADT_ADB_TIMEOUT exists for the tests.
+ADB_TIMEOUT="${ADT_ADB_TIMEOUT:-15}"
+adb_bounded() {
+    timeout -k 5 "$ADB_TIMEOUT" "$ADB" "$@"
+}
+
 # Serials of the running emulators, one per line (physical devices are left out).
 running_emulators() {
-    "$ADB" devices 2>/dev/null | awk '$1 ~ /^emulator-[0-9]+$/ { print $1 }'
+    adb_bounded devices 2>/dev/null | awk '$1 ~ /^emulator-[0-9]+$/ { print $1 }'
 }
 
 # The AVD name of a running emulator, asked through its console. Empty if it doesn't answer yet.
 emulator_avd() {
-    "$ADB" -s "$1" emu avd name 2>/dev/null | head -n 1 | tr -d '\r'
+    adb_bounded -s "$1" emu avd name 2>/dev/null | head -n 1 | tr -d '\r'
 }
