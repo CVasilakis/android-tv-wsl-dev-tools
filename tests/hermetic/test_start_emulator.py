@@ -309,9 +309,14 @@ class BootProgress(EmulatorTestCase):
 
 class MarksTheTvSetupComplete(EmulatorTestCase):
     """Android TV 8.0 and 8.1 (API 26, 27) ignore the Home key until tv_user_setup_complete is
-    set, which their emulator images never do: after the boot, the script sets it."""
+    set, which their emulator images never do: after the boot, the script sets it, then waits
+    ADT_SAVE_DELAY seconds (30 by default), saying why, so Android saves it before a kill."""
 
     FLAG = "tv_user_setup_complete"
+
+    def start(self, *args, env=None):
+        # No wait, except where a test asks for one.
+        return super().start(*args, env={"ADT_SAVE_DELAY": "0", **(env or {})})
 
     def add_tv_avd(self, level, tag="android-tv"):
         name = f"{'gtv' if tag == 'google-tv' else 'tv'}_api{level}"
@@ -330,6 +335,7 @@ class MarksTheTvSetupComplete(EmulatorTestCase):
                 serial = result.out.strip()
                 self.assertEqual(self.sandbox.device_settings(serial).get(self.FLAG), "1")
                 self.assertIn("so the Home key works", result.err)
+                self.assertIn("so Android saves it", result.err)
                 self.assertEqual(result.out, f"{serial}\n", "stdout holds only the serial")
                 self.sandbox.stop_emulators()
 
@@ -342,6 +348,7 @@ class MarksTheTvSetupComplete(EmulatorTestCase):
                 self.assertSucceeded(result)
                 self.assertEqual(self.sandbox.device_settings(result.out.strip()), {})
                 self.assertNotIn("Home key", result.err)
+                self.assertNotIn("Waiting", result.err)
                 self.sandbox.stop_emulators()
         self.assertEqual(self.settings_puts(), [])
 
@@ -351,6 +358,14 @@ class MarksTheTvSetupComplete(EmulatorTestCase):
         self.assertSucceeded(result)
         self.assertEqual(self.settings_puts(), [])
         self.assertNotIn("Home key", result.err)
+        self.assertNotIn("Waiting", result.err)
+
+    def test_waits_for_android_to_save_it(self):
+        started = time.monotonic()
+        result = self.start(self.add_tv_avd(26), env={"ADT_SAVE_DELAY": "3"})
+        self.assertSucceeded(result)
+        self.assertGreaterEqual(time.monotonic() - started, 3)
+        self.assertIn("Waiting 3 s so Android saves it before the emulator can be stopped", result.err)
 
     def test_sets_it_on_an_emulator_started_elsewhere(self):
         avd = self.add_tv_avd(26)
@@ -364,6 +379,7 @@ class MarksTheTvSetupComplete(EmulatorTestCase):
         result = self.start(self.add_tv_avd(27))
         self.assertSucceeded(result)
         self.assertIn("couldn't set tv_user_setup_complete", result.err)
+        self.assertNotIn("Waiting", result.err)
         self.assertEqual(result.out, "emulator-5554\n")
 
 
