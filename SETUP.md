@@ -1,14 +1,14 @@
 # Development environment setup (WSL2)
 
-How to set up the toolchain for developing Android apps from the command line on WSL2 (Ubuntu
-24.04), with an Android TV emulator. Android Studio is not needed. Other Debian-based systems may
-work but are untested (see [Scope](README.md#scope)). For using the emulator once it's
-set up, see [`bin/README.md`](bin/README.md); for a CI runner, see [`CI.md`](CI.md).
+How to set up the toolchain for developing Android TV apps from the command line on WSL2, with an
+Android TV emulator and without Android Studio. What's supported is in [Scope](README.md#scope).
+For using the emulator once it's set up, see [`bin/README.md`](bin/README.md); for a CI runner,
+see [`CI.md`](CI.md).
 
 Locations below are defaults, not requirements. An existing SDK (e.g. Android Studio's) or AVD
 works as-is: Gradle and the scripts find it through `ANDROID_HOME`, `local.properties` and the
-other places listed in [`README.md`](README.md#finding-your-setup), so only the missing pieces
-need installing. The commands that run a script assume you're in this repository.
+other places listed in [Finding your setup](bin/README.md#finding-your-setup), so only the missing
+pieces need installing. The commands that run a script assume you're in this repository.
 
 ## Components
 
@@ -42,7 +42,7 @@ Downloads are what goes over the network; "on disk" is what the finished install
 | build-tools (automatic, first build) | ~64 MB | 147 MB |
 | emulator | ~354 MB | 821 MB |
 | Android TV API 25 x86 system image | ~420 MB | 3.1 GB (can be copied instead, see step 5) |
-| `libpulse0` and the optional `xvfb`, `shellcheck` packages | a few MB | |
+| `libpulse0` | a few MB | |
 | the `android` CLI, on its first run | ~250 MB | ~250 MB (`~/.android`) |
 | **The SDK once everything above is installed** | | **~4.4 GB** (`~/Android/Sdk`) |
 | Optional: the Android TV x86 system images of other levels | ~280–920 MB each | 1.4–8.2 GB each (table below) |
@@ -83,6 +83,8 @@ each takes as much as the Android TV image of its level:
 Plan for **~8 GB** in `$HOME` for a full first-time setup with one project built and its emulator
 booted, and **4–6 GB more** for each other Android version (its system image and AVD); ~11 GB for
 API 34 and 36, whose images alone take 8.2 GB.
+
+**Memory:** a running emulator takes 1.8–2.5 GB of RAM up to API 28, and 3–3.4 GB from API 29 on.
 
 ## Prerequisites
 
@@ -206,7 +208,7 @@ CLI, whose `android sdk` subcommand replaces it. The steps below use `android`:
 | list everything available | `android sdk list --all` | `sdkmanager --list` |
 | update packages | `android sdk update` | `sdkmanager --update` |
 | remove a package | `android sdk remove <pkg>` | `sdkmanager --uninstall "<pkg>"` |
-| accept licenses up front | — (see below) | `yes \| sdkmanager --licenses` |
+| accept licenses up front | not needed (see below) | `yes \| sdkmanager --licenses` |
 
 Every `android` command in this document carries `--no-metrics`; see [Telemetry](#telemetry).
 
@@ -217,11 +219,14 @@ Notes before you use it:
 - **Package ids take `/` or `;`**: `android sdk list` prints `platforms/android-36`, and both
   `android sdk install "platforms;android-36"` and `.../android-36` work. This document keeps the
   `;` form, which is also what Gradle error messages and `package.xml` use.
-- **It reports telemetry by default**, and the only way to turn that off is per call: see
-  [Telemetry](#telemetry).
 - **It exits 0 when a package doesn't exist**, printing only `Package … not found.` on stdout, so
   `android sdk install <typo> && …` carries on as if it had worked. Check with
   `android sdk list --no-metrics` rather than trusting the exit status.
+- **It accepts licenses as it installs**, so there's no `sdkmanager --licenses` step:
+  `android sdk install` writes the license of each package to `$ANDROID_HOME/licenses/`. Every
+  package in this setup is under `android-sdk-license`, so after step 4 that file exists and the
+  Android Gradle Plugin can install build-tools by itself. A package under a different license
+  (some Google add-ons) accepts its own on first install.
 
 #### Telemetry
 
@@ -256,24 +261,16 @@ To opt in, drop `--no-metrics`. To discard what was collected before you opted o
 rm -f ~/.android/cli/analytics/metrics/spool/*.bproto
 ```
 
-There is no `android` equivalent of `sdkmanager --licenses`, and you don't need one:
-`android sdk install` accepts the license of each package it installs, writing it to
-`$ANDROID_HOME/licenses/`. Every package in this setup is under `android-sdk-license`, so after
-step 4 that file exists and the Android Gradle Plugin can install build-tools by itself. A package
-under a different license (some Google add-ons) accepts its own on first install.
-
 ### 4. SDK packages
 
 ```bash
 android sdk install --no-metrics "platform-tools" "platforms;android-36" "emulator"
 ```
 
-(`android-36` is your project's `compileSdk`. On `--no-metrics`, see
-[Telemetry](#telemetry) — drop it to let the CLI report your usage.)
+(`android-36` is your project's `compileSdk`.)
 
 Check: `android sdk list --no-metrics` lists `emulator`, `platform-tools` and
-`platforms/android-36`. Check it rather than the exit status, which is 0 even for a package that
-doesn't exist.
+`platforms/android-36`.
 
 ### 5. Android TV API 25 system image
 
@@ -297,8 +294,8 @@ android sdk install --no-metrics "system-images;android-25;android-tv;x86"
 ```
 
 **Optional: other Android versions.** To also test on other Android versions, install their
-images too. Every Android TV x86 image from API 22 to 36 is tested (the table in [Sizes](#sizes);
-API 34 and 36 take 8.2 GB on disk each). Pick the ones you need, for example:
+images too: the tested levels are in [Scope](README.md#scope), their sizes in [Sizes](#sizes).
+Pick the ones you need, for example:
 
 ```bash
 android sdk install --no-metrics "system-images;android-22;android-tv;x86" "system-images;android-28;android-tv;x86"
@@ -306,12 +303,10 @@ android sdk install --no-metrics "system-images;android-30;android-tv;x86" "syst
 ```
 
 `android sdk list --no-metrics --all | grep android-tv` lists every level available. Skip
-API 21: its image installs, but the emulator can't boot it (only the old goldfish kernel,
-[`bin/README.md`](bin/README.md#create-avdsh---api-level---google-tv---if-missing-name)); API 22 is the oldest that works.
+API 21: its image installs, but the emulator can't boot it
+([`bin/README.md`](bin/README.md#create-avdsh)).
 
-**Optional: Google TV.** To test on Google TV (Android TV with Google's home screen), install
-its images; every Google TV x86 image is tested (API 30, 31, 33, 34 and 36, the second table in
-[Sizes](#sizes)), for example:
+**Optional: Google TV.** To test on Google TV, install its images the same way, for example:
 
 ```bash
 android sdk install --no-metrics "system-images;android-30;google-tv;x86" "system-images;android-36;google-tv;x86"
@@ -322,12 +317,11 @@ android sdk install --no-metrics "system-images;android-30;google-tv;x86" "syste
 ```bash
 bin/create-avd.sh            # creates the AVD "tv_api25"
 bin/create-avd.sh --api 28   # optional: "tv_api28", from the API 28 image of step 5
-bin/create-avd.sh --api 30   # optional: "tv_api30" (prints a harmless devices.xml error)
 bin/create-avd.sh --google-tv --api 36   # optional: "gtv_api36", from the Google TV image
 ```
 
-Likewise for any other level whose image you installed in step 5. From API 29 on, the images make
-avdmanager print that devices.xml error.
+Likewise for any other level whose image you installed in step 5. From API 29 on, avdmanager
+prints a devices.xml error that's harmless ([`bin/README.md`](bin/README.md#create-avdsh)).
 
 `create-avd.sh` only writes files, so it works without KVM access; booting the AVD (step 7) is the
 first thing that needs it.
@@ -342,9 +336,6 @@ From the project's folder (here cloned next to this repository):
 ./gradlew installDebug
 ```
 
-`start-emulator.sh` cold boots by default; `start-emulator.sh --quick` restores the last Quick
-Boot snapshot instead, which is faster.
-
 `local.properties` (git-ignored in Android projects) is created by Gradle/IDEs, or by hand:
 
 ```bash
@@ -357,16 +348,8 @@ project.
 
 ### 8. Test tools (only to work on this repository)
 
-The tests of the scripts need only Python 3.10+. Two optional tools enable more of them:
-
-| Tool | For | Install |
-|---|---|---|
-| Xvfb, a virtual X server | the `wslg-toolbar.py` tests (they skip without it) | `sudo apt-get install -y xvfb` |
-| shellcheck | static analysis of the shell scripts (skips without it) | `sudo apt-get install -y shellcheck` |
-
-```bash
-tests/run.py                   # prints what it skipped and why
-```
+The tests need only Python 3.10+; two optional tools enable more of them. See
+[`tests/README.md`](tests/README.md).
 
 ## Troubleshooting
 
@@ -388,8 +371,5 @@ tests/run.py                   # prints what it skipped and why
   `~/.bashrc` (step 3), or in one that reads no startup file. Move the block above the
   interactive check, and create `local.properties` (step 7).
 - **Build fails with an error about `javac` or `jlink`**: only a JRE is installed (step 1).
-- **`adb devices` shows `unauthorized`/`offline`**: `adb kill-server && adb start-server`.
-- **Emulator problems** (no toolbar, keys not arriving, clicks ignored, black window): see
-  [`bin/README.md`](bin/README.md#troubleshooting).
-- **`skipped …: Xvfb isn't installed`** or **`shellcheck isn't installed`** from `tests/run.py`:
-  optional tools from step 8.
+- **Emulator problems** (no toolbar, keys not arriving, clicks ignored, black window, `adb`
+  offline): see [`bin/README.md`](bin/README.md#troubleshooting).

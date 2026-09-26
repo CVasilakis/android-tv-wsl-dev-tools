@@ -34,35 +34,31 @@ adb emu kill                  # stop the emulator (with several devices: adb -s 
 - **`bin/` holds only commands**: users may put it on `PATH`. Helpers go in `lib/`.
 - **Scope** ([`README.md`](README.md#scope)): Android TV apps, on Ubuntu under WSL2. Phones and
   other device types are out of scope. Don't claim support for a distribution, image or API level
-  that hasn't been tested; update the Scope section when that changes. Keep `apt` as the only
-  package manager in the docs.
+  that hasn't been tested, and update the Scope section, which lists the tested images, when
+  that changes.
 - **App-agnostic.** No app names, package names or project paths in scripts or docs. Environment
   variables of these tools start with `ADT_`.
-- **Every script change or new option gets a test** in `tests/hermetic/test_<script>.py`; a bug fix
-  starts with a failing test. New scripts need `--help` starting with `Usage: <name>`, a shebang,
-  and a line in `bin/README.md` (enforced by `test_conventions.py`). Check that a new test can
-  fail by breaking the behavior once.
+- **Every script change or new option gets a test**; a bug fix starts with a failing test. How to
+  write them: [`tests/README.md`](tests/README.md#writing-tests).
 - **No dependencies**: bash, coreutils and the Python standard library (3.10+) only. New tools
-  (even test-only) need the user's agreement, and a test-only one must also be installed in
-  `.github/workflows/tests.yml`, which fails on skipped tests.
+  (even test-only) need the user's agreement.
 - **Before a release, run the emulator tier locally** on every tested API level
   ([`tests/README.md`](tests/README.md)): CI runs only the hermetic tier.
+- **Each fact is in one doc; the others link to it.** [`README.md`](README.md): overview, scope,
+  versions. [`SETUP.md`](SETUP.md): installing, sizes. [`bin/README.md`](bin/README.md): using
+  the scripts. [`CI.md`](CI.md): GitHub Actions. [`tests/README.md`](tests/README.md): the
+  tests. This file: rules for changes, and pointers.
 - **Docs describe the current state, not history.** When you change something a README
   describes, update that README in the same change.
 - **No machine-specific measurements in docs.** How long a boot, build, test run or key press
   takes depends on the host, so describe it relatively ("slower", "faster than a cold boot").
   Sizes, RAM needs and counts are fine.
-- **No personal information in tracked files:** no names, e-mail addresses, usernames or absolute
-  home paths (write `~` or `/home/<user>`), no machine-specific config. The exceptions are
-  `LICENSE` and this repository's address (`CVasilakis/android-tv-wsl-dev-tools`), which contains
-  the owner's username, in examples that check it out.
-- **The public interface is versioned** ([`README.md`](README.md#versions-and-compatibility)):
-  command names, options, the environment variables they read, defaults and exit statuses.
-  Breaking it needs the user's agreement and means a new major version; when you report a change,
-  say whether it breaks, extends or only fixes that interface, for the release notes. Only the
-  user creates tags and releases.
-- Downloads can be large (the emulator is ~354 MB, a system image ~700 MB). Ask before
-  triggering big SDK downloads.
+- **Paths in docs use `~`**, never an absolute home path, so examples work on any machine.
+- **The public interface is versioned** ([`README.md`](README.md#versions)). Breaking it needs
+  the user's agreement and means a new major version; when you report a change, say whether it
+  breaks, extends or only fixes that interface, for the release notes. Only the user creates tags
+  and releases.
+- Downloads are large ([`SETUP.md`](SETUP.md#sizes)). Ask before triggering big SDK downloads.
 - `sudo` needs a password and there's no terminal to type it into, so ask the user to run sudo
   commands themselves in a regular terminal.
 
@@ -88,26 +84,12 @@ Each of these fixes a real problem. The reasons are in the linked file; read the
 
 ## Emulator facts that save time
 
-(Details in [`bin/README.md`](bin/README.md).)
+Read these parts of [`bin/README.md`](bin/README.md) before driving the emulator:
 
-- The TV emulator has **no touchscreen**: clicks on the screen do nothing by design.
-- Sending keys from a script: `adb shell input keyevent DPAD_DOWN`, like `remote.sh` (any device,
-  any API level). `adb emu event send EV_KEY:108:1 EV_KEY:108:0` is faster but emulator-only, and
-  its keys are lost on the API 30 TV image. Host-level simulated input (xdotool/XTest,
-  XSetInputFocus) does **not** reach the emulator under WSLg.
-- To check which keys Android received: `adb shell dumpsys input | sed -n '/RecentQueue/,/PendingEvent/p'`
-  (key codes up to API 28; API 29 on prints only `KeyEvent, age=…`).
-  `adb shell getevent > file` doesn't work for this (output is buffered without a terminal).
-- AVDs of several API levels (`create-avd.sh --api 22`, `--api 36`) run side by side, and Google
-  TV ones (`--google-tv --api 36`, named `gtv_api36`); the tested ones are listed in
-  [`README.md`](README.md#several-android-versions), the one place to update when that changes. API 21's Android TV image can't boot (goldfish kernel only), so
-  `create-avd.sh --api 21` refuses it.
-- In the emulator window, Esc and F1 don't reach Android; Back is Ctrl+Backspace, Home Ctrl+H, Menu Ctrl+M.
-- From API 23 on, the stock TV launcher's HOME filter has priority 2, so `set-home-activity` and
-  the home chooser don't work on these images; another home app only takes over while the stock
-  one is disabled (`adb shell pm disable-user --user 0 <package>`). On API 22 it has no priority:
-  with another home app installed, Home opens the chooser. The stock launcher is
-  `com.google.android.leanbacklauncher` up to API 25 and `com.google.android.tvlauncher` from
-  API 26 on (26–29 also ship `leanbacklauncher`, without a HOME filter); on the Google TV images
-  it's `com.google.android.apps.tv.launcherx`, also with priority 2. Other differences between
-  levels: [`bin/README.md`](bin/README.md#differences-between-api-levels).
+- [Controlling the TV](bin/README.md#controlling-the-tv): there's no touchscreen; send keys with
+  `adb shell input keyevent`, since host-level input (xdotool) doesn't reach the emulator under
+  WSLg.
+- [Checking what the emulator is doing](bin/README.md#checking-what-the-emulator-is-doing): the
+  activity in front, screenshots, the keys Android received.
+- [Differences between API levels](bin/README.md#differences-between-api-levels): stock
+  launchers and their HOME priority, key codes in the input dump, first-boot screens.

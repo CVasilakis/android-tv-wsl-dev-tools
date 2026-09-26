@@ -1,18 +1,24 @@
 # android-tv-wsl-dev-tools
 
+> **Not an official Google or Microsoft product.** This is an independent project, not affiliated
+> with, sponsored or endorsed by Google LLC or Microsoft Corporation. Android, Android TV and
+> Google TV are trademarks of Google LLC; Windows and WSL are trademarks of Microsoft Corporation.
+> They're named here only to say what the tools work with.
+
 Command-line tools for developing Android TV apps without Android Studio, on Ubuntu under WSL2:
 create and boot an Android TV emulator, drive it with a TV remote in the terminal, and work around
-the emulator's input problems under WSLg. They work with any Gradle project: they find the SDK, AVDs
-and emulators on their own (see [Finding your setup](#finding-your-setup)).
+the emulator's input problems under WSLg. They work with any Gradle project, and find the SDK, AVDs
+and emulators on their own.
 
-| Script | Purpose |
-|---|---|
-| [`bin/create-avd.sh`](bin/create-avd.sh) | Creates an Android TV emulator with the right hardware settings: `tv_api25`, or another API level from 22 on with `--api` (e.g. `tv_api22`, `tv_api36`), or a Google TV one with `--google-tv` (e.g. `gtv_api36`); 1080p unless `--size`/`--density` pick another screen. |
-| [`bin/start-emulator.sh`](bin/start-emulator.sh) | Boots it (cold boot, or Quick Boot with `--quick`), waits until Android is ready, applies the WSLg toolbar fix. |
-| [`bin/remote.sh`](bin/remote.sh) | TV remote in the terminal (D-pad, OK, Back, Home, Menu, …). |
-| [`bin/wslg-toolbar.py`](bin/wslg-toolbar.py) | Works around the emulator toolbar's input problems under WSLg. |
+## Documentation
 
-Each one prints its usage with `--help`. [`bin/README.md`](bin/README.md) describes them in detail.
+- [`SETUP.md`](SETUP.md): installing the toolchain (JDK, Android SDK, emulator) on WSL2, and how
+  much disk and memory it takes.
+- [`bin/README.md`](bin/README.md): the scripts. What each one does, how they find your setup,
+  controlling the TV, other Android versions and screen sizes, troubleshooting.
+- [`CI.md`](CI.md): using the scripts in GitHub Actions.
+- [`tests/README.md`](tests/README.md): the tests, for working on the scripts.
+- [`AGENTS.md`](AGENTS.md): rules for changing this repository.
 
 ## Scope
 
@@ -22,29 +28,24 @@ WSLg workarounds are skipped outside WSL. GitHub's Ubuntu runners are covered fo
 CI ([`CI.md`](CI.md)). macOS, native Windows and non-Debian distributions aren't supported.
 
 **What:** Android TV apps, controlled with a D-pad remote and no touchscreen. The AVD settings,
-the default AVD and the remote in the terminal are built around that. The tested emulator images
-are the Android TV and Google TV x86 ones ([Several Android versions](#several-android-versions)).
-Google TV is Android TV with Google's home screen, which asks for a Google account; the x86_64
-and 16 KB page size (`google-tv-ps16k`) variants are untested. Phone, tablet, Wear OS and
+the default AVD and the remote in the terminal are built around that. Phone, tablet, Wear OS and
 Automotive apps are out of scope: they need touch input and other hardware settings that these
 tools don't provide.
 
+**Tested emulator images:**
+
+- **Android TV x86: API 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 33, 34 and 36**, every one from
+  API 22 on (there are none for 32 and 35). API 22 is the oldest the emulator can boot.
+- **Google TV x86: API 30, 31, 33, 34 and 36**, every one there is. Google TV is Android TV with
+  Google's home screen. Its x86_64 and 16 KB page size (`google-tv-ps16k`) variants are untested.
+
 ## Getting started
 
-1. Set up the SDK and the emulator: [`SETUP.md`](SETUP.md). Skip the parts you already have (an
-   Android Studio SDK or AVD works as is).
-2. Clone this repository anywhere, for example next to your projects.
-3. Call the scripts by their path, from any folder:
-
-   ```bash
-   cd ~/my-app
-   ../android-tv-wsl-dev-tools/bin/start-emulator.sh && ./gradlew installDebug
-   ../android-tv-wsl-dev-tools/bin/remote.sh
-   ```
-
-The scripts never depend on the folder they're called from, except for one thing: they read
-`sdk.dir` from the `local.properties` of the project you're in (the nearest one in the current
-folder or above it), the way Gradle does.
+1. Clone this repository anywhere, for example next to your projects.
+2. Follow [`SETUP.md`](SETUP.md), skipping the parts you already have (an Android Studio SDK or
+   AVD works as is). It ends with booting the emulator from your project.
+3. Call the scripts by their path from any folder (`../android-tv-wsl-dev-tools/bin/remote.sh`),
+   or put them on your `PATH`.
 
 ### Optional: put the scripts on your `PATH`
 
@@ -65,97 +66,14 @@ holds only the commands, so nothing else lands on your `PATH`. Messages that sug
 (e.g. "Start one with: …") show its bare name when it's on your `PATH`, and otherwise the path
 you called the script by, so they can be pasted as is.
 
-## Finding your setup
+## Versions
 
-Nothing about the SDK, AVD or device is hardcoded; each is taken from the first match below.
+Releases are git tags named `vMAJOR.MINOR.PATCH` ([semantic versioning](https://semver.org)), with
+release notes on GitHub. `main` can change at any time, so anything automated should pin a release
+tag, or a full commit SHA.
 
-| What | Where from |
-|---|---|
-| Android SDK | `$ANDROID_HOME`, `$ANDROID_SDK_ROOT`, `sdk.dir` in the current project's `local.properties`, the SDK of the `adb` on `$PATH`, `~/Android/Sdk` |
-| `adb`, `emulator`, `avdmanager`, `android` | inside that SDK (`cmdline-tools/latest`, else the newest `cmdline-tools/<version>`), else on `$PATH` |
-| AVD folder | `$ANDROID_AVD_HOME`, `$ANDROID_EMULATOR_HOME/avd`, `$ANDROID_USER_HOME/avd`, `$ANDROID_SDK_HOME/.android/avd`, `~/.android/avd`; each AVD is located through its `<name>.ini` |
-| AVD to create or boot | the name given on the command line, `$ADT_AVD`, `tv_api25` (`create-avd.sh --api <level>`: the name given, else `tv_api<level>`, or `gtv_api<level>` with `--google-tv`); `start-emulator.sh` then also accepts the only Android TV or Google TV AVD |
-| Emulator to talk to | `start-emulator.sh` matches running emulators by AVD name; `remote.sh` takes the serial given (any device), `$ANDROID_SERIAL`, or the only running emulator; `wslg-toolbar.py` the AVD given or the only emulator window |
-
-To use your own TV AVD without typing its name each time: `export ADT_AVD=<name>`.
-
-### Several Android versions
-
-To test an app on more than one Android version, create one AVD per API level and boot the ones
-you need; they run side by side, each on its own serial:
-
-```bash
-create-avd.sh --api 22 && create-avd.sh --api 36        # tv_api22 (Android 5.1), tv_api36 (Android 16)
-for avd in tv_api22 tv_api25 tv_api36; do start-emulator.sh "$avd"; done
-./gradlew connectedDebugAndroidTest                     # runs on every connected device
-```
-
-**Tested API levels: 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 33, 34 and 36**: every Android TV
-x86 image from API 22 on (there are none for 32 and 35). **Google TV: 30, 31, 33, 34 and 36**,
-every Google TV x86 image (`create-avd.sh --google-tv --api 36` creates `gtv_api36`). Each needs
-its system image first ([`SETUP.md`](SETUP.md), step 5). API 22 is the oldest Android TV image the
-emulator can boot; what differs between the levels and images is in
-[`bin/README.md`](bin/README.md#differences-between-api-levels).
-An emulator takes 1.8–2.5 GB of RAM up to API 28, and 3–3.4 GB from API 29 on. `remote.sh` needs
-the serial when several are running.
-
-To test an app on other screen sizes and densities (720p, 4K, …), change a running emulator's
-screen with `adb shell wm size`/`wm density`, boot it with `-skin`, or create an AVD with
-`create-avd.sh --size --density`: see [`bin/README.md`](bin/README.md#other-screen-sizes-and-densities).
-
-With several devices connected (another emulator, a phone, a TV over adb), `adb` refuses to guess
-and `./gradlew installDebug` installs on all of them. `start-emulator.sh` prints the emulator's
-serial, alone on stdout, and `ANDROID_SERIAL` makes both use only that one:
-
-```bash
-serial="$(start-emulator.sh tv_api36)" && export ANDROID_SERIAL="$serial"
-```
-
-## Versions and compatibility
-
-Releases are git tags named `vMAJOR.MINOR.PATCH` ([semantic versioning](https://semver.org));
-what changed in each is in its release notes on GitHub. `main` can change at any time, so anything
-automated (a CI workflow, a script other people run) should use a release tag, or a full commit
-SHA to rule out a moved tag.
-
-The version number covers the public interface:
-
-- the commands in `bin/`: their names, arguments and options, as their `--help` shows them;
-- the environment variables they read: `ADT_AVD`, `ADT_BOOT_TIMEOUT`, `EMULATOR_TOOLBAR`,
-  `ANDROID_SERIAL` and those in [Finding your setup](#finding-your-setup);
-- where they look for the SDK, AVDs and devices, and in what order
-  ([Finding your setup](#finding-your-setup));
-- the AVD `create-avd.sh` creates: its default name, system image and hardware settings;
-- exit statuses: 0 on success, non-zero on failure;
-- `start-emulator.sh`'s stdout: the emulator's serial, alone on one line (messages go to stderr).
-
-A release that breaks any of these (removes or renames something, or changes what a command
-does by default) is a new major version. New commands, options or tested API levels are a new
-minor version, and fixes a new patch version.
-
-Not covered, so free to change in any release:
-
-- the wording of messages: they're written for people, so don't parse them;
-- [`lib/lib.sh`](lib/lib.sh), which only the scripts use;
-- [`tests/`](tests/README.md), and the variables that exist only for the tests
-  (`ADT_KVM_DEVICE`, `ADT_PROC_VERSION`, `ADT_OFFLINE_TIMEOUT`, `WSLG_TOOLBAR_TIMEOUT`).
-
-### In CI
-
-[`CI.md`](CI.md) shows a GitHub Actions workflow that checks out a pinned release, prepares the
-runner and boots an emulator per API level.
-
-## Repository layout
-
-| Path | Contents |
-|---|---|
-| [`bin/`](bin/README.md) | The scripts users run, and nothing else (it may be on a user's `PATH`). |
-| [`lib/lib.sh`](lib/lib.sh) | Shared by the shell scripts (sourced, not run): finds the SDK, its tools and AVDs. |
-| [`tests/`](tests/README.md) | Behavior tests for the scripts: `tests/run.py`. |
-| [`SETUP.md`](SETUP.md) | Setting up the toolchain (WSL2, JDK, Android SDK, emulator). |
-| [`CI.md`](CI.md) | Using the tools in GitHub Actions. |
-| [`AGENTS.md`](AGENTS.md) | Guidance for coding agents. |
-| [`.github/`](.github/workflows/tests.yml) | CI running the tests on every push to `main` and every pull request, and the bug-report form. |
-| [`LICENSE`](LICENSE) | The license. |
-
-Tests: `tests/run.py` (no SDK or emulator needed); see [`tests/README.md`](tests/README.md).
+The version covers the scripts' names, options and defaults as their `--help` shows them
+(including the AVD `create-avd.sh` creates), where they look for the SDK and AVDs, the environment
+variables they read, their exit statuses, and `start-emulator.sh`'s stdout (the serial alone). Breaking any of these is a new major version; new options or tested API levels are
+a new minor one. Messages, [`lib/lib.sh`](lib/lib.sh) and [`tests/`](tests/README.md) can change in
+any release.
