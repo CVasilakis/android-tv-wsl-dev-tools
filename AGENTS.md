@@ -4,7 +4,7 @@ Guidance for AI coding agents (and humans) working on this repository.
 
 ## Project in one paragraph
 
-android-cli-dev-tools: command-line tools for developing Android TV apps without Android Studio,
+android-tv-wsl-dev-tools: command-line tools for developing Android TV apps without Android Studio,
 on Ubuntu under WSL2. Bash scripts plus one Python script (standard library only) that create and
 boot an Android TV emulator, send remote-control keys to it, and fix its input under WSLg. What's
 supported and tested is in [`README.md`](README.md#scope). They're used from other
@@ -54,7 +54,7 @@ adb emu kill                  # stop the emulator (with several devices: adb -s 
   Sizes, RAM needs and counts are fine.
 - **No personal information in tracked files:** no names, e-mail addresses, usernames or absolute
   home paths (write `~` or `/home/<user>`), no machine-specific config. The exceptions are
-  `LICENSE` and this repository's address (`CVasilakis/android-cli-dev-tools`), which contains
+  `LICENSE` and this repository's address (`CVasilakis/android-tv-wsl-dev-tools`), which contains
   the owner's username, in examples that check it out.
 - **The public interface is versioned** ([`README.md`](README.md#versions-and-compatibility)):
   command names, options, the environment variables they read, defaults and exit statuses.

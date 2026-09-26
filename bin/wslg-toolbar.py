@@ -75,7 +75,7 @@ WSL only. Hides or shows the Android Emulator's side toolbar, which misbehaves u
   -h, --help  show this help
 
 start-emulator.sh runs this with "hide" after boot. Restarting the emulator undoes it.
-Details: bin/README.md in android-cli-dev-tools."""
+Details: bin/README.md in android-tv-wsl-dev-tools."""
 
 args = sys.argv[1:]
 if any(a in ("-h", "--help") for a in args):

@@ -3,7 +3,7 @@
 The scripts, and nothing else: users may put this folder on their `PATH`
 (see [`../README.md`](../README.md#optional-put-the-scripts-on-your-path)), so helpers live in
 [`../lib/`](../lib/lib.sh). Commands below are shown by name; without `PATH` set up, call them by
-their path, e.g. `../android-cli-dev-tools/bin/start-emulator.sh`. Where they find the SDK, AVDs and
+their path, e.g. `../android-tv-wsl-dev-tools/bin/start-emulator.sh`. Where they find the SDK, AVDs and
 devices: [Finding your setup](../README.md#finding-your-setup).
 
 | Script | Purpose |

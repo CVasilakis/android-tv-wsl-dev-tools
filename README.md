@@ -1,4 +1,4 @@
-# android-cli-dev-tools
+# android-tv-wsl-dev-tools
 
 Command-line tools for developing Android TV apps without Android Studio, on Ubuntu under WSL2:
 create and boot an Android TV emulator, drive it with a TV remote in the terminal, and work around
@@ -38,8 +38,8 @@ tools don't provide.
 
    ```bash
    cd ~/my-app
-   ../android-cli-dev-tools/bin/start-emulator.sh && ./gradlew installDebug
-   ../android-cli-dev-tools/bin/remote.sh
+   ../android-tv-wsl-dev-tools/bin/start-emulator.sh && ./gradlew installDebug
+   ../android-tv-wsl-dev-tools/bin/remote.sh
    ```
 
 The scripts never depend on the folder they're called from, except for one thing: they read
@@ -51,13 +51,13 @@ folder or above it), the way Gradle does.
 To type `start-emulator.sh` instead of its path, either add `bin/` to your `PATH` (in `~/.bashrc`):
 
 ```bash
-export PATH="$PATH:$HOME/android-cli-dev-tools/bin"
+export PATH="$PATH:$HOME/android-tv-wsl-dev-tools/bin"
 ```
 
 or symlink the scripts into a folder that's already on it:
 
 ```bash
-ln -s ~/android-cli-dev-tools/bin/* ~/.local/bin/
+ln -s ~/android-tv-wsl-dev-tools/bin/* ~/.local/bin/
 ```
 
 Both work the same way: the scripts resolve symlinks to find the rest of this repository. `bin/`

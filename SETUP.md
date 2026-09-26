@@ -338,7 +338,7 @@ From the project's folder (here cloned next to this repository):
 
 ```bash
 ./gradlew assembleDebug                                 # the first run downloads Gradle, AGP, Kotlin and build-tools
-../android-cli-dev-tools/bin/start-emulator.sh          # boots tv_api25, returns when Android is ready
+../android-tv-wsl-dev-tools/bin/start-emulator.sh          # boots tv_api25, returns when Android is ready
 ./gradlew installDebug
 ```
 
