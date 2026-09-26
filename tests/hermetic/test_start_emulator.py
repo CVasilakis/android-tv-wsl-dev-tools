@@ -206,7 +206,8 @@ class ColdOrQuickBoot(EmulatorTestCase):
 
 class BootTimeout(EmulatorTestCase):
     """An emulator that runs but never boots must not keep the script (or a CI job) waiting
-    forever: after ADT_BOOT_TIMEOUT seconds it's stopped and the script fails."""
+    forever: after ADT_BOOT_TIMEOUT seconds it's stopped and the script fails, even when the adb
+    calls that check the boot hang (each gets ADT_ADB_TIMEOUT seconds, 15 by default)."""
 
     FAST = {"ADT_BOOT_TIMEOUT": "2"}
 
@@ -231,6 +232,22 @@ class BootTimeout(EmulatorTestCase):
         self.sandbox.set_behavior(emulator_hidden=True)
         started = time.time()
         self.assertGaveUp(self.start(env=self.FAST), started)
+
+    def test_stops_an_emulator_whose_boot_check_never_answers(self):
+        self.sandbox.set_behavior(adb_hangs={"getprop": 10**9})
+        started = time.time()
+        self.assertGaveUp(self.start(env={**self.FAST, "ADT_ADB_TIMEOUT": "1"}), started)
+
+    def test_stops_an_emulator_whose_console_never_answers(self):
+        self.sandbox.set_behavior(adb_hangs={"avd_name": 10**9})
+        started = time.time()
+        self.assertGaveUp(self.start(env={**self.FAST, "ADT_ADB_TIMEOUT": "1"}), started)
+
+    def test_asks_again_after_a_boot_check_that_hung(self):
+        self.sandbox.set_behavior(adb_hangs={"getprop": 1})
+        result = self.start(env={"ADT_ADB_TIMEOUT": "1"})
+        self.assertSucceeded(result)
+        self.assertEqual(result.out, "emulator-5554\n")
 
     def test_a_retry_after_a_timeout_boots_again(self):
         # The stopped emulator must be gone, or the retry would report it as already running.

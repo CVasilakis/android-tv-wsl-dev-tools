@@ -204,7 +204,9 @@ an SSH session) the emulator aborts, and its log doesn't say why. So there the s
 boot can't keep it (or a CI job) waiting forever. Raise it on a slow host; `ADT_BOOT_TIMEOUT=0`
 waits without limit. While it waits, it prints a line every minute on stderr, e.g.
 `'tv_api25' is still booting (120 s so far; the limit is 900 s)...`, so a slow boot doesn't look
-like a hang in a CI log.
+like a hang in a CI log. Each adb call that checks the boot gets 15 s, because on an emulator
+that's half booted or short of CPU, adb can hang without answering; a call that runs out of time
+counts as "not booted yet", so the limit still applies.
 
 **Cold boot or Quick Boot.** By default Android starts from scratch (`-no-snapshot-load`); newer
 API levels take longer. `--quick` (anywhere on the command line) instead restores the snapshot the

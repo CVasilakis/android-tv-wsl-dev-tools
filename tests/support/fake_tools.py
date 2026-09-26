@@ -32,6 +32,9 @@ DEFAULT_BEHAVIOR = {
     "emulator_hidden": False,     # emulator keeps running but never shows up in adb devices
     "emulator_noise": True,       # emulator -list-avds prints a log line before the names
     "keyevent_failures": 0,       # the first N `adb shell input keyevent` calls fail
+    "adb_hangs": {},              # {"getprop": N, "avd_name": N}: the first N `adb shell getprop
+                                  # sys.boot_completed` or `adb emu avd name` calls never return,
+                                  # like adb on a half-booted emulator starved of CPU
     "avd_home": None,             # avdmanager/emulator use this AVD folder, ignoring the env vars
     "avdmanager_xdg": False,      # avdmanager acts like cmdline-tools 12.0 (GitHub's runners): with
                                   # $XDG_CONFIG_HOME set, it creates AVDs in
@@ -65,6 +68,12 @@ def take(counter, limit):
     counts[counter] = counts.get(counter, 0) + 1
     path.write_text(json.dumps(counts))
     return counts[counter] <= limit
+
+
+def hang_if(call):
+    """Never returns for the first adb_hangs[call] calls, until something kills this process."""
+    if take(f"hang_{call}", behavior()["adb_hangs"].get(call, 0)):
+        time.sleep(3600)
 
 
 def log_call(tool, argv):
@@ -197,6 +206,7 @@ def adb(args):
             fail(f"error: {serial} is not an emulator")
         adb_emu(serial, emulators[serial], args[1:])
     elif args[:3] == ["shell", "getprop", "sys.boot_completed"]:
+        hang_if("getprop")
         if serial in emulators:
             info = emulators[serial]
             info["polls"] += 1
@@ -214,6 +224,7 @@ def adb(args):
 
 def adb_emu(serial, info, args):
     if args == ["avd", "name"]:
+        hang_if("avd_name")
         sys.stdout.write(f"{info['avd']}\r\nOK\r\n")
     elif args == ["kill"]:
         (RUNNING / f"{serial}.json").unlink(missing_ok=True)

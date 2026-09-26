@@ -27,8 +27,10 @@
 # Boot timeout: an emulator that keeps running without ever finishing its boot (a stuck boot, a
 # broken image or data partition) would otherwise keep this script, and a CI job that calls it,
 # waiting forever. After $ADT_BOOT_TIMEOUT seconds (default 900; 0: no limit) the script stops the
-# emulator it started, which is of no use half-booted, and fails. Meanwhile it says every minute
-# that the emulator is still booting, so a slow boot (in a CI log, say) doesn't look like a hang.
+# emulator it started, which is of no use half-booted, and fails. Each adb call that checks the
+# boot gets its own time limit, since adb can hang on such an emulator. Meanwhile the script says
+# every minute that the emulator is still booting, so a slow boot (in a CI log, say) doesn't look
+# like a hang.
 #
 # Already running: an AVD that's running isn't started again (its files are locked), but it may
 # still be booting, e.g. started by another call or CI step a moment ago. So the script waits for
@@ -314,7 +316,7 @@ offline_since=""
 reconnected=""
 check_offline() {
     [ -n "$QUICK" ] && [ -n "$STARTED_HERE" ] || return 0
-    if [ "$("$ADB" devices 2>/dev/null | awk -v s="$SERIAL" '$1 == s { print $2 }')" != offline ]; then
+    if [ "$(adb_bounded devices 2>/dev/null | awk -v s="$SERIAL" '$1 == s { print $2 }')" != offline ]; then
         offline_since=""
         return 0
     fi
@@ -322,7 +324,7 @@ check_offline() {
     [ $((SECONDS - offline_since)) -ge "$OFFLINE_TIMEOUT" ] || return 0
     if [ -z "$reconnected" ]; then
         echo "adb has seen $SERIAL as offline for ${OFFLINE_TIMEOUT} s; reconnecting adb..." >&2
-        "$ADB" reconnect offline > /dev/null 2>&1 || true
+        adb_bounded reconnect offline > /dev/null 2>&1 || true
         reconnected=1
         offline_since=""
         return 0
@@ -334,8 +336,9 @@ check_offline() {
 
 # adbd answers long before the package manager is up, and installing at that point fails, so wait
 # for sys.boot_completed. tr strips the '\r' that adb shell appends; </dev/null keeps adb shell
-# from using up the stdin of whatever called this script.
-until [ "$("$ADB" -s "$SERIAL" shell getprop sys.boot_completed < /dev/null 2>/dev/null \
+# from using up the stdin of whatever called this script. adb_bounded (lib.sh): a hung call
+# counts as "not booted yet", so the boot timeout still applies.
+until [ "$(adb_bounded -s "$SERIAL" shell getprop sys.boot_completed < /dev/null 2>/dev/null \
         | tr -d '\r')" = "1" ]; do
     check_alive
     check_timeout
@@ -349,7 +352,7 @@ if [ -n "$STARTED_HERE" ] || [ -n "${WAITED:-}" ]; then
 fi
 # With several devices connected, adb refuses to guess and `./gradlew installDebug` installs on
 # all of them. Both honor ANDROID_SERIAL.
-if [ -n "$STARTED_HERE" ] && [ "$("$ADB" devices | awk 'NR > 1 && NF' | wc -l)" -gt 1 ]; then
+if [ -n "$STARTED_HERE" ] && [ "$(adb_bounded devices | awk 'NR > 1 && NF' | wc -l)" -gt 1 ]; then
     echo "Other devices are connected too. To make adb and Gradle use only this one:" >&2
     echo "  export ANDROID_SERIAL=$SERIAL" >&2
 fi
