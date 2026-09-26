@@ -98,9 +98,9 @@ Each of these fixes a real problem. The reasons are in the linked file; read the
 - To check which keys Android received: `adb shell dumpsys input | sed -n '/RecentQueue/,/PendingEvent/p'`
   (key codes up to API 28; API 29 on prints only `KeyEvent, age=…`).
   `adb shell getevent > file` doesn't work for this (output is buffered without a terminal).
-- AVDs of several API levels (`create-avd.sh --api 22`, `--api 36`) run side by side; the tested
-  ones are listed in [`README.md`](README.md#several-android-versions), the one place to update
-  when that changes. API 21's Android TV image can't boot (goldfish kernel only), so
+- AVDs of several API levels (`create-avd.sh --api 22`, `--api 36`) run side by side, and Google
+  TV ones (`--google-tv --api 36`, named `gtv_api36`); the tested ones are listed in
+  [`README.md`](README.md#several-android-versions), the one place to update when that changes. API 21's Android TV image can't boot (goldfish kernel only), so
   `create-avd.sh --api 21` refuses it.
 - In the emulator window, Esc and F1 don't reach Android; Back is Ctrl+Backspace, Home Ctrl+H, Menu Ctrl+M.
 - From API 23 on, the stock TV launcher's HOME filter has priority 2, so `set-home-activity` and
@@ -108,5 +108,6 @@ Each of these fixes a real problem. The reasons are in the linked file; read the
   one is disabled (`adb shell pm disable-user --user 0 <package>`). On API 22 it has no priority:
   with another home app installed, Home opens the chooser. The stock launcher is
   `com.google.android.leanbacklauncher` up to API 25 and `com.google.android.tvlauncher` from
-  API 26 on (26–29 also ship `leanbacklauncher`, without a HOME filter). Other differences between
+  API 26 on (26–29 also ship `leanbacklauncher`, without a HOME filter); on the Google TV images
+  it's `com.google.android.apps.tv.launcherx`, also with priority 2. Other differences between
   levels: [`bin/README.md`](bin/README.md#differences-between-api-levels).

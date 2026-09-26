@@ -3,13 +3,15 @@
 #
 # Usage:   create-avd.sh [avd-name]            (default: $ADT_AVD, else tv_api25)
 #          create-avd.sh --api 30 [avd-name]   (default: tv_api30)
+#          create-avd.sh --google-tv --api 30 [avd-name]   (Google TV image; default: gtv_api30)
 #          create-avd.sh --if-missing [...]    (an existing AVD of that image is fine: CI caches)
 #          create-avd.sh --help
 # Result:  <avd-name>.avd and <avd-name>.ini in the folder avdmanager keeps AVDs in
 #          ($ANDROID_AVD_HOME if set, ~/.android/avd by default)
 #
 # Requires (see SETUP.md): cmdline-tools, and the SDK packages "emulator" and
-# "system-images;android-<level>;android-tv;x86". lib.sh describes how the SDK is found.
+# "system-images;android-<level>;android-tv;x86" (google-tv with --google-tv). lib.sh describes
+# how the SDK is found.
 #
 # Common errors:
 #   'Error: "emulator" package must be installed!'
@@ -29,6 +31,8 @@
 #       profile. avdmanager prints it for every AVD once such an image is installed.
 #   'the Android TV image of API 21 has no ranchu kernel'
 #       Printed by this script: the emulator can't boot that image (see IMAGE_DIR below).
+#   'there are no Google TV images before API 30'
+#       Printed by this script: Google TV x86 images exist for API 30, 31, 33, 34 and 36.
 #
 # The hardware settings below are deliberate choices, each explained next to it. Several of them
 # fix real problems (keyboard input, WSLg rendering, portrait orientation), so don't drop one
@@ -37,7 +41,7 @@ set -euo pipefail
 
 usage() {
     cat <<'EOF'
-Usage: create-avd.sh [--api <level>] [--if-missing] [avd-name]
+Usage: create-avd.sh [--api <level>] [--google-tv] [--if-missing] [avd-name]
 
 Creates an Android TV emulator (AVD) for developing TV apps: 1080p, landscape, D-pad and
 keyboard input. Never overwrites an existing AVD.
@@ -45,14 +49,17 @@ keyboard input. Never overwrites an existing AVD.
   --api <level>  Android API level (default: 25, Android 7.1), e.g. 22 (Android 5.1),
                  28 (Android 9), 30 (Android 11), 33 (Android 13) or 36 (Android 16).
                  22 is the oldest the emulator can boot
+  --google-tv    use the Google TV image of that level instead of the Android TV one:
+                 Android TV with Google's home screen. Needs --api 30 or newer
   --if-missing   if the AVD already exists and was made from the same system image, leave
                  it as it is and succeed (for scripts and CI caches)
-  avd-name       name of the new AVD. Default: tv_api<level> with --api, else $ADT_AVD,
-                 else tv_api25
+  avd-name       name of the new AVD. Default: tv_api<level> with --api (gtv_api<level>
+                 with --google-tv), else $ADT_AVD, else tv_api25
   -h, --help     show this help
 
 Needs the SDK packages "cmdline-tools;latest", "emulator" and
-"system-images;android-<level>;android-tv;x86" (see SETUP.md). The SDK is the first of:
+"system-images;android-<level>;android-tv;x86" ("...;google-tv;x86" with --google-tv; see
+SETUP.md). The SDK is the first of:
 $ANDROID_HOME, $ANDROID_SDK_ROOT, sdk.dir in the local.properties of the project you're in, the
 SDK of the adb on $PATH, ~/Android/Sdk. The AVD goes where avdmanager keeps AVDs
 ($ANDROID_AVD_HOME if set, ~/.android/avd by default).
@@ -61,11 +68,13 @@ EOF
 API=""
 AVD_NAME=""
 IF_MISSING=""
+TAG=android-tv                            # the system image's tag: android-tv or google-tv
 while [ $# -gt 0 ]; do
     case "$1" in
         -h|--help) usage; exit 0 ;;
         --api)     [[ "${2:-}" =~ ^[0-9]+$ ]] || { usage >&2; exit 2; }
                    API="$2"; shift 2 ;;
+        --google-tv) TAG=google-tv; shift ;;
         --if-missing) IF_MISSING=1; shift ;;
         -*)        usage >&2; exit 2 ;;
         *)         [ -z "$AVD_NAME" ] || { usage >&2; exit 2; }
@@ -76,16 +85,26 @@ done
 # shellcheck source=../lib/lib.sh
 source "$(dirname "$(readlink -f "$0")")/../lib/lib.sh"
 
-# With --api, the default name follows the level: $ADT_AVD usually names the everyday AVD, and an
-# AVD of another level taking that name would be a surprise.
+# Google TV images exist only from API 30 on, so there's no default level to fall back on, and a
+# level below 30 would fail in avdmanager with an install command for a package that doesn't exist.
+if [ "$TAG" = google-tv ]; then
+    [ -n "$API" ] || die "--google-tv needs --api <level>: there are Google TV images for API 30,
+31, 33, 34 and 36."
+    [ "$API" -ge 30 ] || die "there are no Google TV images before API 30. Use --api 30 or newer,
+or the Android TV image of API $API (without --google-tv)."
+fi
+
+# With --api, the default name follows the level (and gtv_ marks a Google TV image): $ADT_AVD
+# usually names the everyday AVD, and an AVD of another level taking that name would be a surprise.
 if [ -n "$API" ]; then
+    if [ "$TAG" = google-tv ]; then AVD_NAME="${AVD_NAME:-gtv_api$API}"; fi
     AVD_NAME="${AVD_NAME:-tv_api$API}"
 else
     API=25
     AVD_NAME="${AVD_NAME:-${ADT_AVD:-tv_api25}}"
 fi
-IMAGE="system-images;android-$API;android-tv;x86"
-IMAGE_DIR="$SDK/system-images/android-$API/android-tv/x86"
+IMAGE="system-images;android-$API;$TAG;x86"
+IMAGE_DIR="$SDK/system-images/android-$API/$TAG/x86"
 require "$AVDMANAGER" "cmdline-tools;latest"
 require "$EMULATOR" "emulator"
 
@@ -127,7 +146,7 @@ fi
 if ! echo no | "$AVDMANAGER" create avd \
     --name "$AVD_NAME" \
     --package "$IMAGE" \
-    --tag android-tv \
+    --tag "$TAG" \
     --abi x86 \
     --device tv_1080p \
     --sdcard 512M; then                   # storage for `adb push`-ed test wallpapers/images

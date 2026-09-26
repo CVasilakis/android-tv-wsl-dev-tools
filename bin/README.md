@@ -8,7 +8,7 @@ devices: [Finding your setup](../README.md#finding-your-setup).
 
 | Script | Purpose |
 |---|---|
-| [`create-avd.sh`](create-avd.sh) | Creates an Android TV emulator with the right hardware settings (`tv_api25`, or `--api <level>`). |
+| [`create-avd.sh`](create-avd.sh) | Creates an Android TV emulator with the right hardware settings (`tv_api25`, or `--api <level>`, or Google TV with `--google-tv`). |
 | [`start-emulator.sh`](start-emulator.sh) | Boots it (cold boot, or Quick Boot with `--quick`), waits until Android is ready, applies the WSLg toolbar fix. |
 | [`remote.sh`](remote.sh) | TV remote in the terminal (D-pad, OK, Back, Home, Menu, …). |
 | [`wslg-toolbar.py`](wslg-toolbar.py) | Works around the emulator toolbar's input problems under WSLg. |
@@ -17,7 +17,7 @@ Each script has a header comment with usage, common errors and the reasons behin
 obvious lines. Read it before changing a script, and run `tests/run.py` after changing one.
 Every change needs a test in `tests/hermetic/test_<script>.py`; see [`../tests/README.md`](../tests/README.md).
 
-## `create-avd.sh [--api <level>] [--if-missing] [name]`
+## `create-avd.sh [--api <level>] [--google-tv] [--if-missing] [name]`
 
 ```bash
 create-avd.sh                  # tv_api25: Android 7.1 (default name: $ADT_AVD, else tv_api25)
@@ -27,6 +27,7 @@ create-avd.sh --api 30         # tv_api30: Android 11
 create-avd.sh --api 33         # tv_api33: Android 13
 create-avd.sh --api 36         # tv_api36: Android 16
 create-avd.sh --api 30 my_tv   # the same image under another name
+create-avd.sh --google-tv --api 36   # gtv_api36: Google TV on Android 16
 ```
 
 Creates the AVD from the Android TV image of that API level (default 25),
@@ -63,6 +64,13 @@ works ([tested levels](../README.md#several-android-versions)). The images from 
 avdmanager print `Error: Could not load devices from …/android-30/android-tv/x86/devices.xml`:
 that file is missing from the image, avdmanager uses its own `tv_1080p` profile instead, and the
 AVD is fine. Once such an image is installed, avdmanager prints it for every AVD it creates.
+
+**Google TV.** `--google-tv` uses the Google TV image of that level instead,
+`system-images;android-<level>;google-tv;x86` (`--tag google-tv`), with the same settings; the
+default name is `gtv_api<level>`. Google TV is Android TV with Google's home screen
+(`com.google.android.apps.tv.launcherx`), which asks for a Google account. Its x86 images exist
+for API 30, 31, 33, 34 and 36, all tested. There's no default level for it, so `--google-tv`
+needs `--api`, and it refuses a level below 30.
 
 **API 21 doesn't work.** Its Android TV image (Android 5.0) has only the old goldfish kernel,
 `kernel-qemu`, and the emulator no longer has the engine that ran it: it boots only images with a
@@ -195,8 +203,8 @@ automated tests should send keys with `adb shell input keyevent`, like `remote.s
 
 ## Differences between API levels
 
-The scripts work the same on every [tested level](../README.md#several-android-versions); these
-are the differences in the images that you may run into:
+The scripts work the same on every [tested level](../README.md#several-android-versions), Android
+TV or Google TV; these are the differences in the images that you may run into:
 
 | API | Difference |
 |---|---|
@@ -209,6 +217,8 @@ are the differences in the images that you may run into:
 | 29 on | `dumpsys input` lists key events without key codes. avdmanager prints the harmless devices.xml error. An emulator takes 3–3.4 GB of RAM (1.8–2.5 GB up to API 28). |
 | 30 | `remote.sh` keys lag the most; the emulator console's key events never arrive. |
 | 34, 36 | The system image takes 8.2 GB on disk. |
+| Google TV, all | The stock launcher is `com.google.android.apps.tv.launcherx`, with priority 2 like the others. Without a Google account it shows a sign-in screen instead of a home screen: "Add account" on 30–33, "Set up Google TV" on 34 and 36. RAM, disk use and the devices.xml error are as with the Android TV image of the same level. |
+| Google TV, 30–34 | `tvlauncher` is installed too, without a HOME filter. |
 
 ## Troubleshooting
 
@@ -222,15 +232,15 @@ are the differences in the images that you may run into:
 | `wslg-toolbar: no running emulator window found` | emulator not running, or started with `-no-window` |
 | `start-emulator.sh: the emulator exited` | the printed log lines say why (e.g. an unknown flag); full log in `${TMPDIR:-/tmp}/emulator-<name>.log` |
 | `start-emulator.sh: '<avd>' didn't finish booting within 900 s` | the host is slow: raise `ADT_BOOT_TIMEOUT`; or Android can't boot: without `--quick` if you used it, else try `-wipe-data` (factory reset) |
-| `create-avd.sh: AVD '<name>' already exists` | it never overwrites one; `--if-missing` accepts it when it's from the same system image (see [`create-avd.sh`](#create-avdsh---api-level---if-missing-name)) |
+| `create-avd.sh: AVD '<name>' already exists` | it never overwrites one; `--if-missing` accepts it when it's from the same system image (see [`create-avd.sh`](#create-avdsh---api-level---google-tv---if-missing-name)) |
 | `start-emulator.sh: … was stopped before it finished booting` | the AVD was already running and booting (another call started it), and was stopped while this one waited; start it again |
 | `start-emulator.sh: … adb can't reach it` (with `--quick`) | the restored snapshot left adb offline: `adb -s <serial> emu kill`, then start it without `--quick` |
 | `adb devices` shows `offline` for a running emulator | `adb reconnect offline`; if that doesn't help, `adb kill-server && adb start-server`; else stop the emulator and cold boot it |
 | `can't tell which AVD to use` / `there's no AVD named …` | pass the AVD name or set `ADT_AVD`; the message lists the AVDs found |
 | `'avdmanager' not found` (or `emulator`, `platform-tools`) | the SDK wasn't found, or lacks that package: set `ANDROID_HOME` (see [Finding your setup](../README.md#finding-your-setup)) |
 | `adb: more than one device/emulator` | `export ANDROID_SERIAL=<serial>` (printed by `start-emulator.sh`) |
-| `Error: Could not load devices from …/devices.xml` from `create-avd.sh` | harmless, the AVD is created correctly (see [`create-avd.sh`](#create-avdsh---api-level---if-missing-name)) |
-| `create-avd.sh: the Android TV image of API 21 has no ranchu kernel` | the emulator can't boot that image; use API 22 or newer (see [`create-avd.sh`](#create-avdsh---api-level---if-missing-name)) |
+| `Error: Could not load devices from …/devices.xml` from `create-avd.sh` | harmless, the AVD is created correctly (see [`create-avd.sh`](#create-avdsh---api-level---google-tv---if-missing-name)) |
+| `create-avd.sh: the Android TV image of API 21 has no ranchu kernel` | the emulator can't boot that image; use API 22 or newer (see [`create-avd.sh`](#create-avdsh---api-level---google-tv---if-missing-name)) |
 | `This AVD's configuration is missing a kernel file! … "kernel-ranchu"` from the emulator | an AVD made from an image without a ranchu kernel (API 21), e.g. by avdmanager directly: it can't boot |
 | `remote.sh` keys lag behind | expected: each key is an `adb shell input keyevent` call (see [Controlling the TV](#controlling-the-tv)) |
 | Black emulator window | if started with `--quick`, start it without |

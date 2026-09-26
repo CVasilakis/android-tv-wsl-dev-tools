@@ -43,6 +43,7 @@ cover every Android version you use:
 
 ```bash
 for l in 22 23 24 25 26 27 28 29 30 31 33 34 36; do ADT_AVD=tv_api$l tests/run.py --emulator; done
+for l in 30 31 33 34 36; do ADT_AVD=gtv_api$l tests/run.py --emulator; done   # Google TV
 ```
 
 On API 29 and newer, Android's input dump doesn't show key codes, so there the tier checks only
