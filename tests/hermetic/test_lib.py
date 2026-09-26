@@ -103,7 +103,7 @@ class ToolDiscovery(ScriptTestCase):
     def test_no_sdk_at_all_points_to_setup_instead_of_an_install_command(self):
         result = self.sandbox.bash('require "$ADB" platform-tools')
         self.assertFailed(result, "no Android SDK found")
-        self.assertIn(f"{self.sandbox.tools}/setup.md", result.output, "a path that works anywhere")
+        self.assertIn(f"{self.sandbox.tools}/SETUP.md", result.output, "a path that works anywhere")
         self.assertNotIn("sdkmanager", result.output)
         self.assertNotIn("android sdk install", result.output)
 

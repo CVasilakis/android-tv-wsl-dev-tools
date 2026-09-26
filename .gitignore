@@ -7,5 +7,5 @@ __pycache__/
 .DS_Store
 .claude/settings.local.json
 
-# Android command-line tools zip, if downloaded into the repo root (see setup.md)
+# Android command-line tools zip, if downloaded into the repo root (see SETUP.md)
 /commandlinetools-*.zip

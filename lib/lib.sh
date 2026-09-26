@@ -3,7 +3,7 @@
 # Shared helpers for the scripts in bin/. Sourced, not run.
 #
 # Finds the Android SDK, its tools and AVDs wherever the user keeps them, so the scripts work with
-# any setup, not only the one in setup.md. After sourcing: $TOOLS_DIR (this repository), $BIN_DIR,
+# any setup, not only the one in SETUP.md. After sourcing: $TOOLS_DIR (this repository), $BIN_DIR,
 # $SDK, $ADB, $EMULATOR, $AVDMANAGER, $ANDROID_CLI, $SDKMANAGER (each tool is empty if it isn't
 # installed) and the functions below.
 #
@@ -74,7 +74,7 @@ SDKMANAGER="$(find_tool sdkmanager "$SDK/cmdline-tools/latest/bin/sdkmanager" "$
 # is the current tool; sdkmanager is deprecated but is all there is before cmdline-tools 22.0, so
 # suggest whichever this SDK actually has, and the new one when it has neither. --no-metrics keeps
 # the suggested command from reporting usage to Google, which the android CLI does by default and
-# can only be turned off per call (setup.md, "Telemetry").
+# can only be turned off per call (SETUP.md, "Telemetry").
 install_hint() {
     if [ -z "$ANDROID_CLI" ] && [ -n "$SDKMANAGER" ]; then
         echo "sdkmanager \"$1\""
@@ -84,15 +84,15 @@ install_hint() {
 }
 
 # Exits with an install hint if a tool wasn't found. $1 = variable value, $2 = SDK package name.
-# Without any SDK there's nothing to install with either, so that case points to setup.md instead.
+# Without any SDK there's nothing to install with either, so that case points to SETUP.md instead.
 require() {
     [ -n "$1" ] && return 0
     [ -d "$SDK" ] || die "no Android SDK found. Set \$ANDROID_HOME to your SDK, or install one
-as described in $TOOLS_DIR/setup.md (steps 2-5). Looked in: \$ANDROID_HOME, \$ANDROID_SDK_ROOT,
+as described in $TOOLS_DIR/SETUP.md (steps 2-5). Looked in: \$ANDROID_HOME, \$ANDROID_SDK_ROOT,
 sdk.dir in local.properties, the adb on \$PATH, $SDK."
     die "'$2' not found in the SDK ($SDK) or on \$PATH. Install it with:
   $(install_hint "$2")
-or point \$ANDROID_HOME at your SDK (see $TOOLS_DIR/setup.md)."
+or point \$ANDROID_HOME at your SDK (see $TOOLS_DIR/SETUP.md)."
 }
 
 # How to call one of the scripts in bin/, for messages that suggest a command: its bare name when
