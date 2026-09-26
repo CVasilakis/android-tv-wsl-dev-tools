@@ -3,14 +3,19 @@
 Behavior tests for the scripts in [`../bin/`](../bin/README.md) and [`../lib/`](../lib/lib.sh).
 They run the real scripts and check what a user would see and what the scripts do to the machine:
 exit codes, messages, the files they write, and every call they make to `adb`, `emulator` and
-`avdmanager`. Python standard library only (Python 3.9+), nothing to install.
+`avdmanager`. Python standard library only (Python 3.10+), nothing to install.
 
 ```bash
 tests/run.py                  # hermetic tier, no SDK or emulator needed
 tests/run.py -k remote -v     # only tests whose name contains "remote", one line each
 tests/run.py --emulator       # real-emulator tier: boots your AVD headless (see below)
 tests/run.py --all            # both
+tests/run.py --strict         # fail if any test was skipped (what CI runs)
 ```
+
+CI ([`../.github/workflows/tests.yml`](../.github/workflows/tests.yml)) runs the hermetic tier with
+`--strict` on every push to `main` and every pull request, on Python 3.10 and the newest Python.
+The emulator tier isn't run there; run it locally before a release.
 
 ## Tiers
 
@@ -27,6 +32,10 @@ Some hermetic tests skip, with the reason printed, when an optional tool is miss
   `SCRIPT_TESTS_DISPLAY=:0` runs the tests on an existing display instead; under WSLg you'll see
   small windows flash.
 - **shellcheck** for static analysis of the shell scripts.
+
+CI installs both and runs with `--strict`, so there a skip fails the run instead of hiding a test
+that no longer runs. A test that needs another optional tool must have it installed in the
+workflow too.
 
 The emulator tier reuses the AVD if it's already running and leaves it running. Otherwise it boots
 it (cold) with `-no-window -no-snapshot-save` and stops it at the end. It tests one AVD per run, so to

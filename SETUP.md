@@ -57,7 +57,7 @@ API 36, whose image alone takes 8.2 GB.
 
 - WSL2 with **WSLg** (Windows 11, or a recent Windows 10 build): `echo $DISPLAY` prints `:0`.
 - Nested virtualization enabled for WSL2 (the default), so `/dev/kvm` exists: `ls -l /dev/kvm`.
-- `unzip`, `curl` and `python3` 3.9+ (used by `bin/wslg-toolbar.py` and the tests).
+- `unzip`, `curl` and `python3` 3.10+ (used by `bin/wslg-toolbar.py` and the tests).
 
 ## Steps
 
@@ -316,7 +316,7 @@ project.
 
 ### 8. Test tools (only to work on this repository)
 
-The tests of the scripts need only Python 3.9+. Two optional tools enable more of them:
+The tests of the scripts need only Python 3.10+. Two optional tools enable more of them:
 
 | Tool | For | Install |
 |---|---|---|

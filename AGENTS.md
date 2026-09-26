@@ -17,6 +17,7 @@ GitHub Actions.
 ```bash
 tests/run.py                  # hermetic tests, no SDK or emulator needed
 tests/run.py -k remote -v     # a subset, one line per test
+tests/run.py --strict         # fail on any skipped test, as CI does
 tests/run.py --emulator       # real-emulator tier: boots your AVD headless
 bin/start-emulator.sh         # cold boot the TV emulator (returns when booted); --quick: from its snapshot
 bin/remote.sh                 # TV remote in the terminal
@@ -36,8 +37,11 @@ adb emu kill                  # stop the emulator (with several devices: adb -s 
   starts with a failing test. New scripts need `--help` starting with `Usage: <name>`, a shebang,
   and a line in `bin/README.md` (enforced by `test_conventions.py`). Check that a new test can
   fail by breaking the behavior once.
-- **No dependencies**: bash, coreutils and the Python standard library only. New tools (even
-  test-only) need the user's agreement.
+- **No dependencies**: bash, coreutils and the Python standard library (3.10+) only. New tools
+  (even test-only) need the user's agreement, and a test-only one must also be installed in
+  `.github/workflows/tests.yml`, which fails on skipped tests.
+- **Before a release, run the emulator tier locally** on every tested API level
+  ([`tests/README.md`](tests/README.md)): CI runs only the hermetic tier.
 - **Docs describe the current state, not history.** When you change something a README
   describes, update that README in the same change.
 - **No machine-specific measurements in docs.** How long a boot, build, test run or key press
