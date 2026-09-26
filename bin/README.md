@@ -56,7 +56,7 @@ avdmanager create avd --name tv_api25 \
     --tag android-tv --abi x86 --device tv_1080p --sdcard 512M
 ```
 
-and then sets these in the new AVD's `config.ini`, wherever avdmanager put it (by default
+and then sets these in the new AVD's `config.ini` (by default
 `~/.android/avd/tv_api25.avd/config.ini`; avdmanager has no flags for them):
 
 | Setting | Value | Why |
@@ -98,6 +98,12 @@ for it, so `--google-tv` needs `--api`, and it refuses a level below 30.
 ranchu kernel (`kernel-ranchu`, or `kernel-ranchu-64` on newer images). `create-avd.sh --api 21`
 says so instead of creating an AVD that can't start. API 22 is the oldest Android TV image with a
 ranchu kernel.
+
+**Where the AVD goes.** In the folder the emulator looks in, the first of the AVD folders in
+[Finding your setup](#finding-your-setup). The script creates that folder and passes it to
+avdmanager as `ANDROID_AVD_HOME`, because avdmanager left to itself can pick another one:
+cmdline-tools 12.0, the version on GitHub's runners, uses `$XDG_CONFIG_HOME/.android/avd` when
+`XDG_CONFIG_HOME` is set, and the emulator never finds an AVD there.
 
 It never overwrites an existing AVD: it fails instead (exit 1). To recreate one:
 `avdmanager delete avd -n tv_api25 && create-avd.sh`. For scripts and CI jobs that cache their
@@ -196,7 +202,9 @@ an SSH session) the emulator aborts, and its log doesn't say why. So there the s
 **Boot timeout.** If Android hasn't finished booting after `ADT_BOOT_TIMEOUT` seconds (default
 900), the script stops the emulator it started, prints the end of the log and fails, so a stuck
 boot can't keep it (or a CI job) waiting forever. Raise it on a slow host; `ADT_BOOT_TIMEOUT=0`
-waits without limit.
+waits without limit. While it waits, it prints a line every minute on stderr, e.g.
+`'tv_api25' is still booting (120 s so far; the limit is 900 s)...`, so a slow boot doesn't look
+like a hang in a CI log.
 
 **Cold boot or Quick Boot.** By default Android starts from scratch (`-no-snapshot-load`); newer
 API levels take longer. `--quick` (anywhere on the command line) instead restores the snapshot the

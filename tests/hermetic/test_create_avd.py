@@ -168,6 +168,22 @@ class CreatesTheTvAvd(ScriptTestCase):
         self.assertIn(("hw.keyboard", "yes"), read_config(home / "tv_api25.avd"))
         self.assertFalse((self.sandbox.home / ".android").exists(), "nothing written to ~/.android")
 
+    def test_creates_the_avd_where_the_emulator_looks_when_avdmanager_prefers_xdg(self):
+        self.sandbox.set_behavior(avdmanager_xdg=True)
+        xdg = self.sandbox.home / ".config"
+        result = self.sandbox.run("create-avd.sh", env={"XDG_CONFIG_HOME": str(xdg)})
+        self.assertSucceeded(result)
+        self.assertIn(("hw.keyboard", "yes"), read_config(self.sandbox.home / ".android/avd/tv_api25.avd"))
+        self.assertFalse((xdg / ".android").exists(), "nothing written to $XDG_CONFIG_HOME")
+        self.assertSucceeded(self.sandbox.run("start-emulator.sh"))
+
+    def test_creates_a_missing_custom_avd_home_when_avdmanager_prefers_xdg(self):
+        self.sandbox.set_behavior(avdmanager_xdg=True)
+        home = self.sandbox.root / "avds"
+        self.assertSucceeded(self.sandbox.run("create-avd.sh", env={
+            "XDG_CONFIG_HOME": str(self.sandbox.home / ".config"), "ANDROID_AVD_HOME": str(home)}))
+        self.assertIn(("hw.keyboard", "yes"), read_config(home / "tv_api25.avd"))
+
 
 class RefusesOrExplains(ScriptTestCase):
     def test_never_overwrites_an_existing_avd(self):
