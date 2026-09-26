@@ -1,5 +1,5 @@
 """Fake versions of the external programs the scripts call: adb, emulator, avdmanager, and the
-host commands python3, getent and sg.
+host commands python3, getent, id and sg.
 
 Each fake is a small wrapper file (written by sandbox.py) that calls main(<tool name>). The fakes
 behave like the real tools as far as the scripts can tell (same output formats, exit codes and
@@ -34,7 +34,10 @@ DEFAULT_BEHAVIOR = {
     "keyevent_failures": 0,       # the first N `adb shell input keyevent` calls fail
     "avd_home": None,             # avdmanager/emulator use this AVD folder, ignoring the env vars
     "avdmanager_error": None,     # avdmanager create prints this and exits 1
+    "user": "tester",             # the user the scripts run as (`id -un`)
     "kvm_group_members": [],      # users listed by `getent group kvm`
+    "kvm_primary_group": False,   # kvm is the user's primary group: `id -nG` lists it, getent
+                                  # doesn't list the user as a member
     "kvm_group_gid": None,        # gid of the kvm group; None = the gid of $ADT_KVM_DEVICE,
                                   # i.e. the device belongs to the kvm group
     "python3_exit": 0,            # exit code of the fake python3 (the WSLg toolbar script)
@@ -309,13 +312,30 @@ def sg(args):
     fail(f"fake sg: unsupported arguments {args}")
 
 
+def id_(args):
+    # id -un: the user's name. id -nG <user>: that user's groups from the user database, primary
+    # group first (the primary group's getent line doesn't list its users).
+    b = behavior()
+    if args == ["-un"]:
+        print(b["user"])
+    elif args[:1] == ["-nG"] and len(args) == 2:
+        user = args[1]
+        primary = "kvm" if user == b["user"] and b["kvm_primary_group"] else user
+        others = ["kvm"] if user in b["kvm_group_members"] and primary != "kvm" else []
+        print(" ".join([primary, *others]))
+    else:
+        fail(f"fake id: unsupported arguments {args}")
+
+
 def python3(args):
+    # Stands in for wslg-toolbar.py, which reports what it did on stdout.
+    print("wslg-toolbar: toolbar hidden")
     sys.exit(behavior()["python3_exit"])
 
 
 TOOLS = {"adb": adb, "emulator": emulator, "avdmanager": avdmanager,
          "android": android, "sdkmanager": sdkmanager,
-         "getent": getent, "sg": sg, "python3": python3}
+         "getent": getent, "id": id_, "sg": sg, "python3": python3}
 
 
 def main(tool):

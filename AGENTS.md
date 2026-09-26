@@ -9,7 +9,8 @@ Bash scripts plus one Python script (standard library only) that create and boot
 emulator, send remote-control keys to it, and fix its input under WSLg. They're used from other
 repositories' projects, called by a relative path or through `PATH`, so they must never depend
 on the current folder or on any particular app. Start with [`README.md`](README.md), then
-[`bin/README.md`](bin/README.md) and [`tests/README.md`](tests/README.md).
+[`bin/README.md`](bin/README.md) and [`tests/README.md`](tests/README.md); [`CI.md`](CI.md) covers
+GitHub Actions.
 
 ## Commands
 
@@ -71,6 +72,9 @@ Each of these fixes a real problem. The reasons are in the linked file; read the
 | Toolbar hidden by default under WSL | `bin/start-emulator.sh`, `bin/wslg-toolbar.py` | Otherwise typed keys never reach Android. |
 | No `set -e`, Esc read timeout | `bin/remote.sh` | Keep the remote alive; tell Esc from arrow keys. |
 | `input keyevent` instead of the faster `adb emu event send`, `< /dev/null` on `adb shell` | `bin/remote.sh` | Console key events are emulator-only and vanish on the API 30 TV image; `adb shell` swallows the keys typed after it. |
+| Only the serial on stdout, every message on stderr | `bin/start-emulator.sh` | Scripts and CI capture the serial with `serial="$(start-emulator.sh)"`; it's part of the public interface. |
+| `-no-window` added when `$DISPLAY` is empty | `bin/start-emulator.sh` | Without a display the emulator aborts, and its log doesn't say why (CI runners, SSH). |
+| `id -nG "$(id -un)"` for kvm membership, not `$USER` or the `getent` line | `bin/start-emulator.sh` | Counts kvm as a primary group, doesn't mistake `ci` for `ci-bot`, and works where `$USER` is unset (containers). |
 | `ADT_KVM_DEVICE`, `ADT_PROC_VERSION`, `WSLG_TOOLBAR_TIMEOUT`, `ADT_OFFLINE_TIMEOUT` | `lib/lib.sh`, `bin/wslg-toolbar.py`, `bin/start-emulator.sh` | Let the tests simulate other machines and not wait 30 s ([`tests/README.md`](tests/README.md)). |
 
 ## Emulator facts that save time
@@ -85,8 +89,9 @@ Each of these fixes a real problem. The reasons are in the linked file; read the
 - To check which keys Android received: `adb shell dumpsys input | sed -n '/RecentQueue/,/PendingEvent/p'`
   (key codes up to API 29; API 30 prints only `KeyEvent, age=…`).
   `adb shell getevent > file` doesn't work for this (output is buffered without a terminal).
-- AVDs of several API levels (`create-avd.sh --api 22`, `--api 36`) run side by side; 22, 25, 28,
-  30, 33 and 36 are the tested ones. API 21's Android TV image can't boot (goldfish kernel only), so
+- AVDs of several API levels (`create-avd.sh --api 22`, `--api 36`) run side by side; the tested
+  ones are listed in [`README.md`](README.md#several-android-versions), the one place to update
+  when that changes. API 21's Android TV image can't boot (goldfish kernel only), so
   `create-avd.sh --api 21` refuses it.
 - In the emulator window, Esc and F1 don't reach Android; Back is Ctrl+Backspace, Home Ctrl+H, Menu Ctrl+M.
 - From API 25 on, the stock TV launcher's HOME filter has priority 2, so `set-home-activity` and

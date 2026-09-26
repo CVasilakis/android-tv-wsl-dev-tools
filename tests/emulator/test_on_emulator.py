@@ -96,13 +96,15 @@ class OnTheRealEmulator(unittest.TestCase):
         if not self.started_here:
             self.skipTest(f"{self.avd} was already running")
         self.assertEqual(self.adb_shell("getprop", "sys.boot_completed").strip(), "1")
-        self.assertIn(f"booted as {self.serial}", self.start_result.stdout)
+        self.assertEqual(self.start_result.stdout, f"{self.serial}\n", "stdout is only the serial")
+        self.assertIn(f"booted as {self.serial}", self.start_result.stderr)
 
     def test_start_again_reports_the_running_emulator(self):
         result = subprocess.run([str(BIN / "start-emulator.sh"), self.avd],
                                 capture_output=True, text=True, timeout=60)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn(f"already running as {self.serial}", result.stdout)
+        self.assertEqual(result.stdout, f"{self.serial}\n")
+        self.assertIn(f"already running as {self.serial}", result.stderr)
 
     def test_remote_keys_arrive_as_the_right_android_keys(self):
         # The recent queue holds the last 10 events (5 presses), so check a few keys at a time.

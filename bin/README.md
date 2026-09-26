@@ -17,7 +17,7 @@ Each script has a header comment with usage, common errors and the reasons behin
 obvious lines. Read it before changing a script, and run `tests/run.py` after changing one.
 Every change needs a test in `tests/hermetic/test_<script>.py`; see [`../tests/README.md`](../tests/README.md).
 
-## `create-avd.sh [--api <level>] [name]`
+## `create-avd.sh [--api <level>] [--if-missing] [name]`
 
 ```bash
 create-avd.sh                  # tv_api25: Android 7.1 (default name: $ADT_AVD, else tv_api25)
@@ -39,19 +39,6 @@ avdmanager create avd --name tv_api25 \
     --tag android-tv --abi x86 --device tv_1080p --sdcard 512M
 ```
 
-With `--api`, the default name is `tv_api<level>` even when `$ADT_AVD` is set, so a second AVD
-doesn't take the name of your everyday one. Any level from 22 on with an Android TV x86 image
-works; 22, 25, 28, 30, 33 and 36 are tested. The API 30, 33 and 36 images make avdmanager print
-`Error: Could not load devices from …/android-30/android-tv/x86/devices.xml`: that file is
-missing from the image, avdmanager uses its own `tv_1080p` profile instead, and the AVD is fine.
-Once such an image is installed, avdmanager prints it for every AVD it creates.
-
-**API 21 doesn't work.** Its Android TV image (Android 5.0) has only the old goldfish kernel,
-`kernel-qemu`, and the emulator no longer has the engine that ran it: it boots only images with a
-ranchu kernel (`kernel-ranchu`, or `kernel-ranchu-64` on newer images). `create-avd.sh --api 21`
-says so instead of creating an AVD that can't start. API 22 is the oldest Android TV image with a
-ranchu kernel.
-
 and then sets these in the new AVD's `config.ini`, wherever avdmanager put it (by default
 `~/.android/avd/tv_api25.avd/config.ini`; avdmanager has no flags for them):
 
@@ -69,6 +56,19 @@ and then sets these in the new AVD's `config.ini`, wherever avdmanager put it (b
 | `showDeviceFrame` | no | no device skin |
 
 The TV profile has **no touchscreen** (`hw.screen=no-touch`), like a real TV.
+
+With `--api`, the default name is `tv_api<level>` even when `$ADT_AVD` is set, so a second AVD
+doesn't take the name of your everyday one. Any level from 22 on with an Android TV x86 image
+works ([tested levels](../README.md#several-android-versions)). The API 30, 33 and 36 images make
+avdmanager print `Error: Could not load devices from …/android-30/android-tv/x86/devices.xml`:
+that file is missing from the image, avdmanager uses its own `tv_1080p` profile instead, and the
+AVD is fine. Once such an image is installed, avdmanager prints it for every AVD it creates.
+
+**API 21 doesn't work.** Its Android TV image (Android 5.0) has only the old goldfish kernel,
+`kernel-qemu`, and the emulator no longer has the engine that ran it: it boots only images with a
+ranchu kernel (`kernel-ranchu`, or `kernel-ranchu-64` on newer images). `create-avd.sh --api 21`
+says so instead of creating an AVD that can't start. API 22 is the oldest Android TV image with a
+ranchu kernel.
 
 It never overwrites an existing AVD: it fails instead (exit 1). To recreate one:
 `avdmanager delete avd -n tv_api25 && create-avd.sh`. For scripts and CI jobs that cache their
@@ -92,6 +92,17 @@ finds the emulator's serial by asking each running emulator for its AVD name, wa
 `sys.boot_completed=1` (so it can be chained with `./gradlew installDebug`), and on WSL finishes
 with `wslg-toolbar.py <name> hide`. If the emulator exits during boot, it stops waiting and prints
 the end of the log. If the AVD is already running, it only prints its serial.
+
+**Output.** stdout holds the emulator's serial (e.g. `emulator-5554`) and nothing else; every
+message goes to stderr. So scripts capture it without parsing messages:
+
+```bash
+serial="$(start-emulator.sh)" && export ANDROID_SERIAL="$serial"
+```
+
+**Without a display.** The emulator's window needs an X display: without `$DISPLAY` (a CI runner,
+an SSH session) the emulator aborts, and its log doesn't say why. So there the script adds
+`-no-window` and says so.
 
 **Boot timeout.** If Android hasn't finished booting after `ADT_BOOT_TIMEOUT` seconds (default
 900), the script stops the emulator it started, prints the end of the log and fails, so a stuck
@@ -187,14 +198,14 @@ automated tests should send keys with `adb shell input keyevent`, like `remote.s
 | `wslg-toolbar: no running emulator window found` | emulator not running, or started with `-no-window` |
 | `start-emulator.sh: the emulator exited` | the printed log lines say why (e.g. an unknown flag); full log in `${TMPDIR:-/tmp}/emulator-<name>.log` |
 | `start-emulator.sh: '<avd>' didn't finish booting within 900 s` | the host is slow: raise `ADT_BOOT_TIMEOUT`; or Android can't boot: without `--quick` if you used it, else try `-wipe-data` (factory reset) |
-| `create-avd.sh: AVD '<name>' already exists` | it never overwrites one; `--if-missing` accepts it when it's from the same system image (see [`create-avd.sh`](#create-avdsh---api-level-name)) |
+| `create-avd.sh: AVD '<name>' already exists` | it never overwrites one; `--if-missing` accepts it when it's from the same system image (see [`create-avd.sh`](#create-avdsh---api-level---if-missing-name)) |
 | `start-emulator.sh: … adb can't reach it` (with `--quick`) | the restored snapshot left adb offline: `adb -s <serial> emu kill`, then start it without `--quick` |
 | `adb devices` shows `offline` for a running emulator | `adb reconnect offline`; if that doesn't help, `adb kill-server && adb start-server`; else stop the emulator and cold boot it |
 | `can't tell which AVD to use` / `there's no AVD named …` | pass the AVD name or set `ADT_AVD`; the message lists the AVDs found |
 | `'avdmanager' not found` (or `emulator`, `platform-tools`) | the SDK wasn't found, or lacks that package: set `ANDROID_HOME` (see [Finding your setup](../README.md#finding-your-setup)) |
 | `adb: more than one device/emulator` | `export ANDROID_SERIAL=<serial>` (printed by `start-emulator.sh`) |
-| `Error: Could not load devices from …/devices.xml` from `create-avd.sh` | harmless, the AVD is created correctly (see [`create-avd.sh`](#create-avdsh---api-level-name)) |
-| `create-avd.sh: the Android TV image of API 21 has no ranchu kernel` | the emulator can't boot that image; use API 22 or newer (see [`create-avd.sh`](#create-avdsh---api-level-name)) |
+| `Error: Could not load devices from …/devices.xml` from `create-avd.sh` | harmless, the AVD is created correctly (see [`create-avd.sh`](#create-avdsh---api-level---if-missing-name)) |
+| `create-avd.sh: the Android TV image of API 21 has no ranchu kernel` | the emulator can't boot that image; use API 22 or newer (see [`create-avd.sh`](#create-avdsh---api-level---if-missing-name)) |
 | `This AVD's configuration is missing a kernel file! … "kernel-ranchu"` from the emulator | an AVD made from an image without a ranchu kernel (API 21), e.g. by avdmanager directly: it can't boot |
 | `remote.sh` keys lag behind | expected: each key is an `adb shell input keyevent` call (see [Controlling the TV](#controlling-the-tv)) |
 | Black emulator window | if started with `--quick`, start it without |

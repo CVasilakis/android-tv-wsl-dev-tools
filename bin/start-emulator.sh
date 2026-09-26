@@ -11,6 +11,8 @@
 #          start-emulator.sh --help
 # Which AVD: the name given, else $ADT_AVD, else tv_api25 if it exists, else the only
 #          Android TV AVD. Anything else is an error that lists the AVDs.
+# Output:  the emulator's serial (e.g. emulator-5554), alone on stdout, so scripts can capture it:
+#          serial="$(start-emulator.sh)". Every message goes to stderr.
 # Log:     ${TMPDIR:-/tmp}/emulator-<avd-name>.log  (look here first if the window never appears)
 # Stop:    adb -s <serial> emu kill   (saves a Quick Boot snapshot, which --quick boots from)
 #
@@ -26,6 +28,10 @@
 # broken image or data partition) would otherwise keep this script, and a CI job that calls it,
 # waiting forever. After $ADT_BOOT_TIMEOUT seconds (default 900; 0: no limit) the script stops the
 # emulator it started, which is of no use half-booted, and fails.
+#
+# No display: the emulator's window needs an X display (it ships only Qt's X11 plugin). Without
+# $DISPLAY (a CI runner, an SSH session) it aborts, and its log doesn't say why, so the script
+# adds -no-window.
 #
 # Common errors:
 #   "No access to /dev/kvm"
@@ -51,6 +57,9 @@ Usage: start-emulator.sh [--quick] [avd-name] [emulator flags...]
 
 Boots an Android TV emulator in the background and returns once Android is ready, so it can be
 chained: start-emulator.sh && ./gradlew installDebug. Cold boot by default.
+
+Prints the emulator's serial (e.g. emulator-5554) on stdout and every message on stderr, so
+serial="$(start-emulator.sh)" captures it. Without $DISPLAY it adds -no-window.
 
   --quick         boot from the Quick Boot snapshot saved when the emulator was last stopped
                   (faster); if adb can't reach the restored emulator for 30 s, reconnect adb once,
@@ -147,7 +156,9 @@ fi
 #   3. the user is in the kvm group but this session predates it -> re-run through 'sg kvm', which
 #      grants the group right away, instead of making the user restart the session.
 # _IN_SG_KVM prevents an endless re-exec loop if the device is still not writable inside sg. The
-# getent membership check matters: 'sg' asks for a group password when the user isn't a member.
+# membership check matters: 'sg' asks for a group password when the user isn't a member. It asks
+# the user database (id -nG <user>), not this session, so a group joined since login counts, and
+# so does kvm as the user's primary group; $USER isn't used, as containers often don't set it.
 if [ ! -e "$KVM_DEVICE" ]; then
     die "$KVM_DEVICE doesn't exist: enable hardware virtualization (VT-x/AMD-V in the firmware
 settings; nested virtualization when running inside WSL or a VM)."
@@ -163,11 +174,12 @@ $KVM_GID, so joining the kvm group can't grant access. Give the device to the kv
 and to keep that across restarts:
     echo 'z $KVM_DEVICE 0660 root kvm -' | sudo tee /etc/tmpfiles.d/kvm.conf"
     fi
-    if printf '%s' "$KVM_GROUP_LINE" | grep -qw "$USER" && [ -z "${_IN_SG_KVM:-}" ]; then
+    ME="$(id -un)"
+    if [[ " $(id -nG "$ME" 2>/dev/null || true) " == *" kvm "* ]] && [ -z "${_IN_SG_KVM:-}" ]; then
         exec sg kvm -c "_IN_SG_KVM=1 $(printf '%q ' "$BIN_DIR/start-emulator.sh" "$AVD_NAME" \
             ${QUICK:+--quick} "$@")"
     fi
-    die "No access to $KVM_DEVICE. Run: sudo usermod -aG kvm \$USER"
+    die "No access to $KVM_DEVICE. Run: sudo usermod -aG kvm $ME"
 fi
 
 # Starting an AVD twice fails (its files are locked), so an already running one is just reported.
@@ -175,10 +187,17 @@ fi
 # be connected.
 for serial in $(running_emulators); do
     if [ "$(emulator_avd "$serial")" = "$AVD_NAME" ]; then
-        echo "Emulator '$AVD_NAME' is already running as $serial."
+        echo "Emulator '$AVD_NAME' is already running as $serial." >&2
+        echo "$serial"
         exit 0
     fi
 done
+
+# No X display, no window (see the header).
+if [ -z "${DISPLAY:-}" ] && ! in_list -no-window "$@"; then
+    echo "No \$DISPLAY, so the emulator runs without a window (-no-window)." >&2
+    set -- "$@" -no-window
+fi
 
 # -gpu swiftshader_indirect: software rendering, works on any host including WSLg (see
 #   create-avd.sh). Left out when the caller passes their own -gpu.
@@ -202,7 +221,7 @@ nohup "$EMULATOR" -avd "$AVD_NAME" \
     "$@" > "$LOG" 2>&1 &
 EMULATOR_PID=$!
 BOOT_STARTED=$SECONDS
-echo "Emulator '$AVD_NAME' starting ($BOOT_KIND, log: $LOG)..."
+echo "Emulator '$AVD_NAME' starting ($BOOT_KIND, log: $LOG)..." >&2
 
 # Without this, a crashed emulator would leave the loops below waiting forever.
 check_alive() {
@@ -264,7 +283,7 @@ check_offline() {
     [ -n "$offline_since" ] || offline_since=$SECONDS
     [ $((SECONDS - offline_since)) -ge "$OFFLINE_TIMEOUT" ] || return 0
     if [ -z "$reconnected" ]; then
-        echo "adb has seen $SERIAL as offline for ${OFFLINE_TIMEOUT} s; reconnecting adb..."
+        echo "adb has seen $SERIAL as offline for ${OFFLINE_TIMEOUT} s; reconnecting adb..." >&2
         "$ADB" reconnect offline > /dev/null 2>&1 || true
         reconnected=1
         offline_since=""
@@ -285,12 +304,12 @@ until [ "$("$ADB" -s "$SERIAL" shell getprop sys.boot_completed < /dev/null 2>/d
     check_offline
     sleep 2
 done
-echo "Emulator '$AVD_NAME' booted as $SERIAL."
+echo "Emulator '$AVD_NAME' booted as $SERIAL." >&2
 # With several devices connected, adb refuses to guess and `./gradlew installDebug` installs on
 # all of them. Both honor ANDROID_SERIAL.
 if [ "$("$ADB" devices | awk 'NR > 1 && NF' | wc -l)" -gt 1 ]; then
-    echo "Other devices are connected too. To make adb and Gradle use only this one:"
-    echo "  export ANDROID_SERIAL=$SERIAL"
+    echo "Other devices are connected too. To make adb and Gradle use only this one:" >&2
+    echo "  export ANDROID_SERIAL=$SERIAL" >&2
 fi
 
 # Under WSLg the side toolbar can't be clicked, and while it's shown it takes keyboard focus away
@@ -299,5 +318,8 @@ fi
 # WSL (not needed) and with -no-window (there's no toolbar). '|| true': a failure here must not
 # report the already-booted emulator as failed.
 if is_wsl && ! in_list -no-window "$@"; then
-    python3 "$BIN_DIR/wslg-toolbar.py" "$AVD_NAME" "${EMULATOR_TOOLBAR:-hide}" || true
+    python3 "$BIN_DIR/wslg-toolbar.py" "$AVD_NAME" "${EMULATOR_TOOLBAR:-hide}" >&2 || true
 fi
+
+# The only line on stdout (see the header).
+echo "$SERIAL"
