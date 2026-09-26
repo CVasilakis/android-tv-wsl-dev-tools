@@ -97,7 +97,7 @@ or point \$ANDROID_HOME at your SDK (see $TOOLS_DIR/SETUP.md)."
 
 # How to call one of the scripts in bin/, for messages that suggest a command: its bare name when
 # that name on $PATH is this very script, else the way the running script was called (e.g.
-# ../android-cli-dev-tools/bin/start-emulator.sh), so the suggestion can be pasted as is.
+# ../android-tv-wsl-dev-tools/bin/start-emulator.sh), so the suggestion can be pasted as is.
 command_for() {
     local on_path
     on_path="$(command -v "$1" 2>/dev/null || true)"

@@ -44,11 +44,11 @@ jobs:
       - uses: actions/checkout@v7                      # your project first: it empties the workspace
       - uses: actions/checkout@v7
         with:
-          repository: CVasilakis/android-cli-dev-tools
+          repository: CVasilakis/android-tv-wsl-dev-tools
           ref: v1.0.0                                  # a release tag, or a full commit SHA
-          path: .android-cli-dev-tools
+          path: .android-tv-wsl-dev-tools
       - name: Put the tools on PATH
-        run: echo "$GITHUB_WORKSPACE/.android-cli-dev-tools/bin" >> "$GITHUB_PATH"
+        run: echo "$GITHUB_WORKSPACE/.android-tv-wsl-dev-tools/bin" >> "$GITHUB_PATH"
 
       - name: Let the runner user open /dev/kvm
         run: |
