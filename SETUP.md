@@ -321,7 +321,7 @@ The tests of the scripts need only Python 3.9+. Two optional tools enable more o
 | shellcheck | static analysis of the shell scripts (skips without it) | `sudo apt-get install -y shellcheck` / `sudo dnf install -y ShellCheck` |
 
 ```bash
-tests/run.py                   # 119 tests; prints what it skipped and why
+tests/run.py                   # 130 tests; prints what it skipped and why
 ```
 
 ## Troubleshooting

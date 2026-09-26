@@ -198,6 +198,56 @@ class ColdOrQuickBoot(EmulatorTestCase):
         self.assertEqual(self.reconnects(), [])
 
 
+class BootTimeout(EmulatorTestCase):
+    """An emulator that runs but never boots must not keep the script (or a CI job) waiting
+    forever: after ADT_BOOT_TIMEOUT seconds it's stopped and the script fails."""
+
+    FAST = {"ADT_BOOT_TIMEOUT": "2"}
+
+    def setUp(self):
+        super().setUp()
+        self.sandbox.add_avd("tv_api25")
+
+    def assertGaveUp(self, result, started):
+        self.assertFailed(result, "didn't finish booting within 2 s")
+        self.assertIn("Android emulator version", result.output, "the log's last lines are shown")
+        self.assertIn("ADT_BOOT_TIMEOUT", result.output)
+        self.assertIn("start-emulator.sh tv_api25 -wipe-data", result.output)
+        self.assertEqual(self.sandbox.running(), {}, "the half-booted emulator is stopped")
+        self.assertLess(time.time() - started, 15)
+
+    def test_stops_an_emulator_that_never_finishes_booting(self):
+        self.sandbox.set_behavior(boot_polls=10**9)
+        started = time.time()
+        self.assertGaveUp(self.start(env=self.FAST), started)
+
+    def test_stops_an_emulator_that_adb_never_sees(self):
+        self.sandbox.set_behavior(emulator_hidden=True)
+        started = time.time()
+        self.assertGaveUp(self.start(env=self.FAST), started)
+
+    def test_a_retry_after_a_timeout_boots_again(self):
+        # The stopped emulator must be gone, or the retry would report it as already running.
+        self.sandbox.set_behavior(boot_polls=10**9)
+        self.assertFailed(self.start(env=self.FAST), "didn't finish booting")
+        self.sandbox.set_behavior(boot_polls=0)
+        result = self.start()
+        self.assertSucceeded(result)
+        self.assertIn("booted as emulator-5554", result.out)
+        self.assertEqual(len(self.launched()), 2)
+
+    def test_zero_means_no_limit(self):
+        self.sandbox.set_behavior(boot_polls=2)
+        self.assertSucceeded(self.start(env={"ADT_BOOT_TIMEOUT": "0"}))
+
+    def test_must_be_a_number_of_seconds(self):
+        for value in ("10m", "-1", "1.5"):
+            with self.subTest(value=value):
+                self.assertFailed(self.start(env={"ADT_BOOT_TIMEOUT": value}),
+                                  "ADT_BOOT_TIMEOUT must be a number of seconds")
+        self.assertEqual(self.launched(), [], "nothing is started with a bad timeout")
+
+
 class FindsItsOwnEmulator(EmulatorTestCase):
     def setUp(self):
         super().setUp()

@@ -22,6 +22,11 @@
 # the script gives up instead of waiting forever. A cold boot is offline for a while too, until
 # adbd starts, which is normal, so it's never cut short.
 #
+# Boot timeout: an emulator that keeps running without ever finishing its boot (a stuck boot, a
+# broken image or data partition) would otherwise keep this script, and a CI job that calls it,
+# waiting forever. After $ADT_BOOT_TIMEOUT seconds (default 900; 0: no limit) the script stops the
+# emulator it started, which is of no use half-booted, and fails.
+#
 # Common errors:
 #   "No access to /dev/kvm"
 #       The user isn't in the kvm group: sudo usermod -aG kvm $USER. When the message says the
@@ -29,8 +34,10 @@
 #       message shows how). If /dev/kvm doesn't exist at all, hardware virtualization is off
 #       (in the firmware, or nested virtualization for WSL).
 #   "the emulator exited"
-#       It failed to start or crashed; the log's last lines are printed. Hangs at "Emulator
-#       starting..." without that error mean Android can't boot (try -wipe-data).
+#       It failed to start or crashed; the log's last lines are printed.
+#   "didn't finish booting within ... s"
+#       Android didn't boot in time, and the emulator was stopped. On a slow host, raise
+#       ADT_BOOT_TIMEOUT; if it never boots, try -wipe-data (factory reset).
 #   "adb can't reach it" (--quick only)
 #       The restored snapshot left adb offline, even after a reconnect: stop the emulator and
 #       start it without --quick.
@@ -56,6 +63,8 @@ chained: start-emulator.sh && ./gradlew installDebug. Cold boot by default.
 
 Environment:
   ADT_AVD           default AVD name
+  ADT_BOOT_TIMEOUT  seconds to wait for Android to boot before stopping the emulator and
+                    failing (default: 900; 0: no limit)
   EMULATOR_TOOLBAR  WSL only: hide (default) or show the emulator's side toolbar
                     (see bin/README.md)
 
@@ -71,6 +80,11 @@ esac
 source "$(dirname "$(readlink -f "$0")")/../lib/lib.sh"
 require "$EMULATOR" "emulator"
 require "$ADB" "platform-tools"
+
+BOOT_TIMEOUT="${ADT_BOOT_TIMEOUT:-900}"   # seconds, 0 = no limit (see the header)
+if ! [[ "$BOOT_TIMEOUT" =~ ^[0-9]+$ ]]; then
+    die "ADT_BOOT_TIMEOUT must be a number of seconds (0: no limit), not '$BOOT_TIMEOUT'."
+fi
 
 # --quick is this script's own flag, allowed anywhere; the emulator's flags have a single dash.
 QUICK=""
@@ -187,6 +201,7 @@ nohup "$EMULATOR" -avd "$AVD_NAME" \
     -no-audio \
     "$@" > "$LOG" 2>&1 &
 EMULATOR_PID=$!
+BOOT_STARTED=$SECONDS
 echo "Emulator '$AVD_NAME' starting ($BOOT_KIND, log: $LOG)..."
 
 # Without this, a crashed emulator would leave the loops below waiting forever.
@@ -195,11 +210,39 @@ check_alive() {
 $(tail -n 15 "$LOG")"
 }
 
+# Stops the emulator started above and waits until it's gone, so that a retry doesn't find it
+# still running and report it as ready. SIGTERM lets it shut down cleanly; SIGKILL only if it
+# doesn't within 30 s.
+stop_emulator() {
+    local waited=0
+    kill "$EMULATOR_PID" 2>/dev/null || return 0
+    while kill -0 "$EMULATOR_PID" 2>/dev/null && [ "$waited" -lt 30 ]; do
+        sleep 1
+        waited=$((waited + 1))
+    done
+    kill -9 "$EMULATOR_PID" 2>/dev/null || true
+}
+
+# An emulator that runs but never boots would otherwise keep the loops below waiting forever
+# (see the header). The log is read before stopping it, whose shutdown lines would hide the cause.
+check_timeout() {
+    local last_lines
+    [ "$BOOT_TIMEOUT" -gt 0 ] && [ $((SECONDS - BOOT_STARTED)) -ge "$BOOT_TIMEOUT" ] || return 0
+    last_lines="$(tail -n 15 "$LOG")"
+    stop_emulator
+    die "'$AVD_NAME' didn't finish booting within $BOOT_TIMEOUT s, so it was stopped. Last lines
+of $LOG:
+$last_lines
+On a slow host, set ADT_BOOT_TIMEOUT to wait longer (0: no limit). If it never boots, try a
+factory reset: $(command_for start-emulator.sh) $AVD_NAME -wipe-data"
+}
+
 # Find our emulator's serial (emulator-<port>): the emulator picks the first free port, so ask
 # each running emulator for its AVD name.
 SERIAL=""
 while [ -z "$SERIAL" ]; do
     check_alive
+    check_timeout
     for serial in $(running_emulators); do
         if [ "$(emulator_avd "$serial")" = "$AVD_NAME" ]; then SERIAL="$serial"; fi
     done
@@ -238,6 +281,7 @@ check_offline() {
 until [ "$("$ADB" -s "$SERIAL" shell getprop sys.boot_completed < /dev/null 2>/dev/null \
         | tr -d '\r')" = "1" ]; do
     check_alive
+    check_timeout
     check_offline
     sleep 2
 done

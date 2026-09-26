@@ -83,6 +83,56 @@ With several devices connected (another emulator, a phone, a TV over adb), `adb`
 and `./gradlew installDebug` installs on all of them. `start-emulator.sh` prints the emulator's
 serial; `export ANDROID_SERIAL=<serial>` makes both use only that one.
 
+## Versions and compatibility
+
+Releases are git tags named `vMAJOR.MINOR.PATCH` ([semantic versioning](https://semver.org));
+what changed in each is in its release notes on GitHub. `main` can change at any time, so anything
+automated (a CI workflow, a script other people run) should use a release tag, or a full commit
+SHA to rule out a moved tag.
+
+The version number covers the public interface:
+
+- the commands in `bin/`: their names, arguments and options, as their `--help` shows them;
+- the environment variables they read: `ADT_AVD`, `ADT_BOOT_TIMEOUT`, `EMULATOR_TOOLBAR`,
+  `ANDROID_SERIAL` and those in [Finding your setup](#finding-your-setup);
+- where they look for the SDK, AVDs and devices, and in what order
+  ([Finding your setup](#finding-your-setup));
+- the AVD `create-avd.sh` creates: its default name, system image and hardware settings;
+- exit statuses: 0 on success, non-zero on failure.
+
+A release that breaks any of these (removes or renames something, or changes what a command
+does by default) is a new major version. New commands, options or tested API levels are a new
+minor version, and fixes a new patch version.
+
+Not covered, so free to change in any release:
+
+- the wording of messages: they're written for people, so don't parse them;
+- [`lib/lib.sh`](lib/lib.sh), which only the scripts use;
+- [`tests/`](tests/README.md), and the variables that exist only for the tests
+  (`ADT_KVM_DEVICE`, `ADT_PROC_VERSION`, `ADT_OFFLINE_TIMEOUT`, `WSLG_TOOLBAR_TIMEOUT`).
+
+### In a GitHub Actions workflow
+
+Check out a release next to your project and put its `bin/` on the `PATH` of the later steps:
+
+```yaml
+steps:
+  - uses: actions/checkout@v7                      # your project first: it empties the workspace
+  - uses: actions/checkout@v7
+    with:
+      repository: CVasilakis/android-cli-dev-tools
+      ref: v1.0.0                                  # a release tag, or a full commit SHA
+      path: .android-cli-dev-tools
+  - run: echo "$GITHUB_WORKSPACE/.android-cli-dev-tools/bin" >> "$GITHUB_PATH"
+  - run: create-avd.sh --if-missing && start-emulator.sh -no-window
+```
+
+`create-avd.sh --if-missing` keeps a cached AVD instead of failing on it, and `start-emulator.sh`
+gives up after `ADT_BOOT_TIMEOUT` seconds (default 900) rather than holding the job until
+GitHub's own time limit. Before those steps the runner needs what [`SETUP.md`](SETUP.md) sets up
+on a workstation: write access to `/dev/kvm` (step 1) and the SDK packages, including the
+system image (steps 4 and 5).
+
 ## Repository layout
 
 | Path | Contents |
@@ -92,6 +142,7 @@ serial; `export ANDROID_SERIAL=<serial>` makes both use only that one.
 | [`tests/`](tests/README.md) | Behavior tests for the scripts: `tests/run.py`. |
 | [`SETUP.md`](SETUP.md) | Setting up the toolchain (WSL2, JDK, Android SDK, emulator). |
 | [`AGENTS.md`](AGENTS.md) | Guidance for coding agents. |
+| [`LICENSE`](LICENSE) | The license. |
 
-Tests: `tests/run.py` (119 tests, no SDK or emulator needed); see
+Tests: `tests/run.py` (130 tests, no SDK or emulator needed); see
 [`tests/README.md`](tests/README.md).

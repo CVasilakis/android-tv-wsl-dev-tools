@@ -10,7 +10,7 @@ that was made. They never touch the real SDK, emulator or devices.
 State directory ($FAKE_STATE):
   calls.jsonl             one JSON line per call: {"tool", "argv", "android_serial"}
   behavior.json           knobs set by the test, see DEFAULT_BEHAVIOR
-  running/<serial>.json   a running fake emulator: {"avd", "pid", "polls", "offline"}
+  running/<serial>.json   a running fake emulator: {"avd", "pid", "polls", "offline", "hidden"}
   devices.json            serials of connected physical devices
   counters.json           per-knob counters (e.g. how many key events failed so far)
 """
@@ -29,6 +29,7 @@ DEFAULT_BEHAVIOR = {
                                   # boot), "until_reconnect" (a stale Quick Boot snapshot, fixed by
                                   # adb reconnect offline) or "forever"
     "emulator_crash": None,       # emulator prints this and exits 1 instead of booting
+    "emulator_hidden": False,     # emulator keeps running but never shows up in adb devices
     "emulator_noise": True,       # emulator -list-avds prints a log line before the names
     "keyevent_failures": 0,       # the first N `adb shell input keyevent` calls fail
     "avd_home": None,             # avdmanager/emulator use this AVD folder, ignoring the env vars
@@ -107,7 +108,8 @@ def running():
             os.kill(info["pid"], 0)
         except (ValueError, OSError):
             continue
-        result[path.stem] = info
+        if not info.get("hidden"):
+            result[path.stem] = info
     return result
 
 
@@ -235,7 +237,8 @@ def boot(name):
     serial = f"emulator-{port}"
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     write_running(serial, {"avd": name, "pid": os.getpid(), "polls": 0,
-                           "offline": behavior()["adb_offline"]})
+                           "offline": behavior()["adb_offline"],
+                           "hidden": behavior()["emulator_hidden"]})
     print(f"INFO         | Booted {name} as {serial} (fake)", flush=True)
     deadline = time.time() + 120   # never outlive a test run, even if cleanup is skipped
     while time.time() < deadline and (RUNNING / f"{serial}.json").exists():
@@ -264,8 +267,10 @@ def avdmanager(args):
             f"avd.ini.encoding=UTF-8\npath={folder}\npath.rel=avd/{name}.avd\n"
             "target=android-25\n")
         # The keys the script changes are present with other values, as in a real config.ini.
+        image = option(args, "--package") or option(args, "-k")
         (folder / "config.ini").write_text(
             "avd.ini.encoding=UTF-8\nhw.keyboard=no\nhw.ramSize=1536\n"
+            f"image.sysdir.1={image.replace(';', '/')}/\n"
             "hw.initialOrientation=portrait\ntag.id=android-tv\ntag.ids=android-tv\n")
     elif args[:2] == ["list", "avd"]:
         print("\n".join(avd_names()))

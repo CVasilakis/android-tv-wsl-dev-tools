@@ -3,6 +3,7 @@
 #
 # Usage:   create-avd.sh [avd-name]            (default: $ADT_AVD, else tv_api25)
 #          create-avd.sh --api 30 [avd-name]   (default: tv_api30)
+#          create-avd.sh --if-missing [...]    (an existing AVD of that image is fine: CI caches)
 #          create-avd.sh --help
 # Result:  <avd-name>.avd and <avd-name>.ini in the folder avdmanager keeps AVDs in
 #          ($ANDROID_AVD_HOME if set, ~/.android/avd by default)
@@ -20,6 +21,9 @@
 #       The script prints the install command when the image's folder is missing.
 #   'AVD ... already exists'
 #       Printed by this script on purpose; it never overwrites an AVD (that would wipe its data).
+#       With --if-missing, an existing AVD made from the same system image is accepted instead
+#       (exit 0, left as it is), so a script or CI job can run this every time. An AVD of the same
+#       name from another image is still an error: it isn't the AVD that was asked for.
 #   'Error: Could not load devices from .../android-30/android-tv/x86/devices.xml'
 #       Harmless: the API 30, 33 and 36 images lack that file, avdmanager uses its own tv_1080p
 #       profile. avdmanager prints it for every AVD once such an image is installed.
@@ -33,7 +37,7 @@ set -euo pipefail
 
 usage() {
     cat <<'EOF'
-Usage: create-avd.sh [--api <level>] [avd-name]
+Usage: create-avd.sh [--api <level>] [--if-missing] [avd-name]
 
 Creates an Android TV emulator (AVD) for developing TV apps: 1080p, landscape, D-pad and
 keyboard input. Never overwrites an existing AVD.
@@ -41,6 +45,8 @@ keyboard input. Never overwrites an existing AVD.
   --api <level>  Android API level (default: 25, Android 7.1), e.g. 22 (Android 5.1),
                  28 (Android 9), 30 (Android 11), 33 (Android 13) or 36 (Android 16).
                  22 is the oldest the emulator can boot
+  --if-missing   if the AVD already exists and was made from the same system image, leave
+                 it as it is and succeed (for scripts and CI caches)
   avd-name       name of the new AVD. Default: tv_api<level> with --api, else $ADT_AVD,
                  else tv_api25
   -h, --help     show this help
@@ -54,11 +60,13 @@ EOF
 }
 API=""
 AVD_NAME=""
+IF_MISSING=""
 while [ $# -gt 0 ]; do
     case "$1" in
         -h|--help) usage; exit 0 ;;
         --api)     [[ "${2:-}" =~ ^[0-9]+$ ]] || { usage >&2; exit 2; }
                    API="$2"; shift 2 ;;
+        --if-missing) IF_MISSING=1; shift ;;
         -*)        usage >&2; exit 2 ;;
         *)         [ -z "$AVD_NAME" ] || { usage >&2; exit 2; }
                    AVD_NAME="$1"; shift ;;
@@ -89,10 +97,25 @@ if [ -f "$IMAGE_DIR/package.xml" ] && ! compgen -G "$IMAGE_DIR/kernel-ranchu*" >
 can no longer boot such images. Use an Android TV image of API 22 or newer."
 fi
 
+# Never overwrite an AVD: that would wipe its data. With --if-missing, one made from the same
+# image counts as done; its image is config.ini's image.sysdir.1 (system-images/android-25/
+# android-tv/x86/, "key = value" once the emulator has rewritten the file).
 if existing="$(avd_dir "$AVD_NAME")"; then
-    echo "AVD '$AVD_NAME' already exists ($existing). Delete it first with:"
-    echo "  $AVDMANAGER delete avd -n $AVD_NAME"
-    exit 1
+    if [ -z "$IF_MISSING" ]; then
+        die "AVD '$AVD_NAME' already exists ($existing). Delete it first with:
+  $AVDMANAGER delete avd -n $AVD_NAME
+or pass --if-missing to keep it."
+    fi
+    existing_image="$(sed -n 's/^image\.sysdir\.1 *= *//p' "$existing/config.ini" | head -n 1 \
+        | tr -d '\r')"
+    existing_image="${existing_image%/}"
+    if [ "$existing_image" != "${IMAGE//;//}" ]; then
+        die "AVD '$AVD_NAME' already exists ($existing), but was made from
+${existing_image:-an unknown system image}, not ${IMAGE//;//}. Pick another name, or delete it with:
+  $AVDMANAGER delete avd -n $AVD_NAME"
+    fi
+    echo "AVD '$AVD_NAME' already exists ($existing), made from $IMAGE; left as it is."
+    exit 0
 fi
 
 # avdmanager asks "Do you wish to create a custom hardware profile? [no]" interactively;

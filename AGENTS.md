@@ -43,7 +43,14 @@ adb emu kill                  # stop the emulator (with several devices: adb -s 
   takes depends on the host, so describe it relatively ("slower", "faster than a cold boot").
   Sizes, RAM needs and counts are fine.
 - **No personal information in tracked files:** no names, e-mail addresses, usernames or absolute
-  home paths (write `~` or `/home/<user>`), no machine-specific config.
+  home paths (write `~` or `/home/<user>`), no machine-specific config. The exceptions are
+  `LICENSE` and this repository's address (`CVasilakis/android-cli-dev-tools`), which contains
+  the owner's username, in examples that check it out.
+- **The public interface is versioned** ([`README.md`](README.md#versions-and-compatibility)):
+  command names, options, the environment variables they read, defaults and exit statuses.
+  Breaking it needs the user's agreement and means a new major version; when you report a change,
+  say whether it breaks, extends or only fixes that interface, for the release notes. Only the
+  user creates tags and releases.
 - Downloads can be large (the emulator is ~354 MB, a system image ~700 MB). Ask before
   triggering big SDK downloads.
 - `sudo` needs a password and there's no terminal to type it into, so ask the user to run sudo
