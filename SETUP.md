@@ -223,10 +223,11 @@ Notes before you use it:
   `android sdk install <typo> && …` carries on as if it had worked. Check with
   `android sdk list --no-metrics` rather than trusting the exit status.
 - **It accepts licenses as it installs**, so there's no `sdkmanager --licenses` step:
-  `android sdk install` writes the license of each package to `$ANDROID_HOME/licenses/`. Every
-  package in this setup is under `android-sdk-license`, so after step 4 that file exists and the
+  `android sdk install` writes the license of each package to `$ANDROID_HOME/licenses/`. The
+  packages of step 4 are under `android-sdk-license`, so after step 4 that file exists and the
   Android Gradle Plugin can install build-tools by itself. A package under a different license
-  (some Google add-ons) accepts its own on first install.
+  accepts its own on first install: the Android TV and Google TV images of API 26 to 30 are under
+  `android-sdk-preview-license`.
 
 #### Telemetry
 

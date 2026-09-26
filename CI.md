@@ -45,7 +45,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: CVasilakis/android-tv-wsl-dev-tools
-          ref: v1.0.0                                  # a release tag, or a full commit SHA
+          ref: v1.0.1                                  # a release tag, or a full commit SHA
           path: .android-tv-wsl-dev-tools
       - name: Put the tools on PATH
         run: echo "$GITHUB_WORKSPACE/.android-tv-wsl-dev-tools/bin" >> "$GITHUB_PATH"
@@ -59,9 +59,11 @@ jobs:
       - name: Install the emulator's system library
         run: sudo apt-get update && sudo apt-get install -y libpulse0
       - name: Install the emulator and the system image
-        run: >
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "emulator" "platform-tools"
-          "system-images;android-${{ matrix.api }};android-tv;x86" > /dev/null
+        run: |
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes 2> /dev/null | "$sdkmanager" --licenses > /dev/null
+          "$sdkmanager" "emulator" "platform-tools" "system-images;android-${{ matrix.api }};android-tv;x86" \
+            > "$RUNNER_TEMP/sdkmanager.log" || { cat "$RUNNER_TEMP/sdkmanager.log"; exit 1; }
 
       - name: Boot the emulator
         run: |
@@ -83,6 +85,12 @@ Why the steps look like this:
 - **`serial="$(…)"` on a line of its own.** As an assignment by itself, a failed boot fails the
   step; inside `echo "…$(start-emulator.sh)" >> …` the step would carry on with an empty serial.
 - **`ANDROID_SERIAL`** makes adb and Gradle use that emulator in every later step.
+- **`sdkmanager --licenses` first.** The runner image has accepted only the licenses of the
+  packages it installed itself, and the images of API 26 to 30 are under another one
+  ([`SETUP.md`](SETUP.md#the-android-cli)). Without it, sdkmanager refuses to install them.
+  `yes` complains when sdkmanager stops reading, hence its `2> /dev/null`.
+- **sdkmanager's output in a file.** It's mostly progress bars, so the job log shows it only
+  when the install fails, where it says why.
 - **`-no-snapshot-save`**: the emulator saves a Quick Boot snapshot when it's stopped, which is
   slow and of no use on a runner that's thrown away. Boots are cold by default anyway.
 - **Time limits.** A stuck boot fails after `ADT_BOOT_TIMEOUT` seconds

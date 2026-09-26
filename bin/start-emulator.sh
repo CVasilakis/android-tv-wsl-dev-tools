@@ -27,7 +27,8 @@
 # Boot timeout: an emulator that keeps running without ever finishing its boot (a stuck boot, a
 # broken image or data partition) would otherwise keep this script, and a CI job that calls it,
 # waiting forever. After $ADT_BOOT_TIMEOUT seconds (default 900; 0: no limit) the script stops the
-# emulator it started, which is of no use half-booted, and fails.
+# emulator it started, which is of no use half-booted, and fails. Meanwhile it says every minute
+# that the emulator is still booting, so a slow boot (in a CI log, say) doesn't look like a hang.
 #
 # Already running: an AVD that's running isn't started again (its files are locked), but it may
 # still be booting, e.g. started by another call or CI step a moment ago. So the script waits for
@@ -284,10 +285,23 @@ On a slow host, set ADT_BOOT_TIMEOUT to wait longer (0: no limit). If it never b
 factory reset: $(command_for start-emulator.sh) $AVD_NAME -wipe-data"
 }
 
+# A boot can take minutes with nothing to show, which in a CI log looks like a hang (see the
+# header). ADT_PROGRESS_INTERVAL exists for the tests.
+PROGRESS_INTERVAL="${ADT_PROGRESS_INTERVAL:-60}"
+next_progress=$((BOOT_STARTED + PROGRESS_INTERVAL))
+report_progress() {
+    local limit=""
+    [ "$SECONDS" -ge "$next_progress" ] || return 0
+    if [ "$BOOT_TIMEOUT" -gt 0 ]; then limit="; the limit is $BOOT_TIMEOUT s"; fi
+    echo "'$AVD_NAME' is still booting ($((SECONDS - BOOT_STARTED)) s so far$limit)..." >&2
+    next_progress=$((SECONDS + PROGRESS_INTERVAL))
+}
+
 # Find the serial of the emulator started above (emulator-<port>), once it shows up in adb.
 while [ -z "$SERIAL" ]; do
     check_alive
     check_timeout
+    report_progress
     SERIAL="$(avd_serial || true)"
     if [ -z "$SERIAL" ]; then sleep 1; fi
 done
@@ -326,6 +340,7 @@ until [ "$("$ADB" -s "$SERIAL" shell getprop sys.boot_completed < /dev/null 2>/d
     check_alive
     check_timeout
     check_offline
+    report_progress
     sleep 2
     WAITED=1
 done

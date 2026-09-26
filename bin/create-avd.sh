@@ -7,7 +7,7 @@
 #          create-avd.sh --size 1280x720 --density 213 tv_720p   (another screen; default 1080p)
 #          create-avd.sh --if-missing [...]    (an existing AVD of that image is fine: CI caches)
 #          create-avd.sh --help
-# Result:  <avd-name>.avd and <avd-name>.ini in the folder avdmanager keeps AVDs in
+# Result:  <avd-name>.avd and <avd-name>.ini in the folder the emulator looks for AVDs in
 #          ($ANDROID_AVD_HOME if set, ~/.android/avd by default)
 #
 # Requires (see SETUP.md): cmdline-tools, and the SDK packages "emulator" and
@@ -69,7 +69,7 @@ Needs the SDK packages "cmdline-tools;latest", "emulator" and
 "system-images;android-<level>;android-tv;x86" ("...;google-tv;x86" with --google-tv; see
 SETUP.md). The SDK is the first of:
 $ANDROID_HOME, $ANDROID_SDK_ROOT, sdk.dir in the local.properties of the project you're in, the
-SDK of the adb on $PATH, ~/Android/Sdk. The AVD goes where avdmanager keeps AVDs
+SDK of the adb on $PATH, ~/Android/Sdk. The AVD goes where the emulator looks for AVDs
 ($ANDROID_AVD_HOME if set, ~/.android/avd by default).
 EOF
 }
@@ -172,13 +172,21 @@ $wanted. Pick another name, or delete it with:
     exit 0
 fi
 
+# The AVD goes in the folder the emulator looks in (the first of avd_homes), and avdmanager is
+# told so through ANDROID_AVD_HOME. Left to itself, avdmanager can pick another one: cmdline-tools
+# 12.0 (on GitHub's runners) uses $XDG_CONFIG_HOME/.android/avd when XDG_CONFIG_HOME is set, and
+# the emulator never finds the AVD there. That avdmanager ignores ANDROID_AVD_HOME while the
+# folder doesn't exist, so it's created first.
+read -r AVD_HOME < <(avd_homes)
+mkdir -p "$AVD_HOME"
+
 # avdmanager asks "Do you wish to create a custom hardware profile? [no]" interactively;
 # piping 'no' keeps the script non-interactive. --tag/--abi are explicit so avdmanager fails
 # loudly instead of guessing if the image layout ever changes.
 # tv_1080p = 1920x1080 at 320 dpi (960x540 dp), the resolution TV UIs are designed for.
 # avdmanager's own error for a missing image lists every image it knows instead of naming the
 # package to install, so the install command is added when the image's folder isn't there.
-if ! echo no | "$AVDMANAGER" create avd \
+if ! echo no | ANDROID_AVD_HOME="$AVD_HOME" "$AVDMANAGER" create avd \
     --name "$AVD_NAME" \
     --package "$IMAGE" \
     --tag "$TAG" \

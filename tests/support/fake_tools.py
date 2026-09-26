@@ -33,6 +33,10 @@ DEFAULT_BEHAVIOR = {
     "emulator_noise": True,       # emulator -list-avds prints a log line before the names
     "keyevent_failures": 0,       # the first N `adb shell input keyevent` calls fail
     "avd_home": None,             # avdmanager/emulator use this AVD folder, ignoring the env vars
+    "avdmanager_xdg": False,      # avdmanager acts like cmdline-tools 12.0 (GitHub's runners): with
+                                  # $XDG_CONFIG_HOME set, it creates AVDs in
+                                  # $XDG_CONFIG_HOME/.android/avd, where the emulator doesn't look,
+                                  # unless $ANDROID_AVD_HOME names an existing folder
     "avdmanager_error": None,     # avdmanager create prints this and exits 1
     "user": "tester",             # the user the scripts run as (`id -un`)
     "kvm_group_members": [],      # users listed by `getent group kvm`
@@ -93,6 +97,15 @@ def avd_home():
     if env.get("ANDROID_SDK_HOME"):
         return Path(env["ANDROID_SDK_HOME"]) / ".android" / "avd"
     return Path(env["HOME"]) / ".android" / "avd"
+
+
+def avdmanager_home():
+    """The folder avdmanager creates AVDs in: the emulator's, except with avdmanager_xdg."""
+    xdg = os.environ.get("XDG_CONFIG_HOME")
+    avd_env = os.environ.get("ANDROID_AVD_HOME")
+    if behavior()["avdmanager_xdg"] and xdg and not (avd_env and Path(avd_env).is_dir()):
+        return Path(xdg) / ".android" / "avd"
+    return avd_home()
 
 
 def avd_names():
@@ -261,7 +274,7 @@ def avdmanager(args):
         if error:
             fail(error)
         name = option(args, "--name") or option(args, "-n")
-        home = avd_home()
+        home = avdmanager_home()
         if (home / f"{name}.ini").exists():
             fail(f"Error: Android Virtual Device '{name}' already exists.")
         folder = home / f"{name}.avd"

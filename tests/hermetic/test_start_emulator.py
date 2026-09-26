@@ -254,6 +254,42 @@ class BootTimeout(EmulatorTestCase):
         self.assertEqual(self.launched(), [], "nothing is started with a bad timeout")
 
 
+class BootProgress(EmulatorTestCase):
+    """A boot can take minutes with nothing to show, which in a CI log looks like a hang: every
+    ADT_PROGRESS_INTERVAL seconds (60 by default) a line on stderr says it's still booting."""
+
+    FAST = {"ADT_PROGRESS_INTERVAL": "1"}
+
+    def setUp(self):
+        super().setUp()
+        self.sandbox.add_avd("tv_api25")
+
+    def test_says_it_is_still_booting_while_android_boots(self):
+        self.sandbox.set_behavior(boot_polls=2)
+        result = self.start(env=self.FAST)
+        self.assertSucceeded(result)
+        self.assertRegex(result.err, r"'tv_api25' is still booting \(\d+ s so far; the limit is 900 s\)")
+        self.assertEqual(result.out, "emulator-5554\n", "stdout holds only the serial")
+
+    def test_says_it_is_still_booting_before_adb_sees_it(self):
+        self.sandbox.set_behavior(emulator_hidden=True)
+        result = self.start(env={**self.FAST, "ADT_BOOT_TIMEOUT": "3"})
+        self.assertFailed(result, "didn't finish booting within 3 s")
+        self.assertIn("'tv_api25' is still booting (", result.err)
+
+    def test_names_no_limit_when_there_is_none(self):
+        self.sandbox.set_behavior(boot_polls=2)
+        result = self.start(env={**self.FAST, "ADT_BOOT_TIMEOUT": "0"})
+        self.assertSucceeded(result)
+        self.assertRegex(result.err, r"'tv_api25' is still booting \(\d+ s so far\)\.\.\.")
+
+    def test_quiet_when_the_boot_is_quick(self):
+        self.sandbox.set_behavior(boot_polls=2)
+        result = self.start()
+        self.assertSucceeded(result)
+        self.assertNotIn("still booting", result.err)
+
+
 class AlreadyRunning(EmulatorTestCase):
     """An AVD that's already running isn't started again, but it may still be booting (another
     call or CI step started it): the script returns only once Android has booted, as always."""
