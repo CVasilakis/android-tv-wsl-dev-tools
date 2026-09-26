@@ -1,7 +1,8 @@
 # Development environment setup (WSL2)
 
 How to set up the toolchain for developing Android apps from the command line on WSL2 (Ubuntu
-24.04), with an Android TV emulator. Android Studio is not needed. For using the emulator once it's
+24.04), with an Android TV emulator. Android Studio is not needed. Other Debian-based systems may
+work but are untested (see [Scope](README.md#scope)). For using the emulator once it's
 set up, see [`bin/README.md`](bin/README.md); for a CI runner, see [`CI.md`](CI.md).
 
 Locations below are defaults, not requirements. An existing SDK (e.g. Android Studio's) or AVD
@@ -24,8 +25,8 @@ The versions are the ones this setup was tested with; newer ones should work too
 | Build-tools | 36.0.0, installed automatically by the Android Gradle Plugin on the first build | `~/Android/Sdk/build-tools` |
 | Emulator | 37.1.11 | `~/Android/Sdk/emulator` |
 | System image | `system-images;android-25;android-tv;x86` rev 16 (Android 7.1.1 TV) | `~/Android/Sdk/system-images/android-25/android-tv/x86` |
-| Optional: more system images, to test on other Android versions | `system-images;android-22;android-tv;x86` rev 3 (Android 5.1 TV), `system-images;android-28;android-tv;x86` rev 10 (Android 9 TV), `system-images;android-30;android-tv;x86` rev 4 (Android 11 TV), `system-images;android-33;android-tv;x86` rev 5 (Android 13 TV), `system-images;android-36;android-tv;x86` rev 4 (Android 16 TV) | `~/Android/Sdk/system-images/android-<level>/android-tv/x86` |
-| AVD | `tv_api25` (tv_1080p); optionally `tv_api22`, `tv_api28`, `tv_api30`, `tv_api33`, `tv_api36` | `~/.android/avd/tv_api<level>.avd` |
+| Optional: more system images, to test on other Android versions | `system-images;android-<level>;android-tv;x86` of the other tested levels; revisions in [Sizes](#sizes) | `~/Android/Sdk/system-images/android-<level>/android-tv/x86` |
+| AVD | `tv_api25` (tv_1080p); optionally `tv_api<level>` for the other levels | `~/.android/avd/tv_api<level>.avd` |
 | Gradle | per project, through its wrapper (`./gradlew`) | `~/.gradle` |
 
 ### Sizes
@@ -44,14 +45,32 @@ Downloads are what goes over the network; "on disk" is what the finished install
 | `libpulse0` and the optional `xvfb`, `shellcheck` packages | a few MB | |
 | the `android` CLI, on its first run | ~250 MB | ~250 MB (`~/.android`) |
 | **The SDK once everything above is installed** | | **~4.4 GB** (`~/Android/Sdk`) |
-| Optional: Android TV API 22 / 28 / 30 / 33 / 36 x86 system images | ~280 MB / ~450 MB / ~670 MB / ~780 MB / ~920 MB | 1.4 GB / 2.7 GB / 3.2 GB / 4.2 GB / **8.2 GB** more in the SDK |
-| The `tv_api25` AVD, once booted and used for tests | | 1–2.5 GB (`~/.android/avd`), it grows with snapshots; about the same for each other AVD |
+| Optional: the Android TV x86 system images of other levels | ~280–920 MB each | 1.4–8.2 GB each (table below) |
+| The `tv_api25` AVD, once booted and used for tests | | 1–2.5 GB (`~/.android/avd`), it grows with snapshots; about the same for each other AVD, ~5 GB for API 23 |
 | A Gradle distribution (first `./gradlew` of a project) | ~150 MB | |
 | Gradle/Maven dependencies of a project (AGP, Kotlin, test libraries, …) | a few hundred MB | ~1.1 GB (`~/.gradle`) |
 
+The tested Android TV x86 system images (`system-images;android-<level>;android-tv;x86`):
+
+| API | Android | Revision | Download | On disk |
+|---|---|---|---|---|
+| 22 | 5.1 | 3 | ~280 MB | 1.4 GB |
+| 23 | 6.0 | 21 | ~325 MB | 3.3 GB |
+| 24 | 7.0 | 22 | ~380 MB | 3.1 GB |
+| 25 | 7.1.1 | 16 | ~420 MB | 3.1 GB |
+| 26 | 8.0 | 14 | ~385 MB | 3.2 GB |
+| 27 | 8.1 | 9 | ~390 MB | 3.2 GB |
+| 28 | 9 | 10 | ~450 MB | 2.7 GB |
+| 29 | 10 | 3 | ~565 MB | 3.1 GB |
+| 30 | 11 | 4 | ~670 MB | 3.2 GB |
+| 31 | 12 | 4 | ~735 MB | 4.2 GB |
+| 33 | 13 | 5 | ~780 MB | 4.2 GB |
+| 34 | 14 | 3 | ~770 MB | **8.2 GB** |
+| 36 | 16 | 4 | ~920 MB | **8.2 GB** |
+
 Plan for **~8 GB** in `$HOME` for a full first-time setup with one project built and its emulator
 booted, and **4–6 GB more** for each other Android version (its system image and AVD); ~11 GB for
-API 36, whose image alone takes 8.2 GB.
+API 34 and 36, whose images alone take 8.2 GB.
 
 ## Prerequisites
 
@@ -265,17 +284,16 @@ The folder must contain `system.img`, `userdata.img`, `ramdisk.img`, `kernel-ran
 android sdk install --no-metrics "system-images;android-25;android-tv;x86"
 ```
 
-**Optional: other Android versions.** To also test on Android 5.1 (API 22), 9 (API 28), 11 (API
-30), 13 (API 33) and 16 (API 36), install their images too (sizes in [Sizes](#sizes); API 36 takes 8.2 GB on
-disk). Pick the ones you need:
+**Optional: other Android versions.** To also test on other Android versions, install their
+images too. Every Android TV x86 image from API 22 to 36 is tested (the table in [Sizes](#sizes);
+API 34 and 36 take 8.2 GB on disk each). Pick the ones you need, for example:
 
 ```bash
 android sdk install --no-metrics "system-images;android-22;android-tv;x86" "system-images;android-28;android-tv;x86"
-android sdk install --no-metrics "system-images;android-30;android-tv;x86" "system-images;android-33;android-tv;x86"
-android sdk install --no-metrics "system-images;android-36;android-tv;x86"
+android sdk install --no-metrics "system-images;android-30;android-tv;x86" "system-images;android-36;android-tv;x86"
 ```
 
-`android sdk list --no-metrics --all | grep android-tv` lists the other levels available. Skip
+`android sdk list --no-metrics --all | grep android-tv` lists every level available. Skip
 API 21: its image installs, but the emulator can't boot it (only the old goldfish kernel,
 [`bin/README.md`](bin/README.md#create-avdsh---api-level---if-missing-name)); API 22 is the oldest that works.
 
@@ -285,8 +303,10 @@ API 21: its image installs, but the emulator can't boot it (only the old goldfis
 bin/create-avd.sh            # creates the AVD "tv_api25"
 bin/create-avd.sh --api 28   # optional: "tv_api28", from the API 28 image of step 5
 bin/create-avd.sh --api 30   # optional: "tv_api30" (prints a harmless devices.xml error)
-bin/create-avd.sh --api 22   # optional: likewise "tv_api22", "tv_api33", "tv_api36"
 ```
+
+Likewise for any other level whose image you installed in step 5. From API 29 on, the images make
+avdmanager print that devices.xml error.
 
 `create-avd.sh` only writes files, so it works without KVM access; booting the AVD (step 7) is the
 first thing that needs it.
@@ -320,8 +340,8 @@ The tests of the scripts need only Python 3.10+. Two optional tools enable more 
 
 | Tool | For | Install |
 |---|---|---|
-| Xvfb, a virtual X server | the `wslg-toolbar.py` tests (they skip without it) | `sudo apt-get install -y xvfb` / `sudo dnf install -y xorg-x11-server-Xvfb` |
-| shellcheck | static analysis of the shell scripts (skips without it) | `sudo apt-get install -y shellcheck` / `sudo dnf install -y ShellCheck` |
+| Xvfb, a virtual X server | the `wslg-toolbar.py` tests (they skip without it) | `sudo apt-get install -y xvfb` |
+| shellcheck | static analysis of the shell scripts (skips without it) | `sudo apt-get install -y shellcheck` |
 
 ```bash
 tests/run.py                   # prints what it skipped and why

@@ -61,8 +61,8 @@ class OnTheRealEmulator(unittest.TestCase):
 
     def recent_key_events(self):
         """(age in ms, keyCode, is key-down) of each key event in the input dispatcher's recent
-        queue, oldest first. Android 5-8 print a key-down as action=0, 9-10 as action=DOWN, and
-        11 and newer print no details ("KeyEvent, age=12ms"): keyCode and is key-down are None."""
+        queue, oldest first. Android 5-8 print a key-down as action=0, 9 as action=DOWN, and 10
+        and newer print no details ("KeyEvent, age=12ms"): keyCode and is key-down are None."""
         dump = self.adb_shell("dumpsys", "input")
         queue = dump.split("RecentQueue", 1)[1].split("PendingEvent", 1)[0]
         events = []
@@ -109,7 +109,7 @@ class OnTheRealEmulator(unittest.TestCase):
     def test_remote_keys_arrive_as_the_right_android_keys(self):
         # The recent queue holds the last 10 events (5 presses), so check a few keys at a time.
         # Android 11 also queues focus changes there (e.g. when OK opens something), so 3 at most.
-        details = int(self.adb_shell("getprop", "ro.build.version.sdk")) < 30
+        details = int(self.adb_shell("getprop", "ro.build.version.sdk")) < 29
         for first in range(0, len(KEYS), 3):
             batch = KEYS[first:first + 3]
             with self.subTest(keys=[code for _, code in batch]):

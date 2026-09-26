@@ -25,7 +25,7 @@
 #       (exit 0, left as it is), so a script or CI job can run this every time. An AVD of the same
 #       name from another image is still an error: it isn't the AVD that was asked for.
 #   'Error: Could not load devices from .../android-30/android-tv/x86/devices.xml'
-#       Harmless: the API 30, 33 and 36 images lack that file, avdmanager uses its own tv_1080p
+#       Harmless: the images from API 29 on lack that file, avdmanager uses its own tv_1080p
 #       profile. avdmanager prints it for every AVD once such an image is installed.
 #   'the Android TV image of API 21 has no ranchu kernel'
 #       Printed by this script: the emulator can't boot that image (see IMAGE_DIR below).

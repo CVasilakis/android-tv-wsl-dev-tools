@@ -1,9 +1,9 @@
 # android-cli-dev-tools
 
-Command-line tools for developing Android apps without Android Studio: create and boot an Android
-TV emulator, drive it with a TV remote in the terminal, and work around the emulator's input
-problems under WSLg. They work with any Linux setup and any Gradle project: they find the SDK,
-AVDs and emulators on their own (see [Finding your setup](#finding-your-setup)).
+Command-line tools for developing Android TV apps without Android Studio, on Ubuntu under WSL2:
+create and boot an Android TV emulator, drive it with a TV remote in the terminal, and work around
+the emulator's input problems under WSLg. They work with any Gradle project: they find the SDK, AVDs
+and emulators on their own (see [Finding your setup](#finding-your-setup)).
 
 | Script | Purpose |
 |---|---|
@@ -13,6 +13,19 @@ AVDs and emulators on their own (see [Finding your setup](#finding-your-setup)).
 | [`bin/wslg-toolbar.py`](bin/wslg-toolbar.py) | Works around the emulator toolbar's input problems under WSLg. |
 
 Each one prints its usage with `--help`. [`bin/README.md`](bin/README.md) describes them in detail.
+
+## Scope
+
+**Where:** Ubuntu on WSL2 (Windows 11, or a recent Windows 10 build, with WSLg), tested on Ubuntu
+24.04. Other Debian-based distributions, and Ubuntu outside WSL, may work but are untested; the
+WSLg workarounds are skipped outside WSL. GitHub's Ubuntu runners are covered for headless use in
+CI ([`CI.md`](CI.md)). macOS, native Windows and non-Debian distributions aren't supported.
+
+**What:** Android TV apps, controlled with a D-pad remote and no touchscreen. The AVD settings,
+the default AVD and the remote in the terminal are built around that. The tested emulator images
+are Android TV ones ([Several Android versions](#several-android-versions)); Google TV images
+(`google-tv`) are untested. Phone, tablet, Wear OS and Automotive apps are out of scope: they need
+touch input and other hardware settings that these tools don't provide.
 
 ## Getting started
 
@@ -75,9 +88,12 @@ for avd in tv_api22 tv_api25 tv_api36; do start-emulator.sh "$avd"; done
 ./gradlew connectedDebugAndroidTest                     # runs on every connected device
 ```
 
-**Tested API levels: 22, 25, 28, 30, 33 and 36.** Each needs its system image first
-([`SETUP.md`](SETUP.md), step 5). API 22 is the oldest Android TV image the emulator can boot.
-Each emulator takes ~2 GB of RAM. `remote.sh` needs the serial when several are running.
+**Tested API levels: 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 33, 34 and 36**: every Android TV
+x86 image from API 22 on (there are none for 32 and 35). Each needs its system image first
+([`SETUP.md`](SETUP.md), step 5). API 22 is the oldest Android TV image the emulator can boot;
+what differs between the levels is in [`bin/README.md`](bin/README.md#differences-between-api-levels).
+An emulator takes 1.8–2.5 GB of RAM up to API 28, and 3–3.4 GB from API 29 on. `remote.sh` needs
+the serial when several are running.
 
 With several devices connected (another emulator, a phone, a TV over adb), `adb` refuses to guess
 and `./gradlew installDebug` installs on all of them. `start-emulator.sh` prints the emulator's

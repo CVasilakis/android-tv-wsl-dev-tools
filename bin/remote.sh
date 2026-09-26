@@ -18,7 +18,7 @@
 #
 # Android sees these keys come from its virtual keyboard (deviceId -1, source keyboard), not from
 # a D-pad device like a real remote; only code that checks a KeyEvent's device or source can tell.
-# To see what Android received (Android 11 and newer list no key codes there):
+# To see what Android received (Android 10 and newer list no key codes there):
 #   adb shell dumpsys input | sed -n '/RecentQueue/,/PendingEvent/p'
 #
 # Troubleshooting:
