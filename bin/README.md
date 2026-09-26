@@ -89,12 +89,11 @@ finds the emulator's serial by asking each running emulator for its AVD name, wa
 with `wslg-toolbar.py <name> hide`. If the emulator exits during boot, it stops waiting and prints
 the end of the log. If the AVD is already running, it only prints its serial.
 
-**Cold boot or Quick Boot.** By default Android starts from scratch (`-no-snapshot-load`): ~8–10 s
-on API 22 and 25, ~11 s on API 28, ~18 s on API 30, ~27 s on API 36. `--quick` (anywhere on the
-command line) instead restores the snapshot the emulator saved when it was last stopped: ~6–7 s,
-~16 s on API 36. A snapshot
-also restores `adbd`, the adb service inside Android, in the middle of its old connection, and
-sometimes adb then lists the emulator as `offline` and never gets through. So with `--quick`, if
+**Cold boot or Quick Boot.** By default Android starts from scratch (`-no-snapshot-load`); newer
+API levels take longer. `--quick` (anywhere on the command line) instead restores the snapshot the
+emulator saved when it was last stopped, which is faster. A snapshot also restores `adbd`, the adb
+service inside Android, in the middle of its old connection, and sometimes adb then lists the
+emulator as `offline` and never gets through. So with `--quick`, if
 the emulator stays `offline` for 30 s, the script runs `adb reconnect offline`, and if it's still
 offline 30 s later it stops and says how to cold boot instead of waiting forever. A cold boot is
 also `offline` until `adbd` starts, which is normal, so it's never cut short.
@@ -125,12 +124,11 @@ Notes on the emulator window:
 
 `remote.sh` sends each key with `adb shell input keyevent` (the adb column above), so it works
 the same on every Android version, on emulators and physical devices, whatever window has focus.
-Each key takes ~0.1 s (API 36) to ~0.55 s (API 30), because every call starts a process on the
-device; quick presses queue up and arrive in order. By default it picks the only running emulator,
+Each key lags a little, because every call starts a process on the device; quick presses queue up and arrive in order. By default it picks the only running emulator,
 ignoring physical devices; with several emulators, or for a physical TV, pass the serial
 (`remote.sh emulator-5554`) or set `ANDROID_SERIAL`.
 
-The emulator console (`adb emu event send`) would be ~0.01 s per key, but it only works on
+The emulator console (`adb emu event send`) would be much faster, but it only works on
 emulators, and on the API 30 Android TV image its key events never arrive (the image has no
 `goldfish_events` keyboard for the console to reach), so `remote.sh` doesn't use it.
 
@@ -188,7 +186,7 @@ automated tests should send keys with `adb shell input keyevent`, like `remote.s
 | `Error: Could not load devices from …/devices.xml` from `create-avd.sh` | harmless, the AVD is created correctly (see [`create-avd.sh`](#create-avdsh---api-level-name)) |
 | `create-avd.sh: the Android TV image of API 21 has no ranchu kernel` | the emulator can't boot that image; use API 22 or newer (see [`create-avd.sh`](#create-avdsh---api-level-name)) |
 | `This AVD's configuration is missing a kernel file! … "kernel-ranchu"` from the emulator | an AVD made from an image without a ranchu kernel (API 21), e.g. by avdmanager directly: it can't boot |
-| `remote.sh` keys lag behind (up to ~0.5 s each) | expected: each key is an `adb shell input keyevent` call (see [Controlling the TV](#controlling-the-tv)) |
+| `remote.sh` keys lag behind | expected: each key is an `adb shell input keyevent` call (see [Controlling the TV](#controlling-the-tv)) |
 | Black emulator window | if started with `--quick`, start it without |
 | `No access to /dev/kvm` | not in the `kvm` group, or the device belongs to another group: the message says which, see [`../setup.md`](../setup.md#make-devkvm-writable) |
 | `error while loading shared libraries: libpulse.so.0` | `sudo apt-get install -y libpulse0` ([`../setup.md`](../setup.md), step 1) |

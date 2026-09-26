@@ -15,9 +15,9 @@
 # Stop:    adb -s <serial> emu kill   (saves a Quick Boot snapshot, which --quick boots from)
 #
 # Cold boot or Quick Boot: a cold boot (the default, -no-snapshot-load) starts Android from scratch
-# (~10-30 s). --quick restores the snapshot saved when the emulator was last stopped (~6-16 s), but
-# that snapshot also holds adbd's old connection, and sometimes adb then lists the emulator as
-# "offline" for good. So with --quick, an emulator that stays offline for $ADT_OFFLINE_TIMEOUT
+# (slower on newer API levels). --quick restores the snapshot saved when the emulator was last
+# stopped, which is faster, but that snapshot also holds adbd's old connection, and sometimes adb
+# then lists the emulator as "offline" for good. So with --quick, an emulator that stays offline for $ADT_OFFLINE_TIMEOUT
 # seconds (default 30) gets `adb reconnect offline`, and if it's still offline that long after,
 # the script gives up instead of waiting forever. A cold boot is offline for a while too, until
 # adbd starts, which is normal, so it's never cut short.
@@ -43,10 +43,10 @@ usage() {
 Usage: start-emulator.sh [--quick] [avd-name] [emulator flags...]
 
 Boots an Android TV emulator in the background and returns once Android is ready, so it can be
-chained: start-emulator.sh && ./gradlew installDebug. Cold boot by default (~10-30 s).
+chained: start-emulator.sh && ./gradlew installDebug. Cold boot by default.
 
   --quick         boot from the Quick Boot snapshot saved when the emulator was last stopped
-                  (~6-16 s); if adb can't reach the restored emulator for 30 s, reconnect adb once,
+                  (faster); if adb can't reach the restored emulator for 30 s, reconnect adb once,
                   then give up
   avd-name        the AVD to boot. Default: $ADT_AVD, else tv_api25 if it exists, else the
                   only Android TV AVD
