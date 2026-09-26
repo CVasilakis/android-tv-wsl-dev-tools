@@ -4,9 +4,10 @@ Guidance for AI coding agents (and humans) working on this repository.
 
 ## Project in one paragraph
 
-android-cli-dev-tools: command-line tools for developing Android apps without Android Studio.
-Bash scripts plus one Python script (standard library only) that create and boot an Android TV
-emulator, send remote-control keys to it, and fix its input under WSLg. They're used from other
+android-cli-dev-tools: command-line tools for developing Android TV apps without Android Studio,
+on Ubuntu under WSL2. Bash scripts plus one Python script (standard library only) that create and
+boot an Android TV emulator, send remote-control keys to it, and fix its input under WSLg. What's
+supported and tested is in [`README.md`](README.md#scope). They're used from other
 repositories' projects, called by a relative path or through `PATH`, so they must never depend
 on the current folder or on any particular app. Start with [`README.md`](README.md), then
 [`bin/README.md`](bin/README.md) and [`tests/README.md`](tests/README.md); [`CI.md`](CI.md) covers
@@ -31,6 +32,10 @@ adb emu kill                  # stop the emulator (with several devices: adb -s 
   from the current folder is the project's `local.properties`. Messages that suggest another
   script use `command_for <script>` (bare name if it's on `PATH`, else the path the user typed).
 - **`bin/` holds only commands**: users may put it on `PATH`. Helpers go in `lib/`.
+- **Scope** ([`README.md`](README.md#scope)): Android TV apps, on Ubuntu under WSL2. Phones and
+  other device types are out of scope. Don't claim support for a distribution, image or API level
+  that hasn't been tested; update the Scope section when that changes. Keep `apt` as the only
+  package manager in the docs.
 - **App-agnostic.** No app names, package names or project paths in scripts or docs. Environment
   variables of these tools start with `ADT_`.
 - **Every script change or new option gets a test** in `tests/hermetic/test_<script>.py`; a bug fix
@@ -91,16 +96,17 @@ Each of these fixes a real problem. The reasons are in the linked file; read the
   its keys are lost on the API 30 TV image. Host-level simulated input (xdotool/XTest,
   XSetInputFocus) does **not** reach the emulator under WSLg.
 - To check which keys Android received: `adb shell dumpsys input | sed -n '/RecentQueue/,/PendingEvent/p'`
-  (key codes up to API 29; API 30 prints only `KeyEvent, age=…`).
+  (key codes up to API 28; API 29 on prints only `KeyEvent, age=…`).
   `adb shell getevent > file` doesn't work for this (output is buffered without a terminal).
 - AVDs of several API levels (`create-avd.sh --api 22`, `--api 36`) run side by side; the tested
   ones are listed in [`README.md`](README.md#several-android-versions), the one place to update
   when that changes. API 21's Android TV image can't boot (goldfish kernel only), so
   `create-avd.sh --api 21` refuses it.
 - In the emulator window, Esc and F1 don't reach Android; Back is Ctrl+Backspace, Home Ctrl+H, Menu Ctrl+M.
-- From API 25 on, the stock TV launcher's HOME filter has priority 2, so `set-home-activity` and
+- From API 23 on, the stock TV launcher's HOME filter has priority 2, so `set-home-activity` and
   the home chooser don't work on these images; another home app only takes over while the stock
   one is disabled (`adb shell pm disable-user --user 0 <package>`). On API 22 it has no priority:
   with another home app installed, Home opens the chooser. The stock launcher is
-  `com.google.android.leanbacklauncher` on API 22 and 25 and `com.google.android.tvlauncher` on
-  API 28, 30, 33 and 36.
+  `com.google.android.leanbacklauncher` up to API 25 and `com.google.android.tvlauncher` from
+  API 26 on (26–29 also ship `leanbacklauncher`, without a HOME filter). Other differences between
+  levels: [`bin/README.md`](bin/README.md#differences-between-api-levels).

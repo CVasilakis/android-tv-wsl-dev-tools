@@ -59,7 +59,7 @@ The TV profile has **no touchscreen** (`hw.screen=no-touch`), like a real TV.
 
 With `--api`, the default name is `tv_api<level>` even when `$ADT_AVD` is set, so a second AVD
 doesn't take the name of your everyday one. Any level from 22 on with an Android TV x86 image
-works ([tested levels](../README.md#several-android-versions)). The API 30, 33 and 36 images make
+works ([tested levels](../README.md#several-android-versions)). The images from API 29 on make
 avdmanager print `Error: Could not load devices from …/android-30/android-tv/x86/devices.xml`:
 that file is missing from the image, avdmanager uses its own `tv_1080p` profile instead, and the
 AVD is fine. Once such an image is installed, avdmanager prints it for every AVD it creates.
@@ -117,8 +117,9 @@ waits without limit.
 
 **Cold boot or Quick Boot.** By default Android starts from scratch (`-no-snapshot-load`); newer
 API levels take longer. `--quick` (anywhere on the command line) instead restores the snapshot the
-emulator saved when it was last stopped, which is faster. A snapshot also restores `adbd`, the adb
-service inside Android, in the middle of its old connection, and sometimes adb then lists the
+emulator saved when it was last stopped, which is faster (except on API 22, where restoring it
+is slower than a cold boot). A snapshot also restores `adbd`, the adb service inside Android, in
+the middle of its old connection, and sometimes adb then lists the
 emulator as `offline` and never gets through. So with `--quick`, if
 the emulator stays `offline` for 30 s, the script runs `adb reconnect offline`, and if it's still
 offline 30 s later it stops and says how to cold boot instead of waiting forever. A cold boot is
@@ -184,13 +185,30 @@ windows (`xwininfo`, `xprop`) and which approaches don't work.
 ```bash
 adb shell dumpsys window | grep mCurrentFocus                       # activity in front
 adb exec-out screencap -p > screen.png                             # screenshot
-adb shell dumpsys input | sed -n '/RecentQueue/,/PendingEvent/p'   # last 10 input events (key codes up to API 29)
-adb shell cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME
+adb shell dumpsys input | sed -n '/RecentQueue/,/PendingEvent/p'   # last 10 input events (key codes up to API 28)
+adb shell cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME   # API 24 on
 ```
 
 Don't use `adb shell getevent > file` to check input: without a terminal its output is buffered and
 the file stays empty. Simulated host input (xdotool/XTest) doesn't reach the emulator under WSLg, so
 automated tests should send keys with `adb shell input keyevent`, like `remote.sh` does.
+
+## Differences between API levels
+
+The scripts work the same on every [tested level](../README.md#several-android-versions); these
+are the differences in the images that you may run into:
+
+| API | Difference |
+|---|---|
+| 22 | `--quick` is slower than a cold boot. The device has no `uname`. The stock launcher's HOME filter has no priority, so with another home app installed, Home opens the chooser. |
+| 22–23 | No `cmd` on the device (`cmd package resolve-activity`, …); it exists from API 24 on. |
+| 23, 29 | The first boot of a new AVD opens a "USB drive connected" screen (the AVD's SD card) in front of the launcher; later boots don't. |
+| 23 | The AVD takes ~5 GB, twice the others: it keeps a copy of the image's `userdata.img`. |
+| 23 on | The stock launcher's HOME filter has priority 2, so another home app only takes over while the stock one is disabled. |
+| 26–29 | Two stock launchers: `tvlauncher` is the home screen; `leanbacklauncher` has no HOME filter. Cold boots of 26 and 27 are the slowest up to API 28. |
+| 29 on | `dumpsys input` lists key events without key codes. avdmanager prints the harmless devices.xml error. An emulator takes 3–3.4 GB of RAM (1.8–2.5 GB up to API 28). |
+| 30 | `remote.sh` keys lag the most; the emulator console's key events never arrive. |
+| 34, 36 | The system image takes 8.2 GB on disk. |
 
 ## Troubleshooting
 

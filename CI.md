@@ -16,7 +16,7 @@ The same as a workstation, without the WSL parts:
 | Write access to `/dev/kvm` | The x86 emulator won't start without hardware acceleration. | `/dev/kvm` exists, but the runner user can't write it; a udev rule fixes that (below). |
 | `libpulse0` | The emulator's only system library it doesn't bundle; without it, it fails at start, even with `-no-audio`. | `apt-get install` it. |
 | The SDK packages `emulator`, `platform-tools` and the system image | `create-avd.sh` and `start-emulator.sh` ([`SETUP.md`](SETUP.md), steps 4 and 5). | The runner image has an SDK in `$ANDROID_HOME`, which the scripts find; install the missing packages with its `sdkmanager`. |
-| Disk space | A system image takes 1.4 to 8.2 GB on disk ([sizes](SETUP.md#sizes)), and each AVD 1 to 2.5 GB more. | Check with `df -h` before adding API levels; API 36 is the largest. |
+| Disk space | A system image takes 1.4 to 8.2 GB on disk ([sizes](SETUP.md#sizes)), and each AVD 1 to 2.5 GB more. | Check with `df -h` before adding API levels; API 34 and 36 are the largest. |
 
 Use `sdkmanager` rather than the newer `android` CLI here: the `android` CLI downloads itself
 (~250 MB) on its first run, which on a fresh runner is every run.

@@ -25,7 +25,7 @@ The emulator tier isn't run there; run it locally before a release.
 | emulator | [`emulator/`](emulator) | Your SDK and AVD (`ADT_AVD` picks one) | What fakes can't show: booting really completes, and `remote.sh`'s keys arrive in Android as the right keys. |
 
 Some hermetic tests skip, with the reason printed, when an optional tool is missing:
-- **Xvfb** (`apt install xvfb`, `dnf install xorg-x11-server-Xvfb`) for the `wslg-toolbar.py`
+- **Xvfb** (`apt install xvfb`) for the `wslg-toolbar.py`
   tests, which create emulator-like windows on a private X server. It runs on the first free
   display from `:99` up, reachable only through an abstract socket. Under WSLg `/tmp/.X11-unix`
   is read-only, and a low display number would capture the desktop's own apps.
@@ -42,10 +42,10 @@ it (cold) with `-no-window -no-snapshot-save` and stops it at the end. It tests 
 cover every Android version you use:
 
 ```bash
-for avd in tv_api22 tv_api25 tv_api28 tv_api30 tv_api33 tv_api36; do ADT_AVD=$avd tests/run.py --emulator; done
+for l in 22 23 24 25 26 27 28 29 30 31 33 34 36; do ADT_AVD=tv_api$l tests/run.py --emulator; done
 ```
 
-On API 30 and newer, Android's input dump doesn't show key codes, so there the tier checks only
+On API 29 and newer, Android's input dump doesn't show key codes, so there the tier checks only
 that each key press arrived; which Android key it was is still checked on older ones, and by the
 hermetic tests for all of them.
 
