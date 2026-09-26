@@ -2,7 +2,7 @@
 
 How to set up the toolchain for developing Android apps from the command line on WSL2 (Ubuntu
 24.04), with an Android TV emulator. Android Studio is not needed. For using the emulator once it's
-set up, see [`bin/README.md`](bin/README.md).
+set up, see [`bin/README.md`](bin/README.md); for a CI runner, see [`CI.md`](CI.md).
 
 Locations below are defaults, not requirements. An existing SDK (e.g. Android Studio's) or AVD
 works as-is: Gradle and the scripts find it through `ANDROID_HOME`, `local.properties` and the
@@ -11,7 +11,9 @@ need installing. The commands that run a script assume you're in this repository
 
 ## Components
 
-| Component | Version | Location |
+The versions are the ones this setup was tested with; newer ones should work too.
+
+| Component | Tested version | Location |
 |---|---|---|
 | JDK | OpenJDK 21 (`openjdk-21-jdk-headless`) | `/usr/lib/jvm/java-21-openjdk-amd64` |
 | Android SDK root | — | `~/Android/Sdk` |
@@ -201,11 +203,12 @@ disable it. What that means in practice:
   interval. Read one with `strings`; a plain `android sdk list` records:
 
   ```
-  android2  --sdk  <redacted>2  sdk2  list:  CLAUDECODE:  CLAUDE_CODE_ENTRYPOINT
+  android2  --sdk  <redacted>2  sdk2  list:  <VARIABLE_NAME>:  <VARIABLE_NAME>
   ```
 
-  the command, the subcommand, the flag names, and **the names of environment variables that are
-  set** (not their values; argument values are written as a literal `<redacted>`).
+  the command, the subcommand, the flag names, and **the names of some of the environment
+  variables that are set** (not their values; argument values are written as a literal
+  `<redacted>`).
 - **`--no-metrics` writes nothing at all**: no spool file appears. The flag works anywhere on the
   command line, and per its own help text disables "metrics/crash reports collection", so it
   covers crash reports too.
@@ -274,7 +277,7 @@ android sdk install --no-metrics "system-images;android-36;android-tv;x86"
 
 `android sdk list --no-metrics --all | grep android-tv` lists the other levels available. Skip
 API 21: its image installs, but the emulator can't boot it (only the old goldfish kernel,
-[`bin/README.md`](bin/README.md#create-avdsh---api-level-name)); API 22 is the oldest that works.
+[`bin/README.md`](bin/README.md#create-avdsh---api-level---if-missing-name)); API 22 is the oldest that works.
 
 ### 6. Emulator (AVD)
 
@@ -321,7 +324,7 @@ The tests of the scripts need only Python 3.9+. Two optional tools enable more o
 | shellcheck | static analysis of the shell scripts (skips without it) | `sudo apt-get install -y shellcheck` / `sudo dnf install -y ShellCheck` |
 
 ```bash
-tests/run.py                   # 130 tests; prints what it skipped and why
+tests/run.py                   # prints what it skipped and why
 ```
 
 ## Troubleshooting

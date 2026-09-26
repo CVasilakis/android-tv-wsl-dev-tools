@@ -75,13 +75,17 @@ for avd in tv_api22 tv_api25 tv_api36; do start-emulator.sh "$avd"; done
 ./gradlew connectedDebugAndroidTest                     # runs on every connected device
 ```
 
-Each needs its system image first ([`SETUP.md`](SETUP.md), step 5). API 22 is the oldest Android
-TV image the emulator can boot; 22, 25, 28, 30, 33 and 36 are tested. Each emulator takes ~2 GB of
-RAM. `remote.sh` needs the serial when several are running.
+**Tested API levels: 22, 25, 28, 30, 33 and 36.** Each needs its system image first
+([`SETUP.md`](SETUP.md), step 5). API 22 is the oldest Android TV image the emulator can boot.
+Each emulator takes ~2 GB of RAM. `remote.sh` needs the serial when several are running.
 
 With several devices connected (another emulator, a phone, a TV over adb), `adb` refuses to guess
 and `./gradlew installDebug` installs on all of them. `start-emulator.sh` prints the emulator's
-serial; `export ANDROID_SERIAL=<serial>` makes both use only that one.
+serial, alone on stdout, and `ANDROID_SERIAL` makes both use only that one:
+
+```bash
+serial="$(start-emulator.sh tv_api36)" && export ANDROID_SERIAL="$serial"
+```
 
 ## Versions and compatibility
 
@@ -98,7 +102,8 @@ The version number covers the public interface:
 - where they look for the SDK, AVDs and devices, and in what order
   ([Finding your setup](#finding-your-setup));
 - the AVD `create-avd.sh` creates: its default name, system image and hardware settings;
-- exit statuses: 0 on success, non-zero on failure.
+- exit statuses: 0 on success, non-zero on failure;
+- `start-emulator.sh`'s stdout: the emulator's serial, alone on one line (messages go to stderr).
 
 A release that breaks any of these (removes or renames something, or changes what a command
 does by default) is a new major version. New commands, options or tested API levels are a new
@@ -111,27 +116,10 @@ Not covered, so free to change in any release:
 - [`tests/`](tests/README.md), and the variables that exist only for the tests
   (`ADT_KVM_DEVICE`, `ADT_PROC_VERSION`, `ADT_OFFLINE_TIMEOUT`, `WSLG_TOOLBAR_TIMEOUT`).
 
-### In a GitHub Actions workflow
+### In CI
 
-Check out a release next to your project and put its `bin/` on the `PATH` of the later steps:
-
-```yaml
-steps:
-  - uses: actions/checkout@v7                      # your project first: it empties the workspace
-  - uses: actions/checkout@v7
-    with:
-      repository: CVasilakis/android-cli-dev-tools
-      ref: v1.0.0                                  # a release tag, or a full commit SHA
-      path: .android-cli-dev-tools
-  - run: echo "$GITHUB_WORKSPACE/.android-cli-dev-tools/bin" >> "$GITHUB_PATH"
-  - run: create-avd.sh --if-missing && start-emulator.sh -no-window
-```
-
-`create-avd.sh --if-missing` keeps a cached AVD instead of failing on it, and `start-emulator.sh`
-gives up after `ADT_BOOT_TIMEOUT` seconds (default 900) rather than holding the job until
-GitHub's own time limit. Before those steps the runner needs what [`SETUP.md`](SETUP.md) sets up
-on a workstation: write access to `/dev/kvm` (step 1) and the SDK packages, including the
-system image (steps 4 and 5).
+[`CI.md`](CI.md) shows a GitHub Actions workflow that checks out a pinned release, prepares the
+runner and boots an emulator per API level.
 
 ## Repository layout
 
@@ -141,8 +129,8 @@ system image (steps 4 and 5).
 | [`lib/lib.sh`](lib/lib.sh) | Shared by the shell scripts (sourced, not run): finds the SDK, its tools and AVDs. |
 | [`tests/`](tests/README.md) | Behavior tests for the scripts: `tests/run.py`. |
 | [`SETUP.md`](SETUP.md) | Setting up the toolchain (WSL2, JDK, Android SDK, emulator). |
+| [`CI.md`](CI.md) | Using the tools in GitHub Actions. |
 | [`AGENTS.md`](AGENTS.md) | Guidance for coding agents. |
 | [`LICENSE`](LICENSE) | The license. |
 
-Tests: `tests/run.py` (130 tests, no SDK or emulator needed); see
-[`tests/README.md`](tests/README.md).
+Tests: `tests/run.py` (no SDK or emulator needed); see [`tests/README.md`](tests/README.md).

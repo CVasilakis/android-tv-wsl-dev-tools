@@ -29,7 +29,7 @@ SUPPORT = Path(__file__).resolve().parent
 UTILITIES = ["bash", "sed", "grep", "awk", "tr", "head", "tail", "dirname", "basename", "readlink",
              "ls", "sort", "cat", "wc", "sleep", "nohup", "env", "rm", "mkdir", "printf", "kill",
              "stat"]
-HOST_FAKES = ["python3", "getent", "sg"]               # host commands replaced by fakes
+HOST_FAKES = ["python3", "getent", "id", "sg"]         # host commands replaced by fakes
 SDK_TOOLS = {"adb": "platform-tools/adb",
              "emulator": "emulator/emulator",
              "avdmanager": "cmdline-tools/latest/bin/avdmanager",
@@ -139,8 +139,9 @@ class Sandbox:
     # --- Running and inspecting -------------------------------------------------------------
 
     def env(self, **overrides):
+        # DISPLAY: a desktop session by default; DISPLAY=None simulates a CI runner or SSH.
         env = {"HOME": str(self.home), "PATH": str(self.bin), "TMPDIR": str(self.tmp),
-               "USER": "tester", "LANG": "C", "FAKE_STATE": str(self.state),
+               "USER": "tester", "DISPLAY": ":0", "LANG": "C", "FAKE_STATE": str(self.state),
                "ADT_KVM_DEVICE": str(self.kvm),
                "ADT_PROC_VERSION": str(self.proc_version)}
         env.update(overrides)

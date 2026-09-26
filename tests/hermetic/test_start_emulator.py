@@ -99,7 +99,7 @@ class Boots(EmulatorTestCase):
         self.sandbox.set_behavior(boot_polls=2)
         result = self.start()
         self.assertSucceeded(result)
-        self.assertIn("booted as emulator-5554", result.out)
+        self.assertIn("booted as emulator-5554", result.err)
         polls = [a for a in self.sandbox.argvs("adb") if "sys.boot_completed" in a]
         self.assertEqual(len(polls), 3, "polled until the third answer said booted")
         self.assertEqual(self.sandbox.running(), {"emulator-5554": "tv_api25"},
@@ -121,14 +121,14 @@ class Boots(EmulatorTestCase):
     def test_logs_to_tmpdir(self):
         result = self.start()
         log = self.sandbox.tmp / "emulator-tv_api25.log"
-        self.assertIn(str(log), result.out)
+        self.assertIn(str(log), result.err)
         self.assertIn("Android emulator version", log.read_text())
 
     def test_already_running_avd_is_reported_not_started_again(self):
         serial = self.sandbox.start_emulator("tv_api25")
         result = self.start()
         self.assertSucceeded(result)
-        self.assertIn(f"already running as {serial}", result.out)
+        self.assertIn(f"already running as {serial}", result.err)
         self.assertEqual(self.launched(), [])
 
     def test_crash_during_boot_is_reported_with_the_log(self):
@@ -158,7 +158,7 @@ class ColdOrQuickBoot(EmulatorTestCase):
         self.assertSucceeded(result)
         [argv] = self.launched()
         self.assertIn("-no-snapshot-load", argv)
-        self.assertIn("cold boot", result.out)
+        self.assertIn("cold boot", result.err)
 
     def test_quick_boots_from_the_snapshot(self):
         result = self.start("--quick")
@@ -166,13 +166,13 @@ class ColdOrQuickBoot(EmulatorTestCase):
         [argv] = self.launched()
         self.assertNotIn("-no-snapshot-load", argv)
         self.assertNotIn("--quick", argv, "the emulator doesn't know --quick")
-        self.assertIn("Quick Boot", result.out)
+        self.assertIn("Quick Boot", result.err)
 
     def test_quick_reconnects_adb_when_the_restored_emulator_stays_offline(self):
         self.sandbox.set_behavior(adb_offline="until_reconnect")
         result = self.start("--quick", env=self.FAST)
         self.assertSucceeded(result)
-        self.assertIn("booted as emulator-5554", result.out)
+        self.assertIn("booted as emulator-5554", result.err)
         self.assertEqual(self.reconnects(), [["reconnect", "offline"]])
 
     def test_quick_gives_up_when_reconnecting_does_not_help(self):
@@ -233,7 +233,7 @@ class BootTimeout(EmulatorTestCase):
         self.sandbox.set_behavior(boot_polls=0)
         result = self.start()
         self.assertSucceeded(result)
-        self.assertIn("booted as emulator-5554", result.out)
+        self.assertIn("booted as emulator-5554", result.err)
         self.assertEqual(len(self.launched()), 2)
 
     def test_zero_means_no_limit(self):
@@ -248,6 +248,89 @@ class BootTimeout(EmulatorTestCase):
         self.assertEqual(self.launched(), [], "nothing is started with a bad timeout")
 
 
+class PrintsTheSerial(EmulatorTestCase):
+    """stdout holds the serial and nothing else, so serial="$(start-emulator.sh)" works; every
+    message goes to stderr."""
+
+    def setUp(self):
+        super().setUp()
+        self.sandbox.add_avd("tv_api25")
+
+    def test_after_booting(self):
+        result = self.start()
+        self.assertSucceeded(result)
+        self.assertEqual(result.out, "emulator-5554\n")
+        self.assertIn("booted as emulator-5554", result.err)
+
+    def test_when_it_is_already_running(self):
+        serial = self.sandbox.start_emulator("tv_api25")
+        result = self.start()
+        self.assertSucceeded(result)
+        self.assertEqual(result.out, f"{serial}\n")
+
+    def test_with_other_devices_connected_and_on_wsl(self):
+        # The ANDROID_SERIAL hint and the toolbar script's report are messages too.
+        self.sandbox.add_avd("phone", tv=False)
+        self.sandbox.start_emulator("phone")
+        self.sandbox.connect_device("R58M123ABC")
+        self.sandbox.wsl()
+        result = self.start()
+        self.assertSucceeded(result)
+        self.assertEqual(result.out, "emulator-5556\n")
+        self.assertIn("export ANDROID_SERIAL=emulator-5556", result.err)
+        self.assertIn("wslg-toolbar: toolbar hidden", result.err)
+
+    def test_with_quick_after_a_reconnect(self):
+        self.sandbox.set_behavior(adb_offline="until_reconnect")
+        result = self.start("--quick", env={"ADT_OFFLINE_TIMEOUT": "1"})
+        self.assertSucceeded(result)
+        self.assertEqual(result.out, "emulator-5554\n")
+
+    def test_nothing_on_failure(self):
+        self.sandbox.set_behavior(emulator_crash="unknown option: -bogus")
+        result = self.start("-bogus")
+        self.assertFailed(result, "the emulator exited")
+        self.assertEqual(result.out, "")
+
+
+class WithoutADisplay(EmulatorTestCase):
+    """Without $DISPLAY (a CI runner, SSH) the real emulator aborts with nothing in its log that
+    says why, so -no-window is added."""
+
+    def setUp(self):
+        super().setUp()
+        self.sandbox.add_avd("tv_api25")
+
+    def test_runs_without_a_window(self):
+        result = self.start(env={"DISPLAY": None})
+        self.assertSucceeded(result)
+        [argv] = self.launched()
+        self.assertEqual(argv.count("-no-window"), 1)
+        self.assertIn("No $DISPLAY", result.err)
+
+    def test_an_empty_display_counts_as_none(self):
+        self.assertSucceeded(self.start(env={"DISPLAY": ""}))
+        [argv] = self.launched()
+        self.assertIn("-no-window", argv)
+
+    def test_own_no_window_is_not_repeated(self):
+        result = self.start("-no-window", env={"DISPLAY": None})
+        self.assertSucceeded(result)
+        [argv] = self.launched()
+        self.assertEqual(argv.count("-no-window"), 1)
+        self.assertNotIn("No $DISPLAY", result.err)
+
+    def test_with_a_display_the_window_stays(self):
+        self.assertSucceeded(self.start())
+        [argv] = self.launched()
+        self.assertNotIn("-no-window", argv)
+
+    def test_no_toolbar_fix_on_wsl_without_a_window(self):
+        self.sandbox.wsl()
+        self.assertSucceeded(self.start(env={"DISPLAY": None}))
+        self.assertEqual([a for a in self.sandbox.argvs("python3")], [])
+
+
 class FindsItsOwnEmulator(EmulatorTestCase):
     def setUp(self):
         super().setUp()
@@ -258,19 +341,19 @@ class FindsItsOwnEmulator(EmulatorTestCase):
         self.sandbox.start_emulator("phone")             # takes emulator-5554
         result = self.start()
         self.assertSucceeded(result)
-        self.assertIn("booted as emulator-5556", result.out)
-        self.assertIn("export ANDROID_SERIAL=emulator-5556", result.out)
+        self.assertIn("booted as emulator-5556", result.err)
+        self.assertIn("export ANDROID_SERIAL=emulator-5556", result.err)
 
     def test_hint_when_a_physical_device_is_connected(self):
         self.sandbox.connect_device("R58M123ABC")
         result = self.start()
         self.assertSucceeded(result)
-        self.assertIn("export ANDROID_SERIAL=emulator-5554", result.out)
+        self.assertIn("export ANDROID_SERIAL=emulator-5554", result.err)
 
     def test_no_hint_when_it_is_the_only_device(self):
         result = self.start()
         self.assertSucceeded(result)
-        self.assertNotIn("ANDROID_SERIAL", result.out)
+        self.assertNotIn("ANDROID_SERIAL", result.err)
 
     def test_adb_calls_always_name_the_serial(self):
         self.sandbox.connect_device("R58M123ABC")
@@ -296,9 +379,34 @@ class Kvm(EmulatorTestCase):
     def test_no_access_and_not_in_the_kvm_group(self):
         self.sandbox.kvm.chmod(0o444)
         result = self.start()
-        self.assertFailed(result, "sudo usermod -aG kvm")
+        self.assertFailed(result, "sudo usermod -aG kvm tester")
         self.assertEqual(self.sandbox.argvs("sg"), [])
         self.assertEqual(self.launched(), [])
+
+    def test_a_member_whose_name_contains_the_users_is_not_the_user(self):
+        # The group line "kvm:x:<gid>:ci-bot" must not count user "ci" as a member: sg would
+        # then ask for a group password.
+        self.sandbox.kvm.chmod(0o444)
+        self.sandbox.set_behavior(user="ci", kvm_group_members=["ci-bot"])
+        result = self.start(env={"USER": "ci"})
+        self.assertFailed(result, "sudo usermod -aG kvm ci")
+        self.assertEqual(self.sandbox.argvs("sg"), [])
+
+    def test_kvm_as_the_primary_group_reruns_through_sg(self):
+        # A primary group's getent line doesn't list its users; the user database does.
+        self.sandbox.kvm.chmod(0o444)
+        self.sandbox.set_behavior(kvm_primary_group=True)
+        self.start()
+        [argv] = self.sandbox.argvs("sg")
+        self.assertIn("_IN_SG_KVM=1", argv[2])
+
+    def test_without_user_set(self):
+        # Containers often don't set $USER; the user comes from `id -un` instead.
+        self.sandbox.kvm.chmod(0o444)
+        self.sandbox.set_behavior(kvm_group_members=["tester"])
+        result = self.start(env={"USER": None})
+        self.assertNotIn("unbound variable", result.output)
+        self.assertEqual(len(self.sandbox.argvs("sg")), 1)
 
     def test_the_device_belongs_to_another_group_than_kvm(self):
         # Seen on WSL: /dev/kvm is created before udev applies the kvm group, so it keeps a gid

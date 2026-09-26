@@ -6,7 +6,7 @@ exit codes, messages, the files they write, and every call they make to `adb`, `
 `avdmanager`. Python standard library only (Python 3.9+), nothing to install.
 
 ```bash
-tests/run.py                  # hermetic tier: 130 tests, no SDK or emulator needed
+tests/run.py                  # hermetic tier, no SDK or emulator needed
 tests/run.py -k remote -v     # only tests whose name contains "remote", one line each
 tests/run.py --emulator       # real-emulator tier: boots your AVD headless (see below)
 tests/run.py --all            # both
@@ -46,7 +46,7 @@ hermetic tests for all of them.
 |---|---|
 | [`run.py`](run.py) | Entry point: picks the tiers, filters, prints skip reasons. |
 | [`support/sandbox.py`](support/sandbox.py) | `Sandbox`: a throwaway machine per test. `ScriptTestCase`: the base class. |
-| [`support/fake_tools.py`](support/fake_tools.py) | Fakes for `adb`, `emulator`, `avdmanager`, `android`, `sdkmanager`, `python3`, `getent`, `sg`. |
+| [`support/fake_tools.py`](support/fake_tools.py) | Fakes for `adb`, `emulator`, `avdmanager`, `android`, `sdkmanager`, `python3`, `getent`, `id`, `sg`. |
 | [`support/x11.py`](support/x11.py) | Private Xvfb server and fake emulator windows. |
 | `hermetic/test_<script>.py` | One file per script, plus [`test_conventions.py`](hermetic/test_conventions.py) for the rules all scripts follow. |
 | [`emulator/test_on_emulator.py`](emulator/test_on_emulator.py) | The real-emulator tier. |
