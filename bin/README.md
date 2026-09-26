@@ -30,7 +30,7 @@ create-avd.sh --api 30 my_tv   # the same image under another name
 
 Creates the AVD from the Android TV image of that API level (default 25),
 `system-images;android-<level>;android-tv;x86`, which must be installed first
-([`../setup.md`](../setup.md), step 5; the script prints the install command if it's missing):
+([`../SETUP.md`](../SETUP.md), step 5; the script prints the install command if it's missing):
 
 ```bash
 avdmanager create avd --name tv_api25 \
@@ -188,5 +188,5 @@ automated tests should send keys with `adb shell input keyevent`, like `remote.s
 | `This AVD's configuration is missing a kernel file! … "kernel-ranchu"` from the emulator | an AVD made from an image without a ranchu kernel (API 21), e.g. by avdmanager directly: it can't boot |
 | `remote.sh` keys lag behind | expected: each key is an `adb shell input keyevent` call (see [Controlling the TV](#controlling-the-tv)) |
 | Black emulator window | if started with `--quick`, start it without |
-| `No access to /dev/kvm` | not in the `kvm` group, or the device belongs to another group: the message says which, see [`../setup.md`](../setup.md#make-devkvm-writable) |
-| `error while loading shared libraries: libpulse.so.0` | `sudo apt-get install -y libpulse0` ([`../setup.md`](../setup.md), step 1) |
+| `No access to /dev/kvm` | not in the `kvm` group, or the device belongs to another group: the message says which, see [`../SETUP.md`](../SETUP.md#make-devkvm-writable) |
+| `error while loading shared libraries: libpulse.so.0` | `sudo apt-get install -y libpulse0` ([`../SETUP.md`](../SETUP.md), step 1) |

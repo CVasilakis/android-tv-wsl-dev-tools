@@ -16,7 +16,7 @@ Each one prints its usage with `--help`. [`bin/README.md`](bin/README.md) descri
 
 ## Getting started
 
-1. Set up the SDK and the emulator: [`setup.md`](setup.md). Skip the parts you already have (an
+1. Set up the SDK and the emulator: [`SETUP.md`](SETUP.md). Skip the parts you already have (an
    Android Studio SDK or AVD works as is).
 2. Clone this repository anywhere, for example next to your projects.
 3. Call the scripts by their path, from any folder:
@@ -75,7 +75,7 @@ for avd in tv_api22 tv_api25 tv_api36; do start-emulator.sh "$avd"; done
 ./gradlew connectedDebugAndroidTest                     # runs on every connected device
 ```
 
-Each needs its system image first ([`setup.md`](setup.md), step 5). API 22 is the oldest Android
+Each needs its system image first ([`SETUP.md`](SETUP.md), step 5). API 22 is the oldest Android
 TV image the emulator can boot; 22, 25, 28, 30 and 36 are tested. Each emulator takes ~2 GB of
 RAM. `remote.sh` needs the serial when several are running.
 
@@ -90,7 +90,7 @@ serial; `export ANDROID_SERIAL=<serial>` makes both use only that one.
 | [`bin/`](bin/README.md) | The scripts users run, and nothing else (it may be on a user's `PATH`). |
 | [`lib/lib.sh`](lib/lib.sh) | Shared by the shell scripts (sourced, not run): finds the SDK, its tools and AVDs. |
 | [`tests/`](tests/README.md) | Behavior tests for the scripts: `tests/run.py`. |
-| [`setup.md`](setup.md) | Setting up the toolchain (WSL2, JDK, Android SDK, emulator). |
+| [`SETUP.md`](SETUP.md) | Setting up the toolchain (WSL2, JDK, Android SDK, emulator). |
 | [`AGENTS.md`](AGENTS.md) | Guidance for coding agents. |
 
 Tests: `tests/run.py` (119 tests, no SDK or emulator needed); see

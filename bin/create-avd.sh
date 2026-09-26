@@ -7,7 +7,7 @@
 # Result:  <avd-name>.avd and <avd-name>.ini in the folder avdmanager keeps AVDs in
 #          ($ANDROID_AVD_HOME if set, ~/.android/avd by default)
 #
-# Requires (see setup.md): cmdline-tools, and the SDK packages "emulator" and
+# Requires (see SETUP.md): cmdline-tools, and the SDK packages "emulator" and
 # "system-images;android-<level>;android-tv;x86". lib.sh describes how the SDK is found.
 #
 # Common errors:
@@ -46,7 +46,7 @@ keyboard input. Never overwrites an existing AVD.
   -h, --help     show this help
 
 Needs the SDK packages "cmdline-tools;latest", "emulator" and
-"system-images;android-<level>;android-tv;x86" (see setup.md). The SDK is the first of:
+"system-images;android-<level>;android-tv;x86" (see SETUP.md). The SDK is the first of:
 $ANDROID_HOME, $ANDROID_SDK_ROOT, sdk.dir in the local.properties of the project you're in, the
 SDK of the adb on $PATH, ~/Android/Sdk. The AVD goes where avdmanager keeps AVDs
 ($ANDROID_AVD_HOME if set, ~/.android/avd by default).
