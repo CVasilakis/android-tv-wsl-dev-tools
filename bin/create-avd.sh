@@ -21,7 +21,7 @@
 #   'AVD ... already exists'
 #       Printed by this script on purpose; it never overwrites an AVD (that would wipe its data).
 #   'Error: Could not load devices from .../android-30/android-tv/x86/devices.xml'
-#       Harmless: the API 30 and 36 images lack that file, avdmanager uses its own tv_1080p
+#       Harmless: the API 30, 33 and 36 images lack that file, avdmanager uses its own tv_1080p
 #       profile. avdmanager prints it for every AVD once such an image is installed.
 #   'the Android TV image of API 21 has no ranchu kernel'
 #       Printed by this script: the emulator can't boot that image (see IMAGE_DIR below).
@@ -39,8 +39,8 @@ Creates an Android TV emulator (AVD) for developing TV apps: 1080p, landscape, D
 keyboard input. Never overwrites an existing AVD.
 
   --api <level>  Android API level (default: 25, Android 7.1), e.g. 22 (Android 5.1),
-                 28 (Android 9), 30 (Android 11) or 36 (Android 16). 22 is the oldest
-                 the emulator can boot
+                 28 (Android 9), 30 (Android 11), 33 (Android 13) or 36 (Android 16).
+                 22 is the oldest the emulator can boot
   avd-name       name of the new AVD. Default: tv_api<level> with --api, else $ADT_AVD,
                  else tv_api25
   -h, --help     show this help

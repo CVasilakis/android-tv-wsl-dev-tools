@@ -22,8 +22,8 @@ need installing. The commands that run a script assume you're in this repository
 | Build-tools | 36.0.0, installed automatically by the Android Gradle Plugin on the first build | `~/Android/Sdk/build-tools` |
 | Emulator | 37.1.11 | `~/Android/Sdk/emulator` |
 | System image | `system-images;android-25;android-tv;x86` rev 16 (Android 7.1.1 TV) | `~/Android/Sdk/system-images/android-25/android-tv/x86` |
-| Optional: more system images, to test on other Android versions | `system-images;android-22;android-tv;x86` rev 3 (Android 5.1 TV), `system-images;android-28;android-tv;x86` rev 10 (Android 9 TV), `system-images;android-30;android-tv;x86` rev 4 (Android 11 TV), `system-images;android-36;android-tv;x86` rev 4 (Android 16 TV) | `~/Android/Sdk/system-images/android-<level>/android-tv/x86` |
-| AVD | `tv_api25` (tv_1080p); optionally `tv_api22`, `tv_api28`, `tv_api30`, `tv_api36` | `~/.android/avd/tv_api<level>.avd` |
+| Optional: more system images, to test on other Android versions | `system-images;android-22;android-tv;x86` rev 3 (Android 5.1 TV), `system-images;android-28;android-tv;x86` rev 10 (Android 9 TV), `system-images;android-30;android-tv;x86` rev 4 (Android 11 TV), `system-images;android-33;android-tv;x86` rev 5 (Android 13 TV), `system-images;android-36;android-tv;x86` rev 4 (Android 16 TV) | `~/Android/Sdk/system-images/android-<level>/android-tv/x86` |
+| AVD | `tv_api25` (tv_1080p); optionally `tv_api22`, `tv_api28`, `tv_api30`, `tv_api33`, `tv_api36` | `~/.android/avd/tv_api<level>.avd` |
 | Gradle | per project, through its wrapper (`./gradlew`) | `~/.gradle` |
 
 ### Sizes
@@ -42,7 +42,7 @@ Downloads are what goes over the network; "on disk" is what the finished install
 | `libpulse0` and the optional `xvfb`, `shellcheck` packages | a few MB | |
 | the `android` CLI, on its first run | ~250 MB | ~250 MB (`~/.android`) |
 | **The SDK once everything above is installed** | | **~4.4 GB** (`~/Android/Sdk`) |
-| Optional: Android TV API 22 / 28 / 30 / 36 x86 system images | ~280 MB / ~450 MB / ~670 MB / ~920 MB | 1.4 GB / 2.7 GB / 3.2 GB / **8.2 GB** more in the SDK |
+| Optional: Android TV API 22 / 28 / 30 / 33 / 36 x86 system images | ~280 MB / ~450 MB / ~670 MB / ~780 MB / ~920 MB | 1.4 GB / 2.7 GB / 3.2 GB / 4.2 GB / **8.2 GB** more in the SDK |
 | The `tv_api25` AVD, once booted and used for tests | | 1–2.5 GB (`~/.android/avd`), it grows with snapshots; about the same for each other AVD |
 | A Gradle distribution (first `./gradlew` of a project) | ~150 MB | |
 | Gradle/Maven dependencies of a project (AGP, Kotlin, test libraries, …) | a few hundred MB | ~1.1 GB (`~/.gradle`) |
@@ -263,12 +263,13 @@ android sdk install --no-metrics "system-images;android-25;android-tv;x86"
 ```
 
 **Optional: other Android versions.** To also test on Android 5.1 (API 22), 9 (API 28), 11 (API
-30) and 16 (API 36), install their images too (sizes in [Sizes](#sizes); API 36 takes 8.2 GB on
+30), 13 (API 33) and 16 (API 36), install their images too (sizes in [Sizes](#sizes); API 36 takes 8.2 GB on
 disk). Pick the ones you need:
 
 ```bash
 android sdk install --no-metrics "system-images;android-22;android-tv;x86" "system-images;android-28;android-tv;x86"
-android sdk install --no-metrics "system-images;android-30;android-tv;x86" "system-images;android-36;android-tv;x86"
+android sdk install --no-metrics "system-images;android-30;android-tv;x86" "system-images;android-33;android-tv;x86"
+android sdk install --no-metrics "system-images;android-36;android-tv;x86"
 ```
 
 `android sdk list --no-metrics --all | grep android-tv` lists the other levels available. Skip
@@ -281,7 +282,7 @@ API 21: its image installs, but the emulator can't boot it (only the old goldfis
 bin/create-avd.sh            # creates the AVD "tv_api25"
 bin/create-avd.sh --api 28   # optional: "tv_api28", from the API 28 image of step 5
 bin/create-avd.sh --api 30   # optional: "tv_api30" (prints a harmless devices.xml error)
-bin/create-avd.sh --api 22   # optional: likewise "tv_api22", "tv_api36"
+bin/create-avd.sh --api 22   # optional: likewise "tv_api22", "tv_api33", "tv_api36"
 ```
 
 `create-avd.sh` only writes files, so it works without KVM access; booting the AVD (step 7) is the

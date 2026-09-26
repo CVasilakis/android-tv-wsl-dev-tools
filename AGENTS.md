@@ -79,7 +79,7 @@ Each of these fixes a real problem. The reasons are in the linked file; read the
   (key codes up to API 29; API 30 prints only `KeyEvent, age=…`).
   `adb shell getevent > file` doesn't work for this (output is buffered without a terminal).
 - AVDs of several API levels (`create-avd.sh --api 22`, `--api 36`) run side by side; 22, 25, 28,
-  30 and 36 are the tested ones. API 21's Android TV image can't boot (goldfish kernel only), so
+  30, 33 and 36 are the tested ones. API 21's Android TV image can't boot (goldfish kernel only), so
   `create-avd.sh --api 21` refuses it.
 - In the emulator window, Esc and F1 don't reach Android; Back is Ctrl+Backspace, Home Ctrl+H, Menu Ctrl+M.
 - From API 25 on, the stock TV launcher's HOME filter has priority 2, so `set-home-activity` and
@@ -87,4 +87,4 @@ Each of these fixes a real problem. The reasons are in the linked file; read the
   one is disabled (`adb shell pm disable-user --user 0 <package>`). On API 22 it has no priority:
   with another home app installed, Home opens the chooser. The stock launcher is
   `com.google.android.leanbacklauncher` on API 22 and 25 and `com.google.android.tvlauncher` on
-  API 28, 30 and 36.
+  API 28, 30, 33 and 36.

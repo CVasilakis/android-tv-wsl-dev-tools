@@ -24,6 +24,7 @@ create-avd.sh                  # tv_api25: Android 7.1 (default name: $ADT_AVD, 
 create-avd.sh --api 22         # tv_api22: Android 5.1, the oldest the emulator can boot
 create-avd.sh --api 28         # tv_api28: Android 9
 create-avd.sh --api 30         # tv_api30: Android 11
+create-avd.sh --api 33         # tv_api33: Android 13
 create-avd.sh --api 36         # tv_api36: Android 16
 create-avd.sh --api 30 my_tv   # the same image under another name
 ```
@@ -40,7 +41,7 @@ avdmanager create avd --name tv_api25 \
 
 With `--api`, the default name is `tv_api<level>` even when `$ADT_AVD` is set, so a second AVD
 doesn't take the name of your everyday one. Any level from 22 on with an Android TV x86 image
-works; 22, 25, 28, 30 and 36 are tested. The API 30 and 36 images make avdmanager print
+works; 22, 25, 28, 30, 33 and 36 are tested. The API 30, 33 and 36 images make avdmanager print
 `Error: Could not load devices from …/android-30/android-tv/x86/devices.xml`: that file is
 missing from the image, avdmanager uses its own `tv_1080p` profile instead, and the AVD is fine.
 Once such an image is installed, avdmanager prints it for every AVD it creates.
