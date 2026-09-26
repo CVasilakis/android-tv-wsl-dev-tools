@@ -16,7 +16,7 @@ The same as a workstation ([`SETUP.md`](SETUP.md)), without the WSL parts:
 | Write access to `/dev/kvm` | `/dev/kvm` exists, but the runner user can't write it; a udev rule fixes that (below). |
 | `libpulse0` ([`SETUP.md`](SETUP.md), step 1) | `apt-get install` it. |
 | The SDK packages `emulator`, `platform-tools` and the system image ([`SETUP.md`](SETUP.md), steps 4 and 5) | The runner image has an SDK in `$ANDROID_HOME`, which the scripts find; install the missing packages with its `sdkmanager`. |
-| Disk space for the system images and AVDs ([sizes](SETUP.md#sizes)) | Not enough from API 31 on: delete preinstalled toolchains first (below). Check with `df -h` before adding API levels. |
+| Disk space for the system images and AVDs ([sizes](SETUP.md#sizes)) | Not enough, or only just, once a system image is installed: delete preinstalled toolchains first (below). |
 
 Use `sdkmanager` rather than the newer `android` CLI here: the `android` CLI downloads itself on
 its first run, which on a fresh runner is every run.
@@ -51,7 +51,6 @@ jobs:
         run: echo "$GITHUB_WORKSPACE/.android-tv-wsl-dev-tools/bin" >> "$GITHUB_PATH"
 
       - name: Free disk space for the system image and the AVD
-        if: matrix.api >= 31
         run: |
           sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/local/share/boost \
             /opt/hostedtoolcache/CodeQL "$ANDROID_HOME/ndk"
@@ -91,14 +90,13 @@ Why the steps look like this:
 - **`serial="$(…)"` on a line of its own.** As an assignment by itself, a failed boot fails the
   step; inside `echo "…$(start-emulator.sh)" >> …` the step would carry on with an empty serial.
 - **`ANDROID_SERIAL`** makes adb and Gradle use that emulator in every later step.
-- **Freeing disk space.** The runner's disk doesn't hold the larger system images together with
-  the AVD's data partition, which the emulator creates on its first boot: with the API 36 image
-  installed, 2.7 GB were left, and the emulator stopped with "Not enough space to create
-  userdata partition" (it needed 7.2 GB). The step deletes toolchains the runner image
-  preinstalls and an Android TV project doesn't use (.NET, Haskell, Boost, CodeQL, the NDK); drop
-  a path from the list if your build needs it. On a runner, API 33 and 36 needed it and 25, 28
-  and 30 didn't. 31 and 34 weren't tried there, but their images are as large as 33's and 36's.
-  Deleting takes a while, so the lower levels skip it.
+- **Freeing disk space.** On its first boot the emulator creates the AVD's data partition, and
+  it needs 7.2 GB free for that. Once the system image is installed, the runner's disk has about
+  that or less: with API 26 and 27 (3.2 GB images) it was 65 MB short, with API 36 (8.2 GB)
+  4.6 GB short, and the emulator stopped with "Not enough space to create userdata partition".
+  So the step runs for every level. It deletes toolchains the runner image preinstalls and an
+  Android TV project doesn't use (.NET, Haskell, Boost, CodeQL, the NDK); drop a path from the
+  list if your build needs it.
 - **`sdkmanager --licenses` first.** The runner image has accepted only the licenses of the
   packages it installed itself, and the images of API 26 to 30 are under another one
   ([`SETUP.md`](SETUP.md#the-android-cli)). Without it, sdkmanager refuses to install them.
