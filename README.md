@@ -7,7 +7,7 @@ and emulators on their own (see [Finding your setup](#finding-your-setup)).
 
 | Script | Purpose |
 |---|---|
-| [`bin/create-avd.sh`](bin/create-avd.sh) | Creates an Android TV emulator with the right hardware settings: `tv_api25`, or another API level from 22 on with `--api` (e.g. `tv_api22`, `tv_api36`), or a Google TV one with `--google-tv` (e.g. `gtv_api36`). |
+| [`bin/create-avd.sh`](bin/create-avd.sh) | Creates an Android TV emulator with the right hardware settings: `tv_api25`, or another API level from 22 on with `--api` (e.g. `tv_api22`, `tv_api36`), or a Google TV one with `--google-tv` (e.g. `gtv_api36`); 1080p unless `--size`/`--density` pick another screen. |
 | [`bin/start-emulator.sh`](bin/start-emulator.sh) | Boots it (cold boot, or Quick Boot with `--quick`), waits until Android is ready, applies the WSLg toolbar fix. |
 | [`bin/remote.sh`](bin/remote.sh) | TV remote in the terminal (D-pad, OK, Back, Home, Menu, …). |
 | [`bin/wslg-toolbar.py`](bin/wslg-toolbar.py) | Works around the emulator toolbar's input problems under WSLg. |
@@ -98,6 +98,10 @@ emulator can boot; what differs between the levels and images is in
 [`bin/README.md`](bin/README.md#differences-between-api-levels).
 An emulator takes 1.8–2.5 GB of RAM up to API 28, and 3–3.4 GB from API 29 on. `remote.sh` needs
 the serial when several are running.
+
+To test an app on other screen sizes and densities (720p, 4K, …), change a running emulator's
+screen with `adb shell wm size`/`wm density`, boot it with `-skin`, or create an AVD with
+`create-avd.sh --size --density`: see [`bin/README.md`](bin/README.md#other-screen-sizes-and-densities).
 
 With several devices connected (another emulator, a phone, a TV over adb), `adb` refuses to guess
 and `./gradlew installDebug` installs on all of them. `start-emulator.sh` prints the emulator's
