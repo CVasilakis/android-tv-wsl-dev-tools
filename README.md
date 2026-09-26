@@ -76,7 +76,7 @@ for avd in tv_api22 tv_api25 tv_api36; do start-emulator.sh "$avd"; done
 ```
 
 Each needs its system image first ([`SETUP.md`](SETUP.md), step 5). API 22 is the oldest Android
-TV image the emulator can boot; 22, 25, 28, 30 and 36 are tested. Each emulator takes ~2 GB of
+TV image the emulator can boot; 22, 25, 28, 30, 33 and 36 are tested. Each emulator takes ~2 GB of
 RAM. `remote.sh` needs the serial when several are running.
 
 With several devices connected (another emulator, a phone, a TV over adb), `adb` refuses to guess

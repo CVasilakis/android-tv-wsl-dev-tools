@@ -58,7 +58,7 @@ class CreatesTheTvAvd(ScriptTestCase):
         self.assertTrue((self.sandbox.home / ".android/avd/den_tv.avd").is_dir())
 
     def test_api_picks_the_tv_image_of_that_level_and_names_the_avd_after_it(self):
-        for level in ("22", "28", "30", "36"):
+        for level in ("22", "28", "30", "33", "36"):
             with self.subTest(level):
                 result = self.sandbox.run("create-avd.sh", "--api", level)
                 self.assertSucceeded(result)

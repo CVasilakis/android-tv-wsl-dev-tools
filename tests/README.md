@@ -33,7 +33,7 @@ it (cold) with `-no-window -no-snapshot-save` and stops it at the end. It tests 
 cover every Android version you use:
 
 ```bash
-for avd in tv_api22 tv_api25 tv_api28 tv_api30 tv_api36; do ADT_AVD=$avd tests/run.py --emulator; done
+for avd in tv_api22 tv_api25 tv_api28 tv_api30 tv_api33 tv_api36; do ADT_AVD=$avd tests/run.py --emulator; done
 ```
 
 On API 30 and newer, Android's input dump doesn't show key codes, so there the tier checks only
