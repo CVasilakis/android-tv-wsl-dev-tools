@@ -29,6 +29,10 @@
 # waiting forever. After $ADT_BOOT_TIMEOUT seconds (default 900; 0: no limit) the script stops the
 # emulator it started, which is of no use half-booted, and fails.
 #
+# Already running: an AVD that's running isn't started again (its files are locked), but it may
+# still be booting, e.g. started by another call or CI step a moment ago. So the script waits for
+# its boot like for its own, with the same timeout, but never stops it: it's not this script's.
+#
 # No display: the emulator's window needs an X display (it ships only Qt's X11 plugin). Without
 # $DISPLAY (a CI runner, an SSH session) it aborts, and its log doesn't say why, so the script
 # adds -no-window.
@@ -77,8 +81,9 @@ Environment:
   EMULATOR_TOOLBAR  WSL only: hide (default) or show the emulator's side toolbar
                     (see bin/README.md)
 
-If the AVD is already running, only prints its serial. The emulator keeps running after this
-script exits; stop it with: adb -s <serial> emu kill
+If the AVD is already running, it isn't started again: the script waits until it has booted,
+then prints its serial. The emulator keeps running after this script exits; stop it with:
+adb -s <serial> emu kill
 EOF
 }
 case "${1:-}" in
@@ -182,19 +187,29 @@ and to keep that across restarts:
     die "No access to $KVM_DEVICE. Run: sudo usermod -aG kvm $ME"
 fi
 
-# Starting an AVD twice fails (its files are locked), so an already running one is just reported.
-# Emulators are matched by AVD name, never by "the only device": other emulators and phones may
-# be connected.
-for serial in $(running_emulators); do
-    if [ "$(emulator_avd "$serial")" = "$AVD_NAME" ]; then
-        echo "Emulator '$AVD_NAME' is already running as $serial." >&2
-        echo "$serial"
-        exit 0
-    fi
-done
+# The serial of the running emulator of this AVD, if any. Emulators are matched by AVD name, never
+# by "the only device": other emulators and phones may be connected. The emulator picks the first
+# free port, so each running emulator is asked for its AVD name.
+avd_serial() {
+    local serial
+    for serial in $(running_emulators); do
+        if [ "$(emulator_avd "$serial")" = "$AVD_NAME" ]; then echo "$serial"; return 0; fi
+    done
+    return 1
+}
+
+# Starting an AVD twice fails (its files are locked), so an already running one is only waited
+# for (see the header). STARTED_HERE tells the two apart below: only an emulator started here is
+# watched through its process, stopped on a timeout, and gets the WSLg toolbar fix.
+SERIAL="$(avd_serial || true)"
+STARTED_HERE=""
+LOG="${TMPDIR:-/tmp}/emulator-$AVD_NAME.log"
+if [ -n "$SERIAL" ]; then
+    echo "Emulator '$AVD_NAME' is already running as $SERIAL." >&2
+fi
 
 # No X display, no window (see the header).
-if [ -z "${DISPLAY:-}" ] && ! in_list -no-window "$@"; then
+if [ -z "$SERIAL" ] && [ -z "${DISPLAY:-}" ] && ! in_list -no-window "$@"; then
     echo "No \$DISPLAY, so the emulator runs without a window (-no-window)." >&2
     set -- "$@" -no-window
 fi
@@ -206,27 +221,35 @@ fi
 # -no-snapshot-load: cold boot, unless --quick (see the header). The emulator still saves a
 #   snapshot when it's stopped, for a later --quick.
 # nohup + & keeps the emulator running after this script (and the terminal) exits.
-GPU=(-gpu swiftshader_indirect)
-if in_list -gpu "$@"; then GPU=(); fi
-BOOT=(-no-snapshot-load)
-BOOT_KIND="cold boot"
-if [ -n "$QUICK" ]; then BOOT=(); BOOT_KIND="Quick Boot"; fi
-if in_list -no-snapshot-load "$@"; then BOOT=(); fi
-LOG="${TMPDIR:-/tmp}/emulator-$AVD_NAME.log"
-nohup "$EMULATOR" -avd "$AVD_NAME" \
-    "${GPU[@]}" \
-    ${BOOT[@]+"${BOOT[@]}"} \
-    -no-boot-anim \
-    -no-audio \
-    "$@" > "$LOG" 2>&1 &
-EMULATOR_PID=$!
+if [ -z "$SERIAL" ]; then
+    GPU=(-gpu swiftshader_indirect)
+    if in_list -gpu "$@"; then GPU=(); fi
+    BOOT=(-no-snapshot-load)
+    BOOT_KIND="cold boot"
+    if [ -n "$QUICK" ]; then BOOT=(); BOOT_KIND="Quick Boot"; fi
+    if in_list -no-snapshot-load "$@"; then BOOT=(); fi
+    nohup "$EMULATOR" -avd "$AVD_NAME" \
+        "${GPU[@]}" \
+        ${BOOT[@]+"${BOOT[@]}"} \
+        -no-boot-anim \
+        -no-audio \
+        "$@" > "$LOG" 2>&1 &
+    EMULATOR_PID=$!
+    STARTED_HERE=1
+    echo "Emulator '$AVD_NAME' starting ($BOOT_KIND, log: $LOG)..." >&2
+fi
 BOOT_STARTED=$SECONDS
-echo "Emulator '$AVD_NAME' starting ($BOOT_KIND, log: $LOG)..." >&2
 
-# Without this, a crashed emulator would leave the loops below waiting forever.
+# Without this, a crashed or stopped emulator would leave the loops below waiting forever. One
+# started elsewhere has no process here to watch, so adb has to still list it.
 check_alive() {
-    kill -0 "$EMULATOR_PID" 2>/dev/null || die "the emulator exited. Last lines of $LOG:
+    if [ -n "$STARTED_HERE" ]; then
+        kill -0 "$EMULATOR_PID" 2>/dev/null || die "the emulator exited. Last lines of $LOG:
 $(tail -n 15 "$LOG")"
+    # grep without -q reads all its input: exiting early could fail the pipeline (pipefail).
+    elif ! running_emulators | grep -xF -- "$SERIAL" > /dev/null; then
+        die "'$AVD_NAME' ($SERIAL) was stopped before it finished booting."
+    fi
 }
 
 # Stops the emulator started above and waits until it's gone, so that a retry doesn't find it
@@ -247,6 +270,11 @@ stop_emulator() {
 check_timeout() {
     local last_lines
     [ "$BOOT_TIMEOUT" -gt 0 ] && [ $((SECONDS - BOOT_STARTED)) -ge "$BOOT_TIMEOUT" ] || return 0
+    if [ -z "$STARTED_HERE" ]; then
+        die "'$AVD_NAME' ($SERIAL) didn't finish booting within $BOOT_TIMEOUT s.
+It wasn't started by this script, so it's left running. Stop it with: adb -s $SERIAL emu kill
+On a slow host, set ADT_BOOT_TIMEOUT to wait longer (0: no limit)."
+    fi
     last_lines="$(tail -n 15 "$LOG")"
     stop_emulator
     die "'$AVD_NAME' didn't finish booting within $BOOT_TIMEOUT s, so it was stopped. Last lines
@@ -256,15 +284,11 @@ On a slow host, set ADT_BOOT_TIMEOUT to wait longer (0: no limit). If it never b
 factory reset: $(command_for start-emulator.sh) $AVD_NAME -wipe-data"
 }
 
-# Find our emulator's serial (emulator-<port>): the emulator picks the first free port, so ask
-# each running emulator for its AVD name.
-SERIAL=""
+# Find the serial of the emulator started above (emulator-<port>), once it shows up in adb.
 while [ -z "$SERIAL" ]; do
     check_alive
     check_timeout
-    for serial in $(running_emulators); do
-        if [ "$(emulator_avd "$serial")" = "$AVD_NAME" ]; then SERIAL="$serial"; fi
-    done
+    SERIAL="$(avd_serial || true)"
     if [ -z "$SERIAL" ]; then sleep 1; fi
 done
 
@@ -275,7 +299,7 @@ OFFLINE_TIMEOUT="${ADT_OFFLINE_TIMEOUT:-30}"
 offline_since=""
 reconnected=""
 check_offline() {
-    [ -n "$QUICK" ] || return 0
+    [ -n "$QUICK" ] && [ -n "$STARTED_HERE" ] || return 0
     if [ "$("$ADB" devices 2>/dev/null | awk -v s="$SERIAL" '$1 == s { print $2 }')" != offline ]; then
         offline_since=""
         return 0
@@ -303,11 +327,14 @@ until [ "$("$ADB" -s "$SERIAL" shell getprop sys.boot_completed < /dev/null 2>/d
     check_timeout
     check_offline
     sleep 2
+    WAITED=1
 done
-echo "Emulator '$AVD_NAME' booted as $SERIAL." >&2
+if [ -n "$STARTED_HERE" ] || [ -n "${WAITED:-}" ]; then
+    echo "Emulator '$AVD_NAME' booted as $SERIAL." >&2
+fi
 # With several devices connected, adb refuses to guess and `./gradlew installDebug` installs on
 # all of them. Both honor ANDROID_SERIAL.
-if [ "$("$ADB" devices | awk 'NR > 1 && NF' | wc -l)" -gt 1 ]; then
+if [ -n "$STARTED_HERE" ] && [ "$("$ADB" devices | awk 'NR > 1 && NF' | wc -l)" -gt 1 ]; then
     echo "Other devices are connected too. To make adb and Gradle use only this one:" >&2
     echo "  export ANDROID_SERIAL=$SERIAL" >&2
 fi
@@ -317,7 +344,7 @@ fi
 # keyboard control matters more for a TV app. See wslg-toolbar.py for details. Skipped outside
 # WSL (not needed) and with -no-window (there's no toolbar). '|| true': a failure here must not
 # report the already-booted emulator as failed.
-if is_wsl && ! in_list -no-window "$@"; then
+if [ -n "$STARTED_HERE" ] && is_wsl && ! in_list -no-window "$@"; then
     python3 "$BIN_DIR/wslg-toolbar.py" "$AVD_NAME" "${EMULATOR_TOOLBAR:-hide}" >&2 || true
 fi
 

@@ -1,5 +1,6 @@
 """start-emulator.sh: choosing the AVD, booting it, finding its serial and reporting problems."""
 import os
+import threading
 import time
 
 from support.sandbox import ScriptTestCase
@@ -246,6 +247,56 @@ class BootTimeout(EmulatorTestCase):
                 self.assertFailed(self.start(env={"ADT_BOOT_TIMEOUT": value}),
                                   "ADT_BOOT_TIMEOUT must be a number of seconds")
         self.assertEqual(self.launched(), [], "nothing is started with a bad timeout")
+
+
+class AlreadyRunning(EmulatorTestCase):
+    """An AVD that's already running isn't started again, but it may still be booting (another
+    call or CI step started it): the script returns only once Android has booted, as always."""
+
+    def setUp(self):
+        super().setUp()
+        self.sandbox.add_avd("tv_api25")
+
+    def boot_polls(self):
+        return [a for a in self.sandbox.argvs("adb") if "sys.boot_completed" in a]
+
+    def test_waits_until_a_still_booting_emulator_has_booted(self):
+        self.sandbox.set_behavior(boot_polls=2)
+        serial = self.sandbox.start_emulator("tv_api25")
+        result = self.start()
+        self.assertSucceeded(result)
+        self.assertEqual(result.out, f"{serial}\n")
+        self.assertIn(f"already running as {serial}", result.err)
+        self.assertEqual(len(self.boot_polls()), 3, "polled until the third answer said booted")
+        self.assertEqual(self.launched(), [])
+
+    def test_returns_at_once_when_it_has_booted(self):
+        self.sandbox.start_emulator("tv_api25")
+        self.assertSucceeded(self.start())
+        self.assertEqual(len(self.boot_polls()), 1)
+
+    def test_gives_up_on_one_that_never_boots_but_leaves_it_running(self):
+        # It wasn't started here, so it's not this script's to stop.
+        self.sandbox.set_behavior(boot_polls=10**9)
+        serial = self.sandbox.start_emulator("tv_api25")
+        started = time.time()
+        result = self.start(env={"ADT_BOOT_TIMEOUT": "2"})
+        self.assertFailed(result, "didn't finish booting within 2 s")
+        self.assertIn("wasn't started by this script", result.output)
+        self.assertEqual(result.out, "")
+        self.assertEqual(self.sandbox.running(), {serial: "tv_api25"})
+        self.assertLess(time.time() - started, 15)
+
+    def test_stops_waiting_when_it_is_stopped_meanwhile(self):
+        self.sandbox.set_behavior(boot_polls=10**9)
+        self.sandbox.start_emulator("tv_api25")
+        timer = threading.Timer(1, self.sandbox.stop_emulators)
+        timer.start()
+        self.addCleanup(timer.cancel)
+        started = time.time()
+        result = self.start()
+        self.assertFailed(result, "stopped before it finished booting")
+        self.assertLess(time.time() - started, 15, "must not wait for the boot timeout")
 
 
 class PrintsTheSerial(EmulatorTestCase):

@@ -91,7 +91,13 @@ in the background (a `-gpu` flag of your own replaces the default), logs to `${T
 finds the emulator's serial by asking each running emulator for its AVD name, waits until
 `sys.boot_completed=1` (so it can be chained with `./gradlew installDebug`), and on WSL finishes
 with `wslg-toolbar.py <name> hide`. If the emulator exits during boot, it stops waiting and prints
-the end of the log. If the AVD is already running, it only prints its serial.
+the end of the log.
+
+**Already running.** An AVD that's already running isn't started again, but it may still be
+booting, e.g. started by another call or CI step a moment ago. The script then waits for its boot
+like for its own, with the same timeout, and prints its serial once Android is ready. It never
+stops an emulator it didn't start: on a timeout it only fails, and if the emulator is stopped
+meanwhile, it stops waiting.
 
 **Output.** stdout holds the emulator's serial (e.g. `emulator-5554`) and nothing else; every
 message goes to stderr. So scripts capture it without parsing messages:
@@ -199,6 +205,7 @@ automated tests should send keys with `adb shell input keyevent`, like `remote.s
 | `start-emulator.sh: the emulator exited` | the printed log lines say why (e.g. an unknown flag); full log in `${TMPDIR:-/tmp}/emulator-<name>.log` |
 | `start-emulator.sh: '<avd>' didn't finish booting within 900 s` | the host is slow: raise `ADT_BOOT_TIMEOUT`; or Android can't boot: without `--quick` if you used it, else try `-wipe-data` (factory reset) |
 | `create-avd.sh: AVD '<name>' already exists` | it never overwrites one; `--if-missing` accepts it when it's from the same system image (see [`create-avd.sh`](#create-avdsh---api-level---if-missing-name)) |
+| `start-emulator.sh: … was stopped before it finished booting` | the AVD was already running and booting (another call started it), and was stopped while this one waited; start it again |
 | `start-emulator.sh: … adb can't reach it` (with `--quick`) | the restored snapshot left adb offline: `adb -s <serial> emu kill`, then start it without `--quick` |
 | `adb devices` shows `offline` for a running emulator | `adb reconnect offline`; if that doesn't help, `adb kill-server && adb start-server`; else stop the emulator and cold boot it |
 | `can't tell which AVD to use` / `there's no AVD named …` | pass the AVD name or set `ADT_AVD`; the message lists the AVDs found |
