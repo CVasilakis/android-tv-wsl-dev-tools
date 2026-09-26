@@ -15,7 +15,9 @@ tests/run.py --strict         # fail if any test was skipped (what CI runs)
 
 CI ([`../.github/workflows/tests.yml`](../.github/workflows/tests.yml)) runs the hermetic tier with
 `--strict` on every push to `main` and every pull request, on Python 3.10 and the newest Python.
-The emulator tier isn't run there; run it locally before a release.
+It installs the optional tools below, so there a skip fails the run instead of hiding a test that
+no longer runs; a test that needs another optional tool must have it installed in the workflow
+too. The emulator tier isn't run there; run it locally before a release.
 
 ## Tiers
 
@@ -25,17 +27,13 @@ The emulator tier isn't run there; run it locally before a release.
 | emulator | [`emulator/`](emulator) | Your SDK and AVD (`ADT_AVD` picks one) | What fakes can't show: booting really completes, and `remote.sh`'s keys arrive in Android as the right keys. |
 
 Some hermetic tests skip, with the reason printed, when an optional tool is missing:
-- **Xvfb** (`apt install xvfb`) for the `wslg-toolbar.py`
+- **Xvfb** (`sudo apt-get install -y xvfb`) for the `wslg-toolbar.py`
   tests, which create emulator-like windows on a private X server. It runs on the first free
   display from `:99` up, reachable only through an abstract socket. Under WSLg `/tmp/.X11-unix`
   is read-only, and a low display number would capture the desktop's own apps.
   `SCRIPT_TESTS_DISPLAY=:0` runs the tests on an existing display instead; under WSLg you'll see
   small windows flash.
-- **shellcheck** for static analysis of the shell scripts.
-
-CI installs both and runs with `--strict`, so there a skip fails the run instead of hiding a test
-that no longer runs. A test that needs another optional tool must have it installed in the
-workflow too.
+- **shellcheck** (`sudo apt-get install -y shellcheck`) for static analysis of the shell scripts.
 
 The emulator tier reuses the AVD if it's already running and leaves it running. Otherwise it boots
 it (cold) with `-no-window -no-snapshot-save` and stops it at the end. It tests one AVD per run, so to

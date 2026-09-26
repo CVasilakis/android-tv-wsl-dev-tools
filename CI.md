@@ -9,20 +9,20 @@ Linux, bash 4+ and GNU coreutils.
 
 ## What the runner needs
 
-The same as a workstation, without the WSL parts:
+The same as a workstation ([`SETUP.md`](SETUP.md)), without the WSL parts:
 
-| Need | Why | On a GitHub runner |
-|---|---|---|
-| Write access to `/dev/kvm` | The x86 emulator won't start without hardware acceleration. | `/dev/kvm` exists, but the runner user can't write it; a udev rule fixes that (below). |
-| `libpulse0` | The emulator's only system library it doesn't bundle; without it, it fails at start, even with `-no-audio`. | `apt-get install` it. |
-| The SDK packages `emulator`, `platform-tools` and the system image | `create-avd.sh` and `start-emulator.sh` ([`SETUP.md`](SETUP.md), steps 4 and 5). | The runner image has an SDK in `$ANDROID_HOME`, which the scripts find; install the missing packages with its `sdkmanager`. |
-| Disk space | A system image takes 1.4 to 8.2 GB on disk ([sizes](SETUP.md#sizes)), and each AVD 1 to 2.5 GB more. | Check with `df -h` before adding API levels; API 34 and 36 are the largest. |
+| Need | On a GitHub runner |
+|---|---|
+| Write access to `/dev/kvm` | `/dev/kvm` exists, but the runner user can't write it; a udev rule fixes that (below). |
+| `libpulse0` ([`SETUP.md`](SETUP.md), step 1) | `apt-get install` it. |
+| The SDK packages `emulator`, `platform-tools` and the system image ([`SETUP.md`](SETUP.md), steps 4 and 5) | The runner image has an SDK in `$ANDROID_HOME`, which the scripts find; install the missing packages with its `sdkmanager`. |
+| Disk space for the system images and AVDs ([sizes](SETUP.md#sizes)) | Check with `df -h` before adding API levels. |
 
-Use `sdkmanager` rather than the newer `android` CLI here: the `android` CLI downloads itself
-(~250 MB) on its first run, which on a fresh runner is every run.
+Use `sdkmanager` rather than the newer `android` CLI here: the `android` CLI downloads itself on
+its first run, which on a fresh runner is every run.
 
 The scripts need nothing else from the runner: without `$DISPLAY`, `start-emulator.sh` runs the
-emulator without a window by itself.
+emulator without a window by itself ([`bin/README.md`](bin/README.md#start-emulatorsh)).
 
 ## Example workflow
 
@@ -79,20 +79,17 @@ Your project's own build setup (JDK, Gradle caching) goes before the Gradle step
 
 Why the steps look like this:
 
-- **Pin a release** (`ref`), never `main`: see
-  [Versions and compatibility](README.md#versions-and-compatibility).
-- **`serial="$(…)"` on a line of its own.** `start-emulator.sh` prints the serial alone on stdout,
-  and messages on stderr. As an assignment by itself, a failed boot fails the step; inside
-  `echo "…$(start-emulator.sh)" >> …` the step would carry on with an empty serial.
+- **Pin a release** (`ref`), never `main`: see [Versions](README.md#versions).
+- **`serial="$(…)"` on a line of its own.** As an assignment by itself, a failed boot fails the
+  step; inside `echo "…$(start-emulator.sh)" >> …` the step would carry on with an empty serial.
 - **`ANDROID_SERIAL`** makes adb and Gradle use that emulator in every later step.
 - **`-no-snapshot-save`**: the emulator saves a Quick Boot snapshot when it's stopped, which is
   slow and of no use on a runner that's thrown away. Boots are cold by default anyway.
-- **Time limits.** If Android doesn't finish booting, `start-emulator.sh` stops the emulator and
-  fails after `ADT_BOOT_TIMEOUT` seconds (default 900); set it higher or lower in `env:`.
-  `timeout-minutes` bounds the whole job, including the tests.
+- **Time limits.** A stuck boot fails after `ADT_BOOT_TIMEOUT` seconds
+  ([`bin/README.md`](bin/README.md#start-emulatorsh)); set it in `env:`. `timeout-minutes` bounds
+  the whole job, including the tests.
 - **The log.** The emulator logs to `${TMPDIR:-/tmp}/emulator-<avd>.log`; the last step prints it
-  when something failed. `start-emulator.sh` also prints its last lines when the emulator exits
-  or times out.
+  when something failed.
 - **One emulator per job.** A matrix keeps each job small. Several emulators in one job work too:
   boot each with its own `start-emulator.sh`, keep each serial, and pass it to adb with `-s`
   (Gradle's `connected…` tasks run on every booted emulator).
@@ -107,6 +104,6 @@ level, and restore it before the `sdkmanager` step, which then finds it installe
 
 Caching the AVD (`~/.android/avd`) saves little, since `create-avd.sh` is quick, and brings the
 previous run's data partition along: apps installed and settings changed by earlier tests. If you
-cache it anyway, `create-avd.sh --if-missing` keeps the cached AVD instead of failing on it (and
-still fails if it was made from another image), and `start-emulator.sh … -wipe-data` starts it
+cache it anyway, `create-avd.sh --if-missing` keeps the cached AVD
+([`bin/README.md`](bin/README.md#create-avdsh)), and `start-emulator.sh … -wipe-data` starts it
 from a clean data partition.
