@@ -89,14 +89,17 @@ class Sandbox:
         self.sdk = sdk
         return sdk
 
-    def add_avd(self, name, tv=True, home=None):
-        """Creates an AVD the way avdmanager lays it out (default folder: ~/.android/avd)."""
+    def add_avd(self, name, tv=True, home=None, image=None):
+        """Creates an AVD the way avdmanager lays it out (default folder: ~/.android/avd).
+        `image` is the system image it was made from, e.g. "system-images/android-25/android-tv/x86/"
+        (config.ini's image.sysdir.1, written as the emulator rewrites it)."""
         home = Path(home) if home else self.home / ".android" / "avd"
         folder = home / f"{name}.avd"
         folder.mkdir(parents=True)
         (home / f"{name}.ini").write_text(f"avd.ini.encoding=UTF-8\npath={folder}\n")
         tag = "android-tv" if tv else "google_apis"
-        (folder / "config.ini").write_text(f"tag.id = {tag}\ntag.ids = {tag}\n")
+        (folder / "config.ini").write_text(f"tag.id = {tag}\ntag.ids = {tag}\n"
+                                           + (f"image.sysdir.1 = {image}\n" if image else ""))
         return folder
 
     def start_emulator(self, avd):

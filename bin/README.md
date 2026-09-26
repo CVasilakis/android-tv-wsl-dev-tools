@@ -70,7 +70,10 @@ and then sets these in the new AVD's `config.ini`, wherever avdmanager put it (b
 
 The TV profile has **no touchscreen** (`hw.screen=no-touch`), like a real TV.
 
-It never overwrites an existing AVD. To recreate one: `avdmanager delete avd -n tv_api25 && create-avd.sh`.
+It never overwrites an existing AVD: it fails instead (exit 1). To recreate one:
+`avdmanager delete avd -n tv_api25 && create-avd.sh`. For scripts and CI jobs that cache their
+AVDs, `create-avd.sh --if-missing` accepts an existing AVD made from the same system image and
+leaves it as it is (exit 0); one of the same name from another image is still an error.
 
 ## `start-emulator.sh [--quick] [name] [emulator flags…]`
 
@@ -89,6 +92,11 @@ finds the emulator's serial by asking each running emulator for its AVD name, wa
 `sys.boot_completed=1` (so it can be chained with `./gradlew installDebug`), and on WSL finishes
 with `wslg-toolbar.py <name> hide`. If the emulator exits during boot, it stops waiting and prints
 the end of the log. If the AVD is already running, it only prints its serial.
+
+**Boot timeout.** If Android hasn't finished booting after `ADT_BOOT_TIMEOUT` seconds (default
+900), the script stops the emulator it started, prints the end of the log and fails, so a stuck
+boot can't keep it (or a CI job) waiting forever. Raise it on a slow host; `ADT_BOOT_TIMEOUT=0`
+waits without limit.
 
 **Cold boot or Quick Boot.** By default Android starts from scratch (`-no-snapshot-load`); newer
 API levels take longer. `--quick` (anywhere on the command line) instead restores the snapshot the
@@ -178,7 +186,8 @@ automated tests should send keys with `adb shell input keyevent`, like `remote.s
 | `wslg-toolbar: no toolbar window found` | wrong AVD name or emulator not running; inspect with `xwininfo -root -tree \| grep qemu-system` |
 | `wslg-toolbar: no running emulator window found` | emulator not running, or started with `-no-window` |
 | `start-emulator.sh: the emulator exited` | the printed log lines say why (e.g. an unknown flag); full log in `${TMPDIR:-/tmp}/emulator-<name>.log` |
-| `start-emulator.sh` hangs at "Emulator starting…" | Android can't boot: without `--quick` if you used it, else try `-wipe-data` (factory reset) |
+| `start-emulator.sh: '<avd>' didn't finish booting within 900 s` | the host is slow: raise `ADT_BOOT_TIMEOUT`; or Android can't boot: without `--quick` if you used it, else try `-wipe-data` (factory reset) |
+| `create-avd.sh: AVD '<name>' already exists` | it never overwrites one; `--if-missing` accepts it when it's from the same system image (see [`create-avd.sh`](#create-avdsh---api-level-name)) |
 | `start-emulator.sh: … adb can't reach it` (with `--quick`) | the restored snapshot left adb offline: `adb -s <serial> emu kill`, then start it without `--quick` |
 | `adb devices` shows `offline` for a running emulator | `adb reconnect offline`; if that doesn't help, `adb kill-server && adb start-server`; else stop the emulator and cold boot it |
 | `can't tell which AVD to use` / `there's no AVD named …` | pass the AVD name or set `ADT_AVD`; the message lists the AVDs found |

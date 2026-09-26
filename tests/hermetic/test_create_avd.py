@@ -8,6 +8,9 @@ EXPECTED_SETTINGS = {
 }
 
 
+API25_IMAGE = "system-images/android-25/android-tv/x86/"
+
+
 def read_config(folder):
     lines = (folder / "config.ini").read_text().splitlines()
     return [tuple(line.split("=", 1)) for line in lines if "=" in line]
@@ -103,12 +106,14 @@ class CreatesTheTvAvd(ScriptTestCase):
 class RefusesOrExplains(ScriptTestCase):
     def test_never_overwrites_an_existing_avd(self):
         self.sandbox.install_sdk()
-        folder = self.sandbox.add_avd("tv_api25")
+        folder = self.sandbox.add_avd("tv_api25", image=API25_IMAGE)
+        before = (folder / "config.ini").read_text()
         result = self.sandbox.run("create-avd.sh")
-        self.assertFailed(result, "already exists")
-        self.assertIn("avdmanager delete avd -n tv_api25", result.output)
+        self.assertFailed(result, "already exists", code=1)
+        self.assertIn("avdmanager delete avd -n tv_api25", result.err)
+        self.assertIn("--if-missing", result.err)
         self.assertEqual(self.sandbox.argvs("avdmanager"), [], "avdmanager must not be called")
-        self.assertEqual((folder / "config.ini").read_text(), "tag.id = android-tv\ntag.ids = android-tv\n")
+        self.assertEqual((folder / "config.ini").read_text(), before)
 
     def test_explains_when_it_cannot_find_what_avdmanager_created(self):
         self.sandbox.install_sdk()
@@ -152,3 +157,53 @@ class RefusesOrExplains(ScriptTestCase):
     def test_unknown_option_prints_usage(self):
         result = self.sandbox.run("create-avd.sh", "--force")
         self.assertFailed(result, "Usage:", code=2)
+
+
+class IfMissing(ScriptTestCase):
+    """--if-missing: succeed on an AVD that already exists from the same image, so a script or
+    CI job (with the AVD cached) can run create-avd.sh every time."""
+
+    def setUp(self):
+        super().setUp()
+        self.sandbox.install_sdk()
+
+    def test_creates_a_missing_avd(self):
+        result = self.sandbox.run("create-avd.sh", "--if-missing")
+        self.assertSucceeded(result)
+        self.assertIn(("hw.keyboard", "yes"), read_config(self.sandbox.home / ".android/avd/tv_api25.avd"))
+
+    def test_accepts_an_existing_avd_of_the_same_image_and_leaves_it_alone(self):
+        folder = self.sandbox.add_avd("tv_api25", image=API25_IMAGE)
+        before = (folder / "config.ini").read_text()
+        result = self.sandbox.run("create-avd.sh", "--if-missing")
+        self.assertSucceeded(result)
+        self.assertIn("already exists", result.out)
+        self.assertEqual(self.sandbox.argvs("avdmanager"), [], "avdmanager must not be called")
+        self.assertEqual((folder / "config.ini").read_text(), before)
+
+    def test_running_it_twice(self):
+        # The second run finds the AVD the first one created, as avdmanager wrote it.
+        for _ in range(2):
+            self.assertSucceeded(self.sandbox.run("create-avd.sh", "--api", "30", "--if-missing"))
+        self.assertEqual(len(self.sandbox.argvs("avdmanager")), 1)
+
+    def test_with_a_name_and_api_in_any_order(self):
+        self.sandbox.add_avd("pie_tv", image="system-images/android-28/android-tv/x86/")
+        for args in (["--if-missing", "--api", "28", "pie_tv"], ["pie_tv", "--api", "28", "--if-missing"]):
+            with self.subTest(args):
+                self.assertSucceeded(self.sandbox.run("create-avd.sh", *args))
+        self.assertEqual(self.sandbox.argvs("avdmanager"), [])
+
+    def test_refuses_an_existing_avd_of_another_image(self):
+        folder = self.sandbox.add_avd("tv_api25", image="system-images/android-28/android-tv/x86/")
+        before = (folder / "config.ini").read_text()
+        result = self.sandbox.run("create-avd.sh", "--if-missing")
+        self.assertFailed(result, "system-images/android-28/android-tv/x86, not "
+                                  "system-images/android-25/android-tv/x86", code=1)
+        self.assertIn("avdmanager delete avd -n tv_api25", result.err)
+        self.assertEqual(self.sandbox.argvs("avdmanager"), [])
+        self.assertEqual((folder / "config.ini").read_text(), before)
+
+    def test_refuses_an_existing_avd_whose_image_it_cannot_tell(self):
+        self.sandbox.add_avd("tv_api25")
+        self.assertFailed(self.sandbox.run("create-avd.sh", "--if-missing"), "an unknown system image")
