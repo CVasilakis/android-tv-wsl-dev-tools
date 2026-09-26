@@ -7,7 +7,7 @@ and emulators on their own (see [Finding your setup](#finding-your-setup)).
 
 | Script | Purpose |
 |---|---|
-| [`bin/create-avd.sh`](bin/create-avd.sh) | Creates an Android TV emulator with the right hardware settings: `tv_api25`, or another API level from 22 on with `--api` (e.g. `tv_api22`, `tv_api36`). |
+| [`bin/create-avd.sh`](bin/create-avd.sh) | Creates an Android TV emulator with the right hardware settings: `tv_api25`, or another API level from 22 on with `--api` (e.g. `tv_api22`, `tv_api36`), or a Google TV one with `--google-tv` (e.g. `gtv_api36`). |
 | [`bin/start-emulator.sh`](bin/start-emulator.sh) | Boots it (cold boot, or Quick Boot with `--quick`), waits until Android is ready, applies the WSLg toolbar fix. |
 | [`bin/remote.sh`](bin/remote.sh) | TV remote in the terminal (D-pad, OK, Back, Home, Menu, …). |
 | [`bin/wslg-toolbar.py`](bin/wslg-toolbar.py) | Works around the emulator toolbar's input problems under WSLg. |
@@ -23,9 +23,11 @@ CI ([`CI.md`](CI.md)). macOS, native Windows and non-Debian distributions aren't
 
 **What:** Android TV apps, controlled with a D-pad remote and no touchscreen. The AVD settings,
 the default AVD and the remote in the terminal are built around that. The tested emulator images
-are Android TV ones ([Several Android versions](#several-android-versions)); Google TV images
-(`google-tv`) are untested. Phone, tablet, Wear OS and Automotive apps are out of scope: they need
-touch input and other hardware settings that these tools don't provide.
+are the Android TV and Google TV x86 ones ([Several Android versions](#several-android-versions)).
+Google TV is Android TV with Google's home screen, which asks for a Google account; the x86_64
+and 16 KB page size (`google-tv-ps16k`) variants are untested. Phone, tablet, Wear OS and
+Automotive apps are out of scope: they need touch input and other hardware settings that these
+tools don't provide.
 
 ## Getting started
 
@@ -72,7 +74,7 @@ Nothing about the SDK, AVD or device is hardcoded; each is taken from the first 
 | Android SDK | `$ANDROID_HOME`, `$ANDROID_SDK_ROOT`, `sdk.dir` in the current project's `local.properties`, the SDK of the `adb` on `$PATH`, `~/Android/Sdk` |
 | `adb`, `emulator`, `avdmanager`, `android` | inside that SDK (`cmdline-tools/latest`, else the newest `cmdline-tools/<version>`), else on `$PATH` |
 | AVD folder | `$ANDROID_AVD_HOME`, `$ANDROID_EMULATOR_HOME/avd`, `$ANDROID_USER_HOME/avd`, `$ANDROID_SDK_HOME/.android/avd`, `~/.android/avd`; each AVD is located through its `<name>.ini` |
-| AVD to create or boot | the name given on the command line, `$ADT_AVD`, `tv_api25` (`create-avd.sh --api <level>`: the name given, else `tv_api<level>`); `start-emulator.sh` then also accepts the only Android TV AVD |
+| AVD to create or boot | the name given on the command line, `$ADT_AVD`, `tv_api25` (`create-avd.sh --api <level>`: the name given, else `tv_api<level>`, or `gtv_api<level>` with `--google-tv`); `start-emulator.sh` then also accepts the only Android TV or Google TV AVD |
 | Emulator to talk to | `start-emulator.sh` matches running emulators by AVD name; `remote.sh` takes the serial given (any device), `$ANDROID_SERIAL`, or the only running emulator; `wslg-toolbar.py` the AVD given or the only emulator window |
 
 To use your own TV AVD without typing its name each time: `export ADT_AVD=<name>`.
@@ -89,9 +91,11 @@ for avd in tv_api22 tv_api25 tv_api36; do start-emulator.sh "$avd"; done
 ```
 
 **Tested API levels: 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 33, 34 and 36**: every Android TV
-x86 image from API 22 on (there are none for 32 and 35). Each needs its system image first
-([`SETUP.md`](SETUP.md), step 5). API 22 is the oldest Android TV image the emulator can boot;
-what differs between the levels is in [`bin/README.md`](bin/README.md#differences-between-api-levels).
+x86 image from API 22 on (there are none for 32 and 35). **Google TV: 30, 31, 33, 34 and 36**,
+every Google TV x86 image (`create-avd.sh --google-tv --api 36` creates `gtv_api36`). Each needs
+its system image first ([`SETUP.md`](SETUP.md), step 5). API 22 is the oldest Android TV image the
+emulator can boot; what differs between the levels and images is in
+[`bin/README.md`](bin/README.md#differences-between-api-levels).
 An emulator takes 1.8–2.5 GB of RAM up to API 28, and 3–3.4 GB from API 29 on. `remote.sh` needs
 the serial when several are running.
 

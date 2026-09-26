@@ -271,10 +271,11 @@ def avdmanager(args):
             "target=android-25\n")
         # The keys the script changes are present with other values, as in a real config.ini.
         image = option(args, "--package") or option(args, "-k")
+        tag = option(args, "--tag") or option(args, "-g") or "default"
         (folder / "config.ini").write_text(
             "avd.ini.encoding=UTF-8\nhw.keyboard=no\nhw.ramSize=1536\n"
             f"image.sysdir.1={image.replace(';', '/')}/\n"
-            "hw.initialOrientation=portrait\ntag.id=android-tv\ntag.ids=android-tv\n")
+            f"hw.initialOrientation=portrait\ntag.id={tag}\ntag.ids={tag}\n")
     elif args[:2] == ["list", "avd"]:
         print("\n".join(avd_names()))
     else:

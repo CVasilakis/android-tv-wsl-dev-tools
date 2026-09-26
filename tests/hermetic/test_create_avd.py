@@ -16,9 +16,9 @@ def read_config(folder):
     return [tuple(line.split("=", 1)) for line in lines if "=" in line]
 
 
-def add_tv_image(sandbox, level, kernel):
+def add_tv_image(sandbox, level, kernel, tag="android-tv"):
     """Installs a system image in the sandbox's SDK: its package.xml, a system.img and `kernel`."""
-    image = sandbox.sdk / f"system-images/android-{level}/android-tv/x86"
+    image = sandbox.sdk / f"system-images/android-{level}/{tag}/x86"
     image.mkdir(parents=True)
     for name in ("package.xml", "system.img", kernel):
         (image / name).write_text("")
@@ -96,6 +96,36 @@ class CreatesTheTvAvd(ScriptTestCase):
         self.assertSucceeded(self.sandbox.run("create-avd.sh", "--api", "30", env={"ADT_AVD": "den_tv"}))
         self.assertTrue((self.sandbox.home / ".android/avd/tv_api30.avd").is_dir())
 
+    def test_google_tv_picks_the_google_tv_image_and_names_the_avd_gtv(self):
+        for level in ("30", "36"):
+            with self.subTest(level):
+                result = self.sandbox.run("create-avd.sh", "--google-tv", "--api", level)
+                self.assertSucceeded(result)
+                argv = self.sandbox.argvs("avdmanager")[-1]
+                for flag, value in {"--name": f"gtv_api{level}", "--tag": "google-tv", "--abi": "x86",
+                                    "--package": f"system-images;android-{level};google-tv;x86"}.items():
+                    self.assertEqual(argv[argv.index(flag) + 1], value, flag)
+                config = read_config(self.sandbox.home / f".android/avd/gtv_api{level}.avd")
+                self.assertIn(("hw.dPad", "yes"), config)
+                self.assertIn(("tag.id", "google-tv"), config)
+                self.assertIn(f"start-emulator.sh gtv_api{level}", result.out)
+
+    def test_google_tv_with_a_name_in_any_order(self):
+        self.assertSucceeded(self.sandbox.run("create-avd.sh", "den_gtv", "--api", "33", "--google-tv"))
+        [argv] = self.sandbox.argvs("avdmanager")
+        self.assertEqual(argv[argv.index("--name") + 1], "den_gtv")
+        self.assertEqual(argv[argv.index("--package") + 1], "system-images;android-33;google-tv;x86")
+
+    def test_google_tv_names_the_avd_after_its_level_even_with_adt_avd_set(self):
+        self.assertSucceeded(self.sandbox.run("create-avd.sh", "--google-tv", "--api", "34",
+                                              env={"ADT_AVD": "den_tv"}))
+        self.assertTrue((self.sandbox.home / ".android/avd/gtv_api34.avd").is_dir())
+
+    def test_accepts_a_google_tv_image(self):
+        add_tv_image(self.sandbox, "36", "kernel-ranchu-64", tag="google-tv")
+        self.assertSucceeded(self.sandbox.run("create-avd.sh", "--google-tv", "--api", "36"))
+        self.assertTrue((self.sandbox.home / ".android/avd/gtv_api36.avd").is_dir())
+
     def test_patches_the_avd_in_a_custom_avd_home(self):
         home = self.sandbox.root / "avds"
         self.assertSucceeded(self.sandbox.run("create-avd.sh", env={"ANDROID_AVD_HOME": str(home)}))
@@ -154,6 +184,20 @@ class RefusesOrExplains(ScriptTestCase):
         self.assertIn("no ranchu kernel", result.output)
         self.assertEqual(self.sandbox.argvs("avdmanager"), [], "avdmanager must not be called")
 
+    def test_google_tv_needs_a_level_from_30_on(self):
+        # There's no Google TV image of the default level 25, or of any level before 30.
+        self.sandbox.install_sdk()
+        for args, message in ((["--google-tv"], "needs --api"), (["--google-tv", "--api", "28"], "before API 30")):
+            with self.subTest(args):
+                self.assertFailed(self.sandbox.run("create-avd.sh", *args), message)
+        self.assertEqual(self.sandbox.argvs("avdmanager"), [], "avdmanager must not be called")
+
+    def test_explains_a_missing_google_tv_image(self):
+        self.sandbox.install_sdk()
+        self.sandbox.set_behavior(avdmanager_error="Error: Package path is not valid. Valid system image paths are:")
+        result = self.sandbox.run("create-avd.sh", "--google-tv", "--api", "31")
+        self.assertFailed(result, 'android sdk install --no-metrics "system-images;android-31;google-tv;x86"')
+
     def test_unknown_option_prints_usage(self):
         result = self.sandbox.run("create-avd.sh", "--force")
         self.assertFailed(result, "Usage:", code=2)
@@ -203,6 +247,13 @@ class IfMissing(ScriptTestCase):
         self.assertIn("avdmanager delete avd -n tv_api25", result.err)
         self.assertEqual(self.sandbox.argvs("avdmanager"), [])
         self.assertEqual((folder / "config.ini").read_text(), before)
+
+    def test_tells_the_google_tv_and_android_tv_images_of_a_level_apart(self):
+        self.sandbox.add_avd("gtv_api30", image="system-images/android-30/android-tv/x86/")
+        result = self.sandbox.run("create-avd.sh", "--google-tv", "--api", "30", "--if-missing")
+        self.assertFailed(result, "system-images/android-30/android-tv/x86, not "
+                                  "system-images/android-30/google-tv/x86", code=1)
+        self.assertEqual(self.sandbox.argvs("avdmanager"), [])
 
     def test_refuses_an_existing_avd_whose_image_it_cannot_tell(self):
         self.sandbox.add_avd("tv_api25")

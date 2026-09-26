@@ -25,8 +25,8 @@ The versions are the ones this setup was tested with; newer ones should work too
 | Build-tools | 36.0.0, installed automatically by the Android Gradle Plugin on the first build | `~/Android/Sdk/build-tools` |
 | Emulator | 37.1.11 | `~/Android/Sdk/emulator` |
 | System image | `system-images;android-25;android-tv;x86` rev 16 (Android 7.1.1 TV) | `~/Android/Sdk/system-images/android-25/android-tv/x86` |
-| Optional: more system images, to test on other Android versions | `system-images;android-<level>;android-tv;x86` of the other tested levels; revisions in [Sizes](#sizes) | `~/Android/Sdk/system-images/android-<level>/android-tv/x86` |
-| AVD | `tv_api25` (tv_1080p); optionally `tv_api<level>` for the other levels | `~/.android/avd/tv_api<level>.avd` |
+| Optional: more system images, to test on other Android versions | `system-images;android-<level>;android-tv;x86` of the other tested levels, and Google TV's `system-images;android-<level>;google-tv;x86`; revisions in [Sizes](#sizes) | `~/Android/Sdk/system-images/android-<level>/android-tv/x86`, `…/google-tv/x86` |
+| AVD | `tv_api25` (tv_1080p); optionally `tv_api<level>` for the other levels, `gtv_api<level>` for Google TV | `~/.android/avd/tv_api<level>.avd` |
 | Gradle | per project, through its wrapper (`./gradlew`) | `~/.gradle` |
 
 ### Sizes
@@ -46,6 +46,7 @@ Downloads are what goes over the network; "on disk" is what the finished install
 | the `android` CLI, on its first run | ~250 MB | ~250 MB (`~/.android`) |
 | **The SDK once everything above is installed** | | **~4.4 GB** (`~/Android/Sdk`) |
 | Optional: the Android TV x86 system images of other levels | ~280–920 MB each | 1.4–8.2 GB each (table below) |
+| Optional: the Google TV x86 system images | ~720–940 MB each | 3.2–8.2 GB each (table below) |
 | The `tv_api25` AVD, once booted and used for tests | | 1–2.5 GB (`~/.android/avd`), it grows with snapshots; about the same for each other AVD, ~5 GB for API 23 |
 | A Gradle distribution (first `./gradlew` of a project) | ~150 MB | |
 | Gradle/Maven dependencies of a project (AGP, Kotlin, test libraries, …) | a few hundred MB | ~1.1 GB (`~/.gradle`) |
@@ -67,6 +68,17 @@ The tested Android TV x86 system images (`system-images;android-<level>;android-
 | 33 | 13 | 5 | ~780 MB | 4.2 GB |
 | 34 | 14 | 3 | ~770 MB | **8.2 GB** |
 | 36 | 16 | 4 | ~920 MB | **8.2 GB** |
+
+The tested Google TV x86 system images (`system-images;android-<level>;google-tv;x86`); on disk,
+each takes as much as the Android TV image of its level:
+
+| API | Android | Revision | Download | On disk |
+|---|---|---|---|---|
+| 30 | 11 | 4 | ~720 MB | 3.2 GB |
+| 31 | 12 | 4 | ~800 MB | 4.2 GB |
+| 33 | 13 | 5 | ~840 MB | 4.2 GB |
+| 34 | 14 | 3 | ~830 MB | **8.2 GB** |
+| 36 | 16 | 4 | ~940 MB | **8.2 GB** |
 
 Plan for **~8 GB** in `$HOME` for a full first-time setup with one project built and its emulator
 booted, and **4–6 GB more** for each other Android version (its system image and AVD); ~11 GB for
@@ -295,7 +307,15 @@ android sdk install --no-metrics "system-images;android-30;android-tv;x86" "syst
 
 `android sdk list --no-metrics --all | grep android-tv` lists every level available. Skip
 API 21: its image installs, but the emulator can't boot it (only the old goldfish kernel,
-[`bin/README.md`](bin/README.md#create-avdsh---api-level---if-missing-name)); API 22 is the oldest that works.
+[`bin/README.md`](bin/README.md#create-avdsh---api-level---google-tv---if-missing-name)); API 22 is the oldest that works.
+
+**Optional: Google TV.** To test on Google TV (Android TV with Google's home screen), install
+its images; every Google TV x86 image is tested (API 30, 31, 33, 34 and 36, the second table in
+[Sizes](#sizes)), for example:
+
+```bash
+android sdk install --no-metrics "system-images;android-30;google-tv;x86" "system-images;android-36;google-tv;x86"
+```
 
 ### 6. Emulator (AVD)
 
@@ -303,6 +323,7 @@ API 21: its image installs, but the emulator can't boot it (only the old goldfis
 bin/create-avd.sh            # creates the AVD "tv_api25"
 bin/create-avd.sh --api 28   # optional: "tv_api28", from the API 28 image of step 5
 bin/create-avd.sh --api 30   # optional: "tv_api30" (prints a harmless devices.xml error)
+bin/create-avd.sh --google-tv --api 36   # optional: "gtv_api36", from the Google TV image
 ```
 
 Likewise for any other level whose image you installed in step 5. From API 29 on, the images make

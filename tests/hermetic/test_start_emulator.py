@@ -46,6 +46,11 @@ class ChoosesTheAvd(EmulatorTestCase):
         self.sandbox.add_avd("tablet", tv=False)
         self.assertEqual(self.booted_avd(self.start()), "living_room")
 
+    def test_a_google_tv_avd_counts_as_a_tv_avd(self):
+        self.sandbox.add_avd("pixel", tv=False)
+        self.sandbox.add_avd("gtv_api36", tag="google-tv")
+        self.assertEqual(self.booted_avd(self.start()), "gtv_api36")
+
     def test_leading_flags_go_to_the_emulator_and_keep_the_default_avd(self):
         self.sandbox.add_avd("tv_api25")
         self.assertSucceeded(self.start("-wipe-data", "-no-snapshot-load"))
