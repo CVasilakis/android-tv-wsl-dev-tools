@@ -13,6 +13,14 @@ def read_config(folder):
     return [tuple(line.split("=", 1)) for line in lines if "=" in line]
 
 
+def add_tv_image(sandbox, level, kernel):
+    """Installs a system image in the sandbox's SDK: its package.xml, a system.img and `kernel`."""
+    image = sandbox.sdk / f"system-images/android-{level}/android-tv/x86"
+    image.mkdir(parents=True)
+    for name in ("package.xml", "system.img", kernel):
+        (image / name).write_text("")
+
+
 class CreatesTheTvAvd(ScriptTestCase):
     def setUp(self):
         super().setUp()
@@ -50,7 +58,7 @@ class CreatesTheTvAvd(ScriptTestCase):
         self.assertTrue((self.sandbox.home / ".android/avd/den_tv.avd").is_dir())
 
     def test_api_picks_the_tv_image_of_that_level_and_names_the_avd_after_it(self):
-        for level in ("28", "30"):
+        for level in ("22", "28", "30", "36"):
             with self.subTest(level):
                 result = self.sandbox.run("create-avd.sh", "--api", level)
                 self.assertSucceeded(result)
@@ -61,6 +69,12 @@ class CreatesTheTvAvd(ScriptTestCase):
                 self.assertIn(("hw.keyboard", "yes"),
                               read_config(self.sandbox.home / f".android/avd/tv_api{level}.avd"))
                 self.assertIn(f"start-emulator.sh tv_api{level}", result.out)
+
+    def test_accepts_a_tv_image_with_a_ranchu_kernel(self):
+        # API 36 names its kernel kernel-ranchu-64.
+        add_tv_image(self.sandbox, "36", "kernel-ranchu-64")
+        self.assertSucceeded(self.sandbox.run("create-avd.sh", "--api", "36"))
+        self.assertTrue((self.sandbox.home / ".android/avd/tv_api36.avd").is_dir())
 
     def test_api_with_a_name(self):
         self.assertSucceeded(self.sandbox.run("create-avd.sh", "--api", "28", "pie_tv"))
@@ -125,6 +139,15 @@ class RefusesOrExplains(ScriptTestCase):
         self.sandbox.set_behavior(avdmanager_error="Error: Package path is not valid. Valid system image paths are:")
         result = self.sandbox.run("create-avd.sh", "--api", "30")
         self.assertFailed(result, 'android sdk install --no-metrics "system-images;android-30;android-tv;x86"')
+
+    def test_refuses_a_tv_image_the_emulator_cannot_boot(self):
+        # The API 21 image has only the goldfish kernel; the emulator would refuse to start it.
+        self.sandbox.install_sdk()
+        add_tv_image(self.sandbox, "21", "kernel-qemu")
+        result = self.sandbox.run("create-avd.sh", "--api", "21")
+        self.assertFailed(result, "API 22 or newer")
+        self.assertIn("no ranchu kernel", result.output)
+        self.assertEqual(self.sandbox.argvs("avdmanager"), [], "avdmanager must not be called")
 
     def test_unknown_option_prints_usage(self):
         result = self.sandbox.run("create-avd.sh", "--force")

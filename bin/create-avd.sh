@@ -21,7 +21,10 @@
 #   'AVD ... already exists'
 #       Printed by this script on purpose; it never overwrites an AVD (that would wipe its data).
 #   'Error: Could not load devices from .../android-30/android-tv/x86/devices.xml'
-#       Harmless: the API 30 image lacks that file, avdmanager uses its own tv_1080p profile.
+#       Harmless: the API 30 and 36 images lack that file, avdmanager uses its own tv_1080p
+#       profile. avdmanager prints it for every AVD once such an image is installed.
+#   'the Android TV image of API 21 has no ranchu kernel'
+#       Printed by this script: the emulator can't boot that image (see IMAGE_DIR below).
 #
 # The hardware settings below are deliberate choices, each explained next to it. Several of them
 # fix real problems (keyboard input, WSLg rendering, portrait orientation), so don't drop one
@@ -35,8 +38,9 @@ Usage: create-avd.sh [--api <level>] [avd-name]
 Creates an Android TV emulator (AVD) for developing TV apps: 1080p, landscape, D-pad and
 keyboard input. Never overwrites an existing AVD.
 
-  --api <level>  Android API level (default: 25, Android 7.1), e.g. 28 (Android 9) or
-                 30 (Android 11)
+  --api <level>  Android API level (default: 25, Android 7.1), e.g. 22 (Android 5.1),
+                 28 (Android 9), 30 (Android 11) or 36 (Android 16). 22 is the oldest
+                 the emulator can boot
   avd-name       name of the new AVD. Default: tv_api<level> with --api, else $ADT_AVD,
                  else tv_api25
   -h, --help     show this help
@@ -73,8 +77,17 @@ else
     AVD_NAME="${AVD_NAME:-${ADT_AVD:-tv_api25}}"
 fi
 IMAGE="system-images;android-$API;android-tv;x86"
+IMAGE_DIR="$SDK/system-images/android-$API/android-tv/x86"
 require "$AVDMANAGER" "cmdline-tools;latest"
 require "$EMULATOR" "emulator"
+
+# The emulator boots only images with a ranchu kernel (kernel-ranchu, kernel-ranchu-64). The API 21
+# Android TV image has just the goldfish kernel (kernel-qemu), for an emulator engine that was
+# removed; avdmanager would create the AVD anyway, and the emulator would then refuse to start it.
+if [ -f "$IMAGE_DIR/package.xml" ] && ! compgen -G "$IMAGE_DIR/kernel-ranchu*" > /dev/null; then
+    die "the Android TV image of API $API has no ranchu kernel (only kernel-qemu), and the emulator
+can no longer boot such images. Use an Android TV image of API 22 or newer."
+fi
 
 if existing="$(avd_dir "$AVD_NAME")"; then
     echo "AVD '$AVD_NAME' already exists ($existing). Delete it first with:"
@@ -95,7 +108,7 @@ if ! echo no | "$AVDMANAGER" create avd \
     --abi x86 \
     --device tv_1080p \
     --sdcard 512M; then                   # storage for `adb push`-ed test wallpapers/images
-    if [ ! -f "$SDK/system-images/android-$API/android-tv/x86/package.xml" ]; then
+    if [ ! -f "$IMAGE_DIR/package.xml" ]; then
         die "avdmanager failed: the system image isn't installed in $SDK. Install it with:
   $(install_hint "$IMAGE")"
     fi
