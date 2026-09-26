@@ -135,6 +135,13 @@ avd_dir() {
     return 1
 }
 
+# The system image an AVD folder (from avd_dir) was made from, as its config.ini's image.sysdir.1
+# names it: system-images/android-25/android-tv/x86/ ("key = value" once the emulator has
+# rewritten the file). Empty if config.ini doesn't say.
+avd_image() {
+    sed -n 's/^image\.sysdir\.1 *= *//p' "$1/config.ini" | head -n 1 | tr -d '\r'
+}
+
 # Names of all AVDs, one per line. Newer emulators also print log lines here; drop them.
 list_avds() {
     "$EMULATOR" -list-avds 2>/dev/null | grep -E '^[A-Za-z0-9._-]+$' || true

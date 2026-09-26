@@ -32,6 +32,9 @@ DEFAULT_BEHAVIOR = {
     "emulator_hidden": False,     # emulator keeps running but never shows up in adb devices
     "emulator_noise": True,       # emulator -list-avds prints a log line before the names
     "keyevent_failures": 0,       # the first N `adb shell input keyevent` calls fail
+    "device_settings": {},        # secure settings a newly booted emulator starts with, e.g.
+                                  # {"tv_user_setup_complete": "1"}; unset ones read as "null"
+    "settings_put_error": None,   # `adb shell settings put` prints this and exits 1
     "adb_hangs": {},              # {"getprop": N, "avd_name": N}: the first N `adb shell getprop
                                   # sys.boot_completed` or `adb emu avd name` calls never return,
                                   # like adb on a half-booted emulator starved of CPU
@@ -215,6 +218,17 @@ def adb(args):
         else:
             ready = True
         sys.stdout.write("1\r\n" if ready else "\r\n")   # real adb shell output ends in \r\n
+    elif args[:4] == ["shell", "settings", "get", "secure"] and len(args) == 5:
+        settings = emulators[serial]["settings"] if serial in emulators else {}
+        sys.stdout.write(f"{settings.get(args[4], 'null')}\r\n")
+    elif args[:4] == ["shell", "settings", "put", "secure"] and len(args) == 6:
+        error = behavior()["settings_put_error"]
+        if error:
+            fail(error)
+        if serial in emulators:
+            info = emulators[serial]
+            info["settings"][args[4]] = args[5]
+            write_running(serial, info)
     elif args[:3] == ["shell", "input", "keyevent"] and len(args) == 4:
         if take("keyevent", behavior()["keyevent_failures"]):
             fail("error: closed")
@@ -264,6 +278,7 @@ def boot(name):
     serial = f"emulator-{port}"
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     write_running(serial, {"avd": name, "pid": os.getpid(), "polls": 0,
+                           "settings": dict(behavior()["device_settings"]),
                            "offline": behavior()["adb_offline"],
                            "hidden": behavior()["emulator_hidden"]})
     print(f"INFO         | Booted {name} as {serial} (fake)", flush=True)

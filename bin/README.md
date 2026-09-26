@@ -188,6 +188,13 @@ like for its own, with the same timeout, and prints its serial once Android is r
 stops an emulator it didn't start: on a timeout it only fails, and if the emulator is stopped
 meanwhile, it stops waiting.
 
+**Home on API 26 and 27.** On the Android TV images of API 26 and 27 (Android 8.0 and 8.1), the
+Home key never leaves an app until the TV setup wizard has set `tv_user_setup_complete`, and
+these images never run that wizard (logcat: "Not starting activity because user setup is in
+progress"). So once the emulator has booted, the script sets it, and says so, unless it's
+already set. The setting stays in the AVD's data. Other images are left as they are; on those,
+Home works without it. By hand: `adb shell settings put secure tv_user_setup_complete 1`.
+
 **Output.** stdout holds the emulator's serial (e.g. `emulator-5554`) and nothing else; every
 message goes to stderr. So scripts capture it without parsing messages:
 
@@ -318,7 +325,7 @@ TV or Google TV; these are the differences in the images that you may run into:
 | 23, 29 | The first boot of a new AVD opens a "USB drive connected" screen (the AVD's SD card) in front of the launcher; later boots don't. |
 | 23 on | The stock launcher's HOME filter has priority 2, so `set-home-activity` and the home chooser can't pick another home app: it only takes over while the stock one is disabled (`adb shell pm disable-user --user 0 <package>`). |
 | 26 on | The stock launcher is `com.google.android.tvlauncher`. On 26–29 `leanbacklauncher` is installed too, without a HOME filter. |
-| 26, 27 | The slowest cold boots up to API 28. |
+| 26, 27 | The slowest cold boots up to API 28. Home doesn't leave apps until `tv_user_setup_complete` is set, which `start-emulator.sh` does ([Home on API 26 and 27](#home-on-api-26-and-27)). |
 | 29 on | `dumpsys input` lists key events without key codes. avdmanager prints the harmless devices.xml error. |
 | 30 | `remote.sh` keys lag the most; the emulator console's key events never arrive. |
 | Google TV, all | The stock launcher is `com.google.android.apps.tv.launcherx`, with priority 2 like the others. Without a Google account it shows a sign-in screen instead of a home screen: "Add account" on 30–33, "Set up Google TV" on 34 and 36. |

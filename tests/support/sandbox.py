@@ -197,6 +197,10 @@ class Sandbox:
     def argvs(self, tool):
         return [c["argv"] for c in self.calls(tool)]
 
+    def device_settings(self, serial):
+        """The secure settings of a running fake emulator, as `adb shell settings` changed them."""
+        return json.loads((self.state / "running" / f"{serial}.json").read_text())["settings"]
+
     def running(self):
         """{serial: avd name} of the fake emulators that are running."""
         result = {}
