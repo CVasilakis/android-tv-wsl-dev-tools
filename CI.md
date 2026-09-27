@@ -45,7 +45,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: CVasilakis/android-tv-wsl-dev-tools
-          ref: v1.3.0                                  # a release tag, or a full commit SHA
+          ref: v1.4.0                                  # a release tag, or a full commit SHA
           path: .android-tv-wsl-dev-tools
       - name: Put the tools on PATH
         run: echo "$GITHUB_WORKSPACE/.android-tv-wsl-dev-tools/bin" >> "$GITHUB_PATH"
