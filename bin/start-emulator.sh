@@ -14,7 +14,8 @@
 # Output:  the emulator's serial (e.g. emulator-5554), alone on stdout, so scripts can capture it:
 #          serial="$(start-emulator.sh)". Every message goes to stderr.
 # Log:     ${TMPDIR:-/tmp}/emulator-<avd-name>.log  (look here first if the window never appears)
-# Stop:    adb -s <serial> emu kill   (saves a Quick Boot snapshot, which --quick boots from)
+# Stop:    stop-emulator.sh <avd-name|serial>   (returns once it has exited; the emulator saves
+#          a Quick Boot snapshot, which --quick boots from)
 #
 # Cold boot or Quick Boot: a cold boot (the default, -no-snapshot-load) starts Android from scratch
 # (slower on newer API levels). --quick restores the snapshot saved when the emulator was last
@@ -92,7 +93,7 @@ If the AVD is already running, it isn't started again: the script waits until it
 then prints its serial. On the Android TV images of API 26 and 27, it then marks the TV's
 setup as complete (tv_user_setup_complete), without which the Home key doesn't leave apps, and
 waits 30 s so Android saves it (once per AVD). The emulator keeps running after this script
-exits; stop it with: adb -s <serial> emu kill
+exits; stop it with: stop-emulator.sh <avd-name|serial>
 EOF
 }
 case "${1:-}" in
@@ -281,7 +282,8 @@ check_timeout() {
     [ "$BOOT_TIMEOUT" -gt 0 ] && [ $((SECONDS - BOOT_STARTED)) -ge "$BOOT_TIMEOUT" ] || return 0
     if [ -z "$STARTED_HERE" ]; then
         die "'$AVD_NAME' ($SERIAL) didn't finish booting within $BOOT_TIMEOUT s.
-It wasn't started by this script, so it's left running. Stop it with: adb -s $SERIAL emu kill
+It wasn't started by this script, so it's left running. Stop it with:
+  $(command_for stop-emulator.sh) $SERIAL
 On a slow host, set ADT_BOOT_TIMEOUT to wait longer (0: no limit)."
     fi
     last_lines="$(tail -n 15 "$LOG")"
@@ -337,7 +339,7 @@ check_offline() {
     fi
     die "'$AVD_NAME' ($SERIAL) was restored from its Quick Boot snapshot, but adb can't reach it
 (still offline after adb reconnect). Stop it and start it without --quick, for a cold boot:
-  adb -s $SERIAL emu kill && $(command_for start-emulator.sh) $AVD_NAME"
+  $(command_for stop-emulator.sh) $SERIAL && $(command_for start-emulator.sh) $AVD_NAME"
 }
 
 # adbd answers long before the package manager is up, and installing at that point fails, so wait

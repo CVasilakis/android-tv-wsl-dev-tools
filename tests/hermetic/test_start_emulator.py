@@ -186,7 +186,7 @@ class ColdOrQuickBoot(EmulatorTestCase):
         started = time.time()
         result = self.start("--quick", env=self.FAST)
         self.assertFailed(result, "adb can't reach it")
-        self.assertIn("adb -s emulator-5554 emu kill", result.output)
+        self.assertIn("stop-emulator.sh emulator-5554 && ", result.output)
         self.assertIn("without --quick", result.output)
         self.assertEqual(len(self.reconnects()), 1, "reconnects once, then gives up")
         self.assertLess(time.time() - started, 20)

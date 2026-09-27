@@ -45,7 +45,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: CVasilakis/android-tv-wsl-dev-tools
-          ref: v1.2.0                                  # a release tag, or a full commit SHA
+          ref: v1.3.0                                  # a release tag, or a full commit SHA
           path: .android-tv-wsl-dev-tools
       - name: Put the tools on PATH
         run: echo "$GITHUB_WORKSPACE/.android-tv-wsl-dev-tools/bin" >> "$GITHUB_PATH"
@@ -113,8 +113,9 @@ Why the steps look like this:
 - **One emulator per job.** A matrix keeps each job small. Several emulators in one job work too:
   boot each with its own `start-emulator.sh`, keep each serial, and pass it to adb with `-s`
   (Gradle's `connected…` tasks run on every booted emulator).
-- **Stopping.** Not needed: the runner stops what's left when the job ends. To stop it earlier:
-  `adb -s "$ANDROID_SERIAL" emu kill`.
+- **Stopping.** Not needed: the runner stops what's left when the job ends. To stop it earlier,
+  e.g. before booting the next one in the same job: `stop-emulator.sh "$ANDROID_SERIAL"`, which
+  returns once it has exited.
 
 ## Caching
 

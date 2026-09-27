@@ -10,7 +10,8 @@ that was made. They never touch the real SDK, emulator or devices.
 State directory ($FAKE_STATE):
   calls.jsonl             one JSON line per call: {"tool", "argv", "android_serial"}
   behavior.json           knobs set by the test, see DEFAULT_BEHAVIOR
-  running/<serial>.json   a running fake emulator: {"avd", "pid", "polls", "offline", "hidden"}
+  running/<serial>.json   a running fake emulator: {"avd", "pid", "polls", "offline", "hidden",
+                          "stop_at"}
   devices.json            serials of connected physical devices
   counters.json           per-knob counters (e.g. how many key events failed so far)
 """
@@ -30,14 +31,20 @@ DEFAULT_BEHAVIOR = {
                                   # adb reconnect offline) or "forever"
     "emulator_crash": None,       # emulator prints this and exits 1 instead of booting
     "emulator_hidden": False,     # emulator keeps running but never shows up in adb devices
+    "emulator_exit_delay": 0,     # seconds an emulator keeps running after `adb emu kill` (saving
+                                  # its Quick Boot snapshot) while adb devices no longer lists it:
+                                  # the case where waiting for adb alone would return too early
+    "emulator_stuck": False,      # a started emulator answers `adb emu kill` with OK but keeps
+                                  # running, and ignores SIGTERM: only SIGKILL stops it
     "emulator_noise": True,       # emulator -list-avds prints a log line before the names
     "keyevent_failures": 0,       # the first N `adb shell input keyevent` calls fail
     "device_settings": {},        # secure settings a newly booted emulator starts with, e.g.
                                   # {"tv_user_setup_complete": "1"}; unset ones read as "null"
     "settings_put_error": None,   # `adb shell settings put` prints this and exits 1
-    "adb_hangs": {},              # {"getprop": N, "avd_name": N}: the first N `adb shell getprop
-                                  # sys.boot_completed` or `adb emu avd name` calls never return,
-                                  # like adb on a half-booted emulator starved of CPU
+    "adb_hangs": {},              # {"getprop": N, "avd_name": N, "emu_kill": N}: the first N
+                                  # `adb shell getprop sys.boot_completed`, `adb emu avd name` or
+                                  # `adb emu kill` calls never return, like adb on a half-booted
+                                  # emulator starved of CPU, or on a hung one
     "avd_home": None,             # avdmanager/emulator use this AVD folder, ignoring the env vars
     "avdmanager_xdg": False,      # avdmanager acts like cmdline-tools 12.0 (GitHub's runners): with
                                   # $XDG_CONFIG_HOME set, it creates AVDs in
@@ -120,6 +127,15 @@ def avdmanager_home():
     return avd_home()
 
 
+def avd_folder(name):
+    """The <name>.avd folder of an AVD, as its <name>.ini's path= line says."""
+    ini = avd_home() / f"{name}.ini"
+    for line in ini.read_text().splitlines():
+        if line.startswith("path="):
+            return Path(line[len("path="):])
+    return avd_home() / f"{name}.avd"
+
+
 def avd_names():
     home = avd_home()
     return sorted(p.stem for p in home.glob("*.ini")) if home.is_dir() else []
@@ -127,14 +143,23 @@ def avd_names():
 
 # --- Running emulators and devices ----------------------------------------------------------
 
+def alive(pid):
+    """Whether a process runs; a killed one its parent hasn't reaped yet (a zombie) doesn't."""
+    try:
+        return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] != "Z"
+    except (OSError, IndexError):
+        return False
+
+
 def running():
     """{serial: info} of the running fake emulators whose process is still alive."""
     result = {}
     for path in sorted(RUNNING.glob("emulator-*.json")):
         try:
             info = json.loads(path.read_text())
-            os.kill(info["pid"], 0)
-        except (ValueError, OSError):
+        except ValueError:
+            continue
+        if not alive(info["pid"]):
             continue
         if not info.get("hidden"):
             result[path.stem] = info
@@ -240,10 +265,22 @@ def adb_emu(serial, info, args):
     if args == ["avd", "name"]:
         hang_if("avd_name")
         sys.stdout.write(f"{info['avd']}\r\nOK\r\n")
+    elif args == ["avd", "path"]:
+        sys.stdout.write(f"{avd_folder(info['avd'])}\r\nOK\r\n")
     elif args == ["kill"]:
-        (RUNNING / f"{serial}.json").unlink(missing_ok=True)
-        os.kill(info["pid"], signal.SIGTERM)
+        hang_if("emu_kill")
         print("OK: killing emulator, bye bye")
+        if info.get("stuck"):
+            return
+        delay = behavior()["emulator_exit_delay"]
+        if delay:
+            # Still running until it has saved its snapshot (see boot()), but gone from adb.
+            info["stop_at"] = time.time() + delay
+            info["hidden"] = True
+            write_running(serial, info)
+        else:
+            (RUNNING / f"{serial}.json").unlink(missing_ok=True)
+            os.kill(info["pid"], signal.SIGTERM)
     else:
         fail(f"fake adb: unsupported emu command {args}")
 
@@ -270,21 +307,37 @@ def emulator(args):
 
 
 def boot(name):
-    """Registers as a running emulator on the first free port, then runs until killed."""
+    """Registers as a running emulator on the first free port, then runs until killed.
+    Like the real one, it writes its PID into hardware-qemu.ini.lock in the AVD's folder
+    (NUL-padded) and deletes that file when it exits, unless it's killed with SIGKILL."""
     taken = set(running())
     port = FIRST_PORT
     while f"emulator-{port}" in taken:
         port += 2
     serial = f"emulator-{port}"
-    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    stuck = behavior()["emulator_stuck"]
+    signal.signal(signal.SIGTERM, signal.SIG_IGN if stuck else lambda *_: sys.exit(0))
+    lock = avd_folder(name) / "hardware-qemu.ini.lock"
+    lock.write_bytes(str(os.getpid()).encode().ljust(8, b"\0"))
     write_running(serial, {"avd": name, "pid": os.getpid(), "polls": 0,
                            "settings": dict(behavior()["device_settings"]),
                            "offline": behavior()["adb_offline"],
-                           "hidden": behavior()["emulator_hidden"]})
+                           "hidden": behavior()["emulator_hidden"], "stuck": stuck})
     print(f"INFO         | Booted {name} as {serial} (fake)", flush=True)
+    path = RUNNING / f"{serial}.json"
     deadline = time.time() + 120   # never outlive a test run, even if cleanup is skipped
-    while time.time() < deadline and (RUNNING / f"{serial}.json").exists():
-        time.sleep(0.1)
+    try:
+        while time.time() < deadline and path.exists():
+            try:
+                stop_at = json.loads(path.read_text()).get("stop_at")
+            except (OSError, ValueError):
+                stop_at = None
+            if stop_at and time.time() >= stop_at:
+                path.unlink(missing_ok=True)
+                break
+            time.sleep(0.1)
+    finally:
+        lock.unlink(missing_ok=True)
 
 
 # --- avdmanager -----------------------------------------------------------------------------

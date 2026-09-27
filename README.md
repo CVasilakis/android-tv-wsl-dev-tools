@@ -6,7 +6,7 @@
 > They're named here only to say what the tools work with.
 
 Command-line tools for developing Android TV apps without Android Studio, on Ubuntu under WSL2:
-create and boot an Android TV emulator, drive it with a TV remote in the terminal, and work around
+create, boot and stop an Android TV emulator, drive it with a TV remote in the terminal, and work around
 the emulator's input problems under WSLg. They work with any Gradle project, and find the SDK, AVDs
 and emulators on their own.
 

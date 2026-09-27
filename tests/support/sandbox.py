@@ -213,6 +213,18 @@ class Sandbox:
             result[path.stem] = info["avd"]
         return result
 
+    def emulator_pid(self, serial):
+        """The process ID of a fake emulator, running or not."""
+        return json.loads((self.state / "running" / f"{serial}.json").read_text())["pid"]
+
+    @staticmethod
+    def alive(pid):
+        """Whether a process runs (a zombie, killed but not yet reaped, doesn't)."""
+        try:
+            return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] != "Z"
+        except (OSError, IndexError):
+            return False
+
     def stop_emulators(self):
         """Stops every fake emulator, as `adb emu kill` would."""
         for path in (self.state / "running").glob("emulator-*.json"):

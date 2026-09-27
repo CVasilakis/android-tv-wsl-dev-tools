@@ -22,7 +22,7 @@ tests/run.py --strict         # fail on any skipped test, as CI does
 tests/run.py --emulator       # real-emulator tier: boots your AVD headless
 bin/start-emulator.sh         # cold boot the TV emulator (returns when booted); --quick: from its snapshot
 bin/remote.sh                 # TV remote in the terminal
-adb emu kill                  # stop the emulator (with several devices: adb -s <serial> emu kill)
+bin/stop-emulator.sh          # stop it, returns once it has exited (<avd-name|serial> or --all with several)
 ```
 
 ## Rules
@@ -79,6 +79,7 @@ Each of these fixes a real problem. The reasons are in the linked file; read the
 | `input keyevent` instead of the faster `adb emu event send`, `< /dev/null` on `adb shell` | `bin/remote.sh` | Console key events are emulator-only and vanish on the API 30 TV image; `adb shell` swallows the keys typed after it. |
 | Only the serial on stdout, every message on stderr | `bin/start-emulator.sh` | Scripts and CI capture the serial with `serial="$(start-emulator.sh)"`; it's part of the public interface. |
 | `-no-window` added when `$DISPLAY` is empty | `bin/start-emulator.sh` | Without a display the emulator aborts, and its log doesn't say why (CI runners, SSH). |
+| The PID from `hardware-qemu.ini.lock`, checked against the process's command line, instead of `pgrep` | `bin/stop-emulator.sh` | `pgrep -f` also matches the shell running it, and a stale lock file's PID may belong to another process. |
 | `id -nG "$(id -un)"` for kvm membership, not `$USER` or the `getent` line | `bin/start-emulator.sh` | Counts kvm as a primary group, doesn't mistake `ci` for `ci-bot`, and works where `$USER` is unset (containers). |
 | `ADT_KVM_DEVICE`, `ADT_PROC_VERSION`, `WSLG_TOOLBAR_TIMEOUT`, `ADT_OFFLINE_TIMEOUT`, `ADT_PROGRESS_INTERVAL`, `ADT_ADB_TIMEOUT` | `lib/lib.sh`, `bin/wslg-toolbar.py`, `bin/start-emulator.sh` | Let the tests simulate other machines and not wait 30 or 60 s ([`tests/README.md`](tests/README.md)). |
 
