@@ -9,6 +9,7 @@ their path, e.g. `../android-tv-wsl-dev-tools/bin/start-emulator.sh`.
 |---|---|
 | [`create-avd.sh`](create-avd.sh) | Creates an Android TV emulator with the right hardware settings (`tv_api25`, or `--api <level>`, or Google TV with `--google-tv`; another screen with `--size`/`--density`). |
 | [`start-emulator.sh`](start-emulator.sh) | Boots it (cold boot, or Quick Boot with `--quick`), waits until Android is ready, applies the WSLg toolbar fix. |
+| [`stop-emulator.sh`](stop-emulator.sh) | Stops it and returns once it has exited, with a time limit (one emulator, or `--all`). |
 | [`remote.sh`](remote.sh) | TV remote in the terminal (D-pad, OK, Back, Home, Menu, …). |
 | [`wslg-toolbar.py`](wslg-toolbar.py) | Works around the emulator toolbar's input problems under WSLg. |
 
@@ -25,7 +26,7 @@ Nothing about the SDK, AVD or device is hardcoded; each is taken from the first 
 | `adb`, `emulator`, `avdmanager`, `android` | inside that SDK (`cmdline-tools/latest`, else the newest `cmdline-tools/<version>`), else on `$PATH` |
 | AVD folder | `$ANDROID_AVD_HOME`, `$ANDROID_EMULATOR_HOME/avd`, `$ANDROID_USER_HOME/avd`, `$ANDROID_SDK_HOME/.android/avd`, `~/.android/avd`; each AVD is located through its `<name>.ini` |
 | AVD to create or boot | the name given on the command line, `$ADT_AVD`, `tv_api25` (`create-avd.sh --api <level>`: the name given, else `tv_api<level>`, or `gtv_api<level>` with `--google-tv`); `start-emulator.sh` then also accepts the only Android TV or Google TV AVD |
-| Emulator to talk to | `start-emulator.sh` matches running emulators by AVD name; `remote.sh` takes the serial given (any device), `$ANDROID_SERIAL`, or the only running emulator; `wslg-toolbar.py` the AVD given or the only emulator window |
+| Emulator to talk to | `start-emulator.sh` matches running emulators by AVD name; `remote.sh` takes the serial given (any device), `$ANDROID_SERIAL`, or the only running emulator; `stop-emulator.sh` the AVD name or serial given, `$ANDROID_SERIAL`, or the only running emulator (never a physical device); `wslg-toolbar.py` the AVD given or the only emulator window |
 
 `local.properties` is the only thing the scripts read from the folder they're called from. To use
 your own TV AVD without typing its name each time: `export ADT_AVD=<name>`.
@@ -172,7 +173,7 @@ start-emulator.sh --quick                  # boot from its Quick Boot snapshot i
 start-emulator.sh -wipe-data               # factory reset (also re-enables a disabled stock launcher)
 start-emulator.sh my_tv -gpu host          # another AVD, with hardware rendering
 EMULATOR_TOOLBAR=show start-emulator.sh    # keep a clickable side toolbar (see below)
-adb -s emulator-5554 emu kill              # stop it (saves a Quick Boot snapshot for --quick)
+stop-emulator.sh                           # stop it (saves a Quick Boot snapshot for --quick)
 ```
 
 It runs `emulator -avd <name> -gpu swiftshader_indirect -no-snapshot-load -no-boot-anim -no-audio`
@@ -197,8 +198,8 @@ be stopped (see below). The setting stays in the AVD's data, so that wait happen
 Other images are left as they are; on those, Home works without it. By hand:
 `adb shell settings put secure tv_user_setup_complete 1`.
 
-**Stopping doesn't save recent changes.** `adb emu kill` stops the emulator without shutting
-Android down, and Android saves some changes only a moment after they're made: a setting
+**Stopping doesn't save recent changes.** `adb emu kill`, which
+[`stop-emulator.sh`](#stop-emulatorsh) uses too, stops the emulator without shutting Android down, and Android saves some changes only a moment after they're made: a setting
 (`settings put`) within seconds, an app's enabled state (`pm enable`, `pm disable-user`) later.
 Stopped right after the command, the next cold boot starts as if it had never run. `adb reboot`
 doesn't save them either. After a change that should stay, wait 30 s before stopping the emulator.
@@ -236,6 +237,46 @@ also `offline` until `adbd` starts, which is normal, so it's never cut short.
 **KVM.** It checks access to `/dev/kvm` before starting anything, and prints the fix for the
 problem it finds ([`../SETUP.md`](../SETUP.md#make-devkvm-writable)). When you're in the `kvm`
 group but this session predates it, it re-runs itself through `sg kvm` instead.
+
+## `stop-emulator.sh`
+
+`stop-emulator.sh [--all] [name|serial]`
+
+```bash
+stop-emulator.sh                   # $ANDROID_SERIAL, else the only running emulator
+stop-emulator.sh tv_api25          # by AVD name
+stop-emulator.sh emulator-5556     # by serial
+stop-emulator.sh --all             # every running emulator
+```
+
+It runs `adb -s <serial> emu kill` and returns once the emulator's process has exited, so the
+same AVD can be started again right away. It exits 0 also when the emulator wasn't running, so
+it can be called just in case; it never stops a physical device, and a name that's neither a
+running emulator nor an AVD is an error, so a typo doesn't pass as "not running". Messages go to
+stderr; stdout stays empty.
+
+`adb emu kill` alone returns at once, before the emulator has exited, and
+`adb wait-for-disconnect` waits for that without a time limit. Neither can stop an emulator whose
+console doesn't answer, so a script built on them can hang. `stop-emulator.sh` always ends:
+
+| What happens | What it does |
+|---|---|
+| The emulator exits (it saves its Quick Boot snapshot first) | waits for its process, then until adb no longer lists it |
+| It hasn't exited `ADT_STOP_TIMEOUT` seconds (default 60) after `adb emu kill` | kills it (SIGKILL): its Quick Boot snapshot isn't saved |
+| Its console doesn't answer `adb emu kill`, or adb doesn't list it (e.g. stuck early in its boot; name it by its AVD) | sends SIGTERM, which lets it shut down, and SIGKILL if it's still running `ADT_STOP_TIMEOUT` seconds later |
+| Its process can't be found or killed | fails (exit 1) and says it's still running |
+
+It says which of these happened. The process is the one whose PID the emulator writes into
+`hardware-qemu.ini.lock` in the AVD's folder, and only if that process's command line names the
+AVD, so a lock file left behind by a killed emulator can't make the script stop another process.
+The script finds that folder through the AVD's name, which a hung console doesn't tell: to stop
+such an emulator, name its AVD rather than its serial (adb may then list it for a moment after
+the script returns, until adb notices it's gone).
+
+Don't wait for an emulator by searching for its process by name: `pgrep -f`/`pkill -f` match
+their pattern against every command line, including the shell that runs them when the command
+is passed as a string (`bash -c '…'`, as scripts and AI agents do). A loop like
+`while pgrep -f 'qemu.*tv_api25'; do …; done` then finds itself and never ends.
 
 ## Several Android versions
 
@@ -353,7 +394,8 @@ TV or Google TV; these are the differences in the images that you may run into:
 | `start-emulator.sh: '<avd>' didn't finish booting within 900 s` | the host is slow: raise `ADT_BOOT_TIMEOUT`; or Android can't boot: without `--quick` if you used it, else try `-wipe-data` (factory reset) |
 | `create-avd.sh: AVD '<name>' already exists` | it never overwrites one; `--if-missing` accepts it when it's from the same system image (see [`create-avd.sh`](#create-avdsh)) |
 | `start-emulator.sh: … was stopped before it finished booting` | the AVD was already running and booting (another call started it), and was stopped while this one waited; start it again |
-| `start-emulator.sh: … adb can't reach it` (with `--quick`) | the restored snapshot left adb offline: `adb -s <serial> emu kill`, then start it without `--quick` |
+| `start-emulator.sh: … adb can't reach it` (with `--quick`) | the restored snapshot left adb offline: `stop-emulator.sh <serial>`, then start it without `--quick` |
+| `… It's still running.` from `stop-emulator.sh` | the emulator couldn't be stopped (see [`stop-emulator.sh`](#stop-emulatorsh)); kill its `qemu-system-…` process by the PID in `hardware-qemu.ini.lock` in the AVD's folder, or reboot WSL (`wsl --shutdown` in Windows) |
 | `adb devices` shows `offline` or `unauthorized` | `adb reconnect offline`; if that doesn't help, `adb kill-server && adb start-server`; else stop the emulator and cold boot it |
 | `can't tell which AVD to use` / `there's no AVD named …` | pass the AVD name or set `ADT_AVD`; the message lists the AVDs found |
 | `'avdmanager' not found` (or `emulator`, `platform-tools`) | the SDK wasn't found, or lacks that package: set `ANDROID_HOME` (see [Finding your setup](#finding-your-setup)) |

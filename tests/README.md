@@ -24,7 +24,7 @@ too. The emulator tier isn't run there; run it locally before a release.
 | Tier | Folder | Needs | Checks |
 |---|---|---|---|
 | hermetic | [`hermetic/`](hermetic) | Python 3; optional: Xvfb, shellcheck | Each script's behavior against fake tools and a fake machine. Run it after every script change. |
-| emulator | [`emulator/`](emulator) | Your SDK and AVD (`ADT_AVD` picks one) | What fakes can't show: booting really completes, `remote.sh`'s keys arrive in Android as the right keys, and its Home key leaves an app. |
+| emulator | [`emulator/`](emulator) | Your SDK and AVD (`ADT_AVD` picks one) | What fakes can't show: booting really completes, `remote.sh`'s keys arrive in Android as the right keys, its Home key leaves an app, and `stop-emulator.sh` returns only once the AVD can start again. |
 
 Some hermetic tests skip, with the reason printed, when an optional tool is missing:
 - **Xvfb** (`sudo apt-get install -y xvfb`) for the `wslg-toolbar.py`
@@ -36,7 +36,8 @@ Some hermetic tests skip, with the reason printed, when an optional tool is miss
 - **shellcheck** (`sudo apt-get install -y shellcheck`) for static analysis of the shell scripts.
 
 The emulator tier reuses the AVD if it's already running and leaves it running. Otherwise it boots
-it (cold) with `-no-window -no-snapshot-save` and stops it at the end. It tests one AVD per run, so to
+it (cold) with `-no-window -no-snapshot-save` and stops it at the end. The `stop-emulator.sh` test
+skips when the AVD was already running, since it would have to stop it. It tests one AVD per run, so to
 cover every Android version you use:
 
 ```bash
@@ -71,7 +72,8 @@ Each test gets a `Sandbox` (`self.sandbox`), a temporary folder with:
 
 The fakes behave like the real tools as far as the scripts can see: same output formats (including
 the `\r` adb adds), exit codes and side effects. For example, the fake emulator registers on the
-first free port and stays alive until `adb emu kill`. All fakes share state in the sandbox, so a
+first free port, writes its PID into its AVD's `hardware-qemu.ini.lock` as the real one does, and
+stays alive until `adb emu kill`. All fakes share state in the sandbox, so a
 test can arrange a situation and then check the result:
 
 ```python
@@ -94,9 +96,11 @@ script was called (finding `lib.sh`, suggested commands) is tested every way.
 
 Arrange failures and odd situations with `sandbox.set_behavior(...)` (see `DEFAULT_BEHAVIOR` in
 `fake_tools.py`; e.g. `adb_offline` for an emulator adb can't reach, with `ADT_OFFLINE_TIMEOUT=1`
-in the script's environment so `start-emulator.sh --quick` doesn't wait 30 s), `connect_device()`, `wsl()` and file permissions on `sandbox.kvm`. Check the
+in the script's environment so `start-emulator.sh --quick` doesn't wait 30 s, or
+`emulator_stuck` for one that won't exit, with `ADT_STOP_TIMEOUT=1` for `stop-emulator.sh`), `connect_device()`, `wsl()` and file permissions on `sandbox.kvm`. Check the
 results with `result.code/out/err`, `sandbox.calls()`/`argvs(tool)`, `sandbox.running()` and the
-files in `sandbox.home`.
+files in `sandbox.home`; `sandbox.emulator_pid(serial)` and `sandbox.alive(pid)` show whether an
+emulator's process has exited.
 
 ## Writing tests
 

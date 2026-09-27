@@ -3,10 +3,12 @@
 Uses the developer's own setup (SDK, AVD) exactly as the scripts find it; set ADT_AVD to pick
 the AVD. If that AVD is already running it's reused and left running; otherwise it's booted
 without a window and stopped afterwards (without saving a snapshot, so the next normal start is
-unaffected).
+unaffected). The stop-emulator.sh test needs an AVD of its own to stop, so it skips if the AVD
+was already running.
 """
 import os
 import re
+import signal
 import subprocess
 import time
 import unittest
@@ -27,33 +29,55 @@ def lib(snippet):
                           capture_output=True, text=True, timeout=60).stdout.strip()
 
 
+def default_avd():
+    return os.environ.get("ADT_AVD") or lib(
+        'avds="$(list_avds)"; grep -qx tv_api25 <<<"$avds" && echo tv_api25 || head -n1 <<<"$avds"')
+
+
+def serial_of(avd):
+    """The serial of that AVD's running emulator, or None."""
+    return lib(f'for s in $(running_emulators); do [ "$(emulator_avd "$s")" = {avd} ] '
+               '&& echo "$s"; done') or None
+
+
+def exited(pid):
+    """Whether a process has exited: it's gone, or a zombie its parent hasn't reaped yet, which
+    holds nothing (under WSL the emulator's parent is init's relay, which reaps it a moment
+    later)."""
+    try:
+        with open(f"/proc/{pid}/stat") as f:
+            return f.read().rsplit(")", 1)[1].split()[0] == "Z"
+    except OSError:
+        return True
+
+
+def start(avd):
+    """Boots the AVD the way this tier does: no window, no snapshot saved when it's stopped."""
+    return subprocess.run([str(BIN / "start-emulator.sh"), avd, "-no-window", "-no-snapshot-save"],
+                          capture_output=True, text=True, timeout=600)
+
+
 @unittest.skipUnless(ENABLED, "real-emulator tests run only with: tests/run.py --emulator")
 class OnTheRealEmulator(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.adb = lib('echo "$ADB"')
-        cls.avd = os.environ.get("ADT_AVD") or lib(
-            'avds="$(list_avds)"; grep -qx tv_api25 <<<"$avds" && echo tv_api25 || head -n1 <<<"$avds"')
-        cls.serial = cls.find_serial()
+        cls.avd = default_avd()
+        cls.serial = serial_of(cls.avd)
         cls.started_here = cls.serial is None
         if cls.started_here:
-            cls.start_result = subprocess.run(
-                [str(BIN / "start-emulator.sh"), cls.avd, "-no-window", "-no-snapshot-save"],
-                capture_output=True, text=True, timeout=600)
+            cls.start_result = start(cls.avd)
             if cls.start_result.returncode != 0:
                 raise RuntimeError(f"start-emulator.sh failed:\n{cls.start_result.stdout}"
                                    f"{cls.start_result.stderr}")
-            cls.serial = cls.find_serial()
+            cls.serial = serial_of(cls.avd)
 
     @classmethod
     def tearDownClass(cls):
+        # stop-emulator.sh waits until it has exited: the next test class may boot the same AVD.
         if cls.started_here and cls.serial:
-            subprocess.run([cls.adb, "-s", cls.serial, "emu", "kill"], capture_output=True)
-
-    @classmethod
-    def find_serial(cls):
-        return lib(f'for s in $(running_emulators); do [ "$(emulator_avd "$s")" = {cls.avd} ] '
-                   '&& echo "$s"; done') or None
+            subprocess.run([str(BIN / "stop-emulator.sh"), cls.serial], capture_output=True,
+                           timeout=120)
 
     def adb_shell(self, *args):
         return subprocess.run([self.adb, "-s", self.serial, "shell", *args], capture_output=True,
@@ -150,3 +174,53 @@ class OnTheRealEmulator(unittest.TestCase):
                 while self.key_downs_since(sent_at) != expected and time.time() < deadline:
                     time.sleep(0.2)
                 self.assertEqual(self.key_downs_since(sent_at), expected)
+
+
+@unittest.skipUnless(ENABLED, "real-emulator tests run only with: tests/run.py --emulator")
+class StopOnTheRealEmulator(unittest.TestCase):
+    def setUp(self):
+        self.avd = default_avd()
+        if serial_of(self.avd):
+            self.skipTest(f"{self.avd} is running, and a test doesn't stop the developer's "
+                          "emulator")
+        self.addCleanup(subprocess.run, [str(BIN / "stop-emulator.sh"), self.avd],
+                        capture_output=True, timeout=180)
+
+    def start_and_get_pid(self):
+        """Boots the AVD; returns its serial and its emulator's PID, from the AVD's lock file."""
+        started = start(self.avd)
+        self.assertEqual(started.returncode, 0, started.stderr)
+        self.lock = os.path.join(lib(f"avd_dir {self.avd}"), "hardware-qemu.ini.lock")
+        with open(self.lock, "rb") as f:
+            return started.stdout.strip(), int(f.read().strip(b"\0").decode())
+
+    def test_stop_kills_an_emulator_that_does_not_answer(self):
+        serial, pid = self.start_and_get_pid()
+        os.kill(pid, signal.SIGSTOP)   # frozen: its console answers nothing, SIGTERM waits
+        result = subprocess.run([str(BIN / "stop-emulator.sh"), self.avd], capture_output=True,
+                                text=True, timeout=180, env={**os.environ, "ADT_STOP_TIMEOUT": "5"})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("killed (SIGKILL)", result.stderr)
+        self.assertTrue(exited(pid), "returned before the emulator had exited")
+        again = start(self.avd)   # the lock file it left behind doesn't stop a new start
+        self.assertEqual(again.returncode, 0, again.stderr)
+
+    def test_stop_returns_once_the_avd_can_start_again(self):
+        avd = self.avd
+        serial, pid = self.start_and_get_pid()
+        lock = self.lock
+
+        result = subprocess.run([str(BIN / "stop-emulator.sh"), avd], capture_output=True,
+                                text=True, timeout=120)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f"Stopped '{avd}' ({serial}).", result.stderr)
+        self.assertTrue(exited(pid), "returned before the emulator had exited")
+        self.assertFalse(os.path.exists(lock))
+        self.assertNotIn(serial, lib("running_emulators").split())
+
+        again = start(avd)   # right away: the AVD's files are free
+        self.assertEqual(again.returncode, 0, again.stderr)
+        result = subprocess.run([str(BIN / "stop-emulator.sh"), avd], capture_output=True,
+                                text=True, timeout=120)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIsNone(serial_of(avd))
