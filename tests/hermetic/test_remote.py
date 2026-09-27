@@ -10,6 +10,8 @@ KEYS = {
     "\x1b[B": "DPAD_DOWN",         # Down
     "\x1b[C": "DPAD_RIGHT",        # Right
     "\x1b[D": "DPAD_LEFT",         # Left
+    "\x1bOA": "DPAD_UP",           # Up, in a terminal's application mode
+    "\x1bOD": "DPAD_LEFT",         # Left, the same
     "\n": "DPAD_CENTER",           # Enter: OK
     "\x7f": "BACK",                # Backspace
     "\x1b": "BACK",                # Esc alone
@@ -78,21 +80,37 @@ class SendsTheRightKeys(RemoteTestCase):
         self.assertEqual([key for _, key in self.presses()], ["HOME"])
 
     def test_other_keys_send_nothing(self):
-        self.sandbox.run("remote.sh", input="xyz 1\t")
+        self.sandbox.run("remote.sh", input="xyz 1\t\x1b[3~\x1bOP")   # ... Delete, F1
         self.assertEqual(self.presses(), [])
 
-    def test_esc_then_another_key_typed_later_are_two_presses(self):
-        # A human types Esc and h far apart; remote.sh must not read them as one escape sequence.
+    def test_esc_alone_is_sent_before_the_next_key_is_typed(self):
+        # A human types Esc and h far apart: the Esc, read from an input that stays open, must
+        # be sent as Back without waiting for more keys (an arrow key's rest), before h is typed.
         process = subprocess.Popen([str(self.sandbox.tools / "bin" / "remote.sh")],
                                    stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
                                    stderr=subprocess.DEVNULL, env=self.sandbox.env(), text=True)
+        self.addCleanup(process.kill)
         process.stdin.write("\x1b")
         process.stdin.flush()
-        time.sleep(0.5)
+        deadline = time.monotonic() + 10
+        while not self.presses() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        self.assertEqual([key for _, key in self.presses()], ["BACK"],
+                         "sent before h is typed")
         process.stdin.write("h")
         process.stdin.close()
         process.wait(timeout=10)
         self.assertEqual([key for _, key in self.presses()], ["BACK", "HOME"])
+
+    def test_keys_right_after_esc_are_keys_of_their_own(self):
+        # Typed ahead while the key before is being sent, or piped: only [ or O after an Esc
+        # starts an arrow key.
+        for keys, sent in [("\x1bh", ["BACK", "HOME"]), ("\x1b\x1b[A", ["BACK", "DPAD_UP"]),
+                           ("\x1b\n", ["BACK", "DPAD_CENTER"]), ("\x1bqh", ["BACK"])]:
+            with self.subTest(keys=repr(keys)):
+                before = len(self.presses())
+                self.assertSucceeded(self.sandbox.run("remote.sh", input=keys))
+                self.assertEqual([key for _, key in self.presses()[before:]], sent)
 
     def test_keeps_going_after_a_failed_adb_call(self):
         self.sandbox.set_behavior(keyevent_failures=1)
