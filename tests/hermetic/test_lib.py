@@ -1,4 +1,4 @@
-"""lib.sh: finding the SDK, its tools and AVDs on any setup."""
+"""lib.sh: finding the SDK, its tools and AVDs on any setup, and time limits."""
 from support.sandbox import ScriptTestCase
 
 
@@ -193,3 +193,21 @@ class AvdDiscovery(ScriptTestCase):
         self.sandbox.add_avd("tv_api25")
         self.sandbox.add_avd("phone", tv=False)
         self.assertEqual(self.sandbox.bash("list_avds").out.split(), ["phone", "tv_api25"])
+
+
+class TimeLimits(ScriptTestCase):
+    def test_a_limit_lasts_at_least_its_seconds(self):
+        # Started late in a whole second of $SECONDS, which ticks with the clock's seconds: a
+        # limit counted as `$SECONDS - start >= 1` would be up at the next tick, 0.1 s later.
+        result = self.sandbox.bash("""
+            tick=$SECONDS; while [ "$SECONDS" = "$tick" ]; do sleep 0.01; done
+            sleep 0.85
+            start=$SECONDS started=$EPOCHREALTIME
+            until time_is_up "$start" 1; do sleep 0.01; done
+            echo "$started $EPOCHREALTIME"
+        """)
+        started, ended = map(float, result.out.split())
+        self.assertGreaterEqual(ended - started, 1)
+
+    def test_a_limit_of_zero_is_up_at_once(self):
+        self.assertEqual(self.sandbox.bash("time_is_up $SECONDS 0").code, 0)

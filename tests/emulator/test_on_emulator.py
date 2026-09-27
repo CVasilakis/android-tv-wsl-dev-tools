@@ -3,8 +3,8 @@
 Uses the developer's own setup (SDK, AVD) exactly as the scripts find it; set ADT_AVD to pick
 the AVD. If that AVD is already running it's reused and left running; otherwise it's booted
 without a window and stopped afterwards (without saving a snapshot, so the next normal start is
-unaffected). The stop-emulator.sh test needs an AVD of its own to stop, so it skips if the AVD
-was already running.
+unaffected). The stop-emulator.sh tests need an AVD of their own to stop, so they skip if the
+AVD was already running.
 """
 import os
 import re
@@ -52,10 +52,25 @@ def exited(pid):
         return True
 
 
-def start(avd):
+def start(avd, *flags):
     """Boots the AVD the way this tier does: no window, no snapshot saved when it's stopped."""
-    return subprocess.run([str(BIN / "start-emulator.sh"), avd, "-no-window", "-no-snapshot-save"],
-                          capture_output=True, text=True, timeout=600)
+    return subprocess.run([str(BIN / "start-emulator.sh"), avd, "-no-window", "-no-snapshot-save",
+                           *flags], capture_output=True, text=True, timeout=600)
+
+
+def emulator_pids(*args):
+    """PIDs of the processes whose command line holds all these arguments, read from /proc (a
+    search that can't find itself, unlike pgrep -f)."""
+    pids = []
+    for entry in filter(str.isdigit, os.listdir("/proc")):
+        try:
+            with open(f"/proc/{entry}/cmdline", "rb") as f:
+                argv = f.read().decode(errors="replace").split("\0")
+        except (OSError, ValueError):
+            continue
+        if all(arg in argv for arg in args):
+            pids.append(int(entry))
+    return pids
 
 
 class RecentInput:
@@ -304,6 +319,20 @@ class StopOnTheRealEmulator(unittest.TestCase):
         self.assertTrue(exited(pid), "returned before the emulator had exited")
         again = start(self.avd)   # the lock file it left behind doesn't stop a new start
         self.assertEqual(again.returncode, 0, again.stderr)
+
+    def test_stop_waits_for_a_read_only_emulator(self):
+        # -read-only writes no lock file: the emulator's console names its process instead.
+        started = start(self.avd, "-read-only")
+        self.assertEqual(started.returncode, 0, started.stderr)
+        serial = started.stdout.strip()
+        self.assertFalse(os.path.exists(os.path.join(lib(f"avd_dir {self.avd}"),
+                                                     "hardware-qemu.ini.lock")))
+        [pid] = emulator_pids("-avd", self.avd, "-read-only")
+        result = subprocess.run([str(BIN / "stop-emulator.sh"), self.avd], capture_output=True,
+                                text=True, timeout=120)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stderr, f"Stopped '{self.avd}' ({serial}).\n")
+        self.assertTrue(exited(pid), "returned before the emulator had exited")
 
     def test_stop_returns_once_the_avd_can_start_again(self):
         avd = self.avd

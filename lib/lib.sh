@@ -156,6 +156,14 @@ adb_bounded() {
     timeout -k 5 "$ADB_TIMEOUT" "$ADB" "$@"
 }
 
+# time_is_up <start> <seconds>: whether at least that many seconds have passed since <start>, a
+# value of $SECONDS. $SECONDS counts whole seconds of the clock, so `$SECONDS - start >= n` can be
+# true only n - 1 s and a bit after the start (a limit of 1 s could end at once); more than n whole
+# seconds is at least n s, and at most n + 1. A limit of 0 is up at once.
+time_is_up() {
+    [ "$2" -eq 0 ] || [ $((SECONDS - $1)) -gt "$2" ]
+}
+
 # Serials of the running emulators, one per line (physical devices are left out).
 running_emulators() {
     adb_bounded devices 2>/dev/null | awk '$1 ~ /^emulator-[0-9]+$/ { print $1 }'

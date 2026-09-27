@@ -279,7 +279,7 @@ stop_emulator() {
 # (see the header). The log is read before stopping it, whose shutdown lines would hide the cause.
 check_timeout() {
     local last_lines
-    [ "$BOOT_TIMEOUT" -gt 0 ] && [ $((SECONDS - BOOT_STARTED)) -ge "$BOOT_TIMEOUT" ] || return 0
+    [ "$BOOT_TIMEOUT" -gt 0 ] && time_is_up "$BOOT_STARTED" "$BOOT_TIMEOUT" || return 0
     if [ -z "$STARTED_HERE" ]; then
         die "'$AVD_NAME' ($SERIAL) didn't finish booting within $BOOT_TIMEOUT s.
 It wasn't started by this script, so it's left running. Stop it with:
@@ -298,13 +298,13 @@ factory reset: $(command_for start-emulator.sh) $AVD_NAME -wipe-data"
 # A boot can take minutes with nothing to show, which in a CI log looks like a hang (see the
 # header). ADT_PROGRESS_INTERVAL exists for the tests.
 PROGRESS_INTERVAL="${ADT_PROGRESS_INTERVAL:-60}"
-next_progress=$((BOOT_STARTED + PROGRESS_INTERVAL))
+last_progress=$BOOT_STARTED
 report_progress() {
     local limit=""
-    [ "$SECONDS" -ge "$next_progress" ] || return 0
+    time_is_up "$last_progress" "$PROGRESS_INTERVAL" || return 0
     if [ "$BOOT_TIMEOUT" -gt 0 ]; then limit="; the limit is $BOOT_TIMEOUT s"; fi
     echo "'$AVD_NAME' is still booting ($((SECONDS - BOOT_STARTED)) s so far$limit)..." >&2
-    next_progress=$((SECONDS + PROGRESS_INTERVAL))
+    last_progress=$SECONDS
 }
 
 # Find the serial of the emulator started above (emulator-<port>), once it shows up in adb.
@@ -329,7 +329,7 @@ check_offline() {
         return 0
     fi
     [ -n "$offline_since" ] || offline_since=$SECONDS
-    [ $((SECONDS - offline_since)) -ge "$OFFLINE_TIMEOUT" ] || return 0
+    time_is_up "$offline_since" "$OFFLINE_TIMEOUT" || return 0
     if [ -z "$reconnected" ]; then
         echo "adb has seen $SERIAL as offline for ${OFFLINE_TIMEOUT} s; reconnecting adb..." >&2
         adb_bounded reconnect offline > /dev/null 2>&1 || true
