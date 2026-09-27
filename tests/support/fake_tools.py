@@ -11,12 +11,15 @@ State directory ($FAKE_STATE):
   calls.jsonl             one JSON line per call: {"tool", "argv", "android_serial"}
   behavior.json           knobs set by the test, see DEFAULT_BEHAVIOR
   running/<serial>.json   a running fake emulator: {"avd", "pid", "polls", "offline", "hidden",
-                          "stop_at"}
+                          "stop_at", "settings" (secure), "system_settings"}
+  device/<serial>.json    what's on a device, emulator or physical: {"files": {path: text}
+                          (adb push), "key_events": [...] (injected by monkey)}
   devices.json            serials of connected physical devices
   counters.json           per-knob counters (e.g. how many key events failed so far)
 """
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -40,7 +43,12 @@ DEFAULT_BEHAVIOR = {
     "keyevent_failures": 0,       # the first N `adb shell input keyevent` calls fail
     "device_settings": {},        # secure settings a newly booted emulator starts with, e.g.
                                   # {"tv_user_setup_complete": "1"}; unset ones read as "null"
+    "device_system_settings": {"accelerometer_rotation": "0", "user_rotation": "0"},
+                                  # system settings a newly booted emulator starts with (the TV
+                                  # images' values)
     "settings_put_error": None,   # `adb shell settings put` prints this and exits 1
+    "monkey_output": None,        # `adb shell monkey` prints this and injects nothing (it failed)
+    "api_level": 25,              # every device's `getprop ro.build.version.sdk`
     "adb_hangs": {},              # {"getprop": N, "avd_name": N, "emu_kill": N}: the first N
                                   # `adb shell getprop sys.boot_completed`, `adb emu avd name` or
                                   # `adb emu kill` calls never return, like adb on a half-booted
@@ -243,22 +251,123 @@ def adb(args):
         else:
             ready = True
         sys.stdout.write("1\r\n" if ready else "\r\n")   # real adb shell output ends in \r\n
-    elif args[:4] == ["shell", "settings", "get", "secure"] and len(args) == 5:
-        settings = emulators[serial]["settings"] if serial in emulators else {}
+    elif args[:3] == ["shell", "settings", "get"] and len(args) == 5 and args[3] in NAMESPACES:
+        settings = emulators[serial][NAMESPACES[args[3]]] if serial in emulators else {}
         sys.stdout.write(f"{settings.get(args[4], 'null')}\r\n")
-    elif args[:4] == ["shell", "settings", "put", "secure"] and len(args) == 6:
+    elif args[:3] == ["shell", "settings", "put"] and len(args) == 6 and args[3] in NAMESPACES:
         error = behavior()["settings_put_error"]
         if error:
             fail(error)
         if serial in emulators:
             info = emulators[serial]
-            info["settings"][args[4]] = args[5]
+            info[NAMESPACES[args[3]]][args[4]] = args[5]
             write_running(serial, info)
+    elif args[:1] == ["push"] and len(args) == 3:
+        try:
+            text = Path(args[1]).read_text()
+        except OSError:
+            fail(f"adb: error: cannot stat '{args[1]}': No such file or directory")
+        state = device_state(serial)
+        state["files"][args[2]] = text
+        write_device_state(serial, state)
+        print(f"{args[1]}: 1 file pushed, 0 skipped.")
+    elif args[:3] == ["shell", "rm", "-f"] and len(args) == 4:
+        state = device_state(serial)
+        state["files"].pop(args[3], None)
+        write_device_state(serial, state)
+    elif args[:2] == ["shell", "monkey"]:
+        monkey(serial, emulators, args[2:])
     elif args[:3] == ["shell", "input", "keyevent"] and len(args) == 4:
         if take("keyevent", behavior()["keyevent_failures"]):
             fail("error: closed")
+    elif args[:4] == ["shell", "input", "keyevent", "--longpress"] and len(args) == 5:
+        input_long_press(serial, emulators, int(args[4]))
+    elif args == ["shell", "getprop", "ro.build.version.sdk"]:
+        sys.stdout.write(f"{behavior()['api_level']}\r\n")
+    elif args[:4] == ["shell", "settings", "delete", "system"] and len(args) == 5:
+        if serial in emulators:
+            info = emulators[serial]
+            info["system_settings"].pop(args[4], None)
+            write_running(serial, info)
     else:
         fail(f"fake adb: unsupported command {args}")
+
+
+NAMESPACES = {"secure": "settings", "system": "system_settings"}   # -> key in running/<serial>.json
+
+
+def device_state(serial):
+    path = STATE / "device" / f"{serial}.json"
+    return json.loads(path.read_text()) if path.exists() else {"files": {}, "key_events": []}
+
+
+def write_device_state(serial, state):
+    (STATE / "device").mkdir(exist_ok=True)
+    (STATE / "device" / f"{serial}.json").write_text(json.dumps(state))
+
+
+def input_long_press(serial, emulators, code):
+    """`input keyevent --longpress <code>`: what it sends depends on the device's API level. From
+    30 on: down; after the long-press timeout a repeat flagged as a long press; the release right
+    after. Before: all three at once, which holds nothing."""
+    setting = emulators[serial]["settings"].get("long_press_timeout", "") if serial in emulators else ""
+    timeout = int(setting) if setting.isdigit() else 400
+    if behavior()["api_level"] < 30:
+        timeout = 0
+    state = device_state(serial)
+    state["key_events"] += [
+        {"action": "down", "code": code, "repeat": 0, "at_ms": 0, "down_ms": 0, "long_press": False},
+        {"action": "down", "code": code, "repeat": 1, "at_ms": timeout, "down_ms": 0, "long_press": True},
+        {"action": "up", "code": code, "repeat": 0, "at_ms": timeout, "down_ms": 0, "long_press": False}]
+    write_device_state(serial, state)
+
+
+def monkey(serial, emulators, args):
+    """`monkey [-c <category>]... -f <script> <count>`: replays the key events of a script pushed
+    to the device, recording them as Android receives them, with times in ms from the first one.
+    Like the real monkey, it waits between events as their event times say, gives each event the
+    down time of the one before when their recorded down times match (else its recorded one),
+    only starts if an activity has one of the categories (TVs have none in LAUNCHER, the default),
+    and when it exits it locks the rotation at 0 and unlocks it again."""
+    categories = [args[i + 1] for i, a in enumerate(args[:-1]) if a == "-c"]
+    script = next((args[i + 1] for i, a in enumerate(args[:-1]) if a == "-f"), None)
+    output = behavior()["monkey_output"]
+    if output:
+        print(output)
+        return
+    if "android.intent.category.HOME" not in categories:
+        for category in categories or ["android.intent.category.LAUNCHER"]:
+            print(f"// Warning: no activities found for category {category}")
+        print("** No activities found to run, monkey aborted.")
+        return
+    state = device_state(serial)
+    if script not in state["files"]:
+        fail(f"** Error: script file {script} not found")   # made up: not what the scripts check
+    lines = [line.strip() for line in state["files"][script].splitlines()]
+    body = lines[lines.index("start data >>") + 1:] if "start data >>" in lines else []
+    first = recorded_down = down = None
+    injected = 0
+    for line in body:
+        event = re.fullmatch(r"DispatchKey\((-?\d+(?:,-?\d+){7})\)", line)
+        if not event:
+            continue
+        recorded, at, action, code, repeat = map(int, event.group(1).split(",")[:5])
+        if first is None:
+            first, down = at, 0
+        elif recorded != recorded_down:
+            down = recorded - first
+        recorded_down = recorded
+        injected += 1
+        state["key_events"].append({"action": "down" if action == 0 else "up", "code": code,
+                                    "repeat": repeat, "at_ms": at - first, "down_ms": down,
+                                    # set by Android's input dispatcher on a first repeat
+                                    "long_press": action == 0 and repeat == 1})
+    write_device_state(serial, state)
+    if serial in emulators:
+        info = emulators[serial]
+        info["system_settings"].update(accelerometer_rotation="1", user_rotation="0")
+        write_running(serial, info)
+    print(f"Events injected: {injected}")
 
 
 def adb_emu(serial, info, args):
@@ -321,6 +430,7 @@ def boot(name):
     lock.write_bytes(str(os.getpid()).encode().ljust(8, b"\0"))
     write_running(serial, {"avd": name, "pid": os.getpid(), "polls": 0,
                            "settings": dict(behavior()["device_settings"]),
+                           "system_settings": dict(behavior()["device_system_settings"]),
                            "offline": behavior()["adb_offline"],
                            "hidden": behavior()["emulator_hidden"], "stuck": stuck})
     print(f"INFO         | Booted {name} as {serial} (fake)", flush=True)

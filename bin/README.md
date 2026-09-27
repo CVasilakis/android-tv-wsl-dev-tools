@@ -10,7 +10,7 @@ their path, e.g. `../android-tv-wsl-dev-tools/bin/start-emulator.sh`.
 | [`create-avd.sh`](create-avd.sh) | Creates an Android TV emulator with the right hardware settings (`tv_api25`, or `--api <level>`, or Google TV with `--google-tv`; another screen with `--size`/`--density`). |
 | [`start-emulator.sh`](start-emulator.sh) | Boots it (cold boot, or Quick Boot with `--quick`), waits until Android is ready, applies the WSLg toolbar fix. |
 | [`stop-emulator.sh`](stop-emulator.sh) | Stops it and returns once it has exited, with a time limit (one emulator, or `--all`). |
-| [`remote.sh`](remote.sh) | TV remote in the terminal (D-pad, OK, Back, Home, Menu, …). |
+| [`remote.sh`](remote.sh) | TV remote in the terminal (D-pad, OK, Back, Home, Menu, …); holds a key as a long press on any API level (`--long-press`). |
 | [`wslg-toolbar.py`](wslg-toolbar.py) | Works around the emulator toolbar's input problems under WSLg. |
 
 Each one prints its usage with `--help`, and has a header comment with its usage, common errors
@@ -310,6 +310,7 @@ Clicking on the Android screen does nothing, because there's no touchscreen. Use
 | Home | Ctrl+H | h | `adb shell input keyevent HOME` |
 | Menu | Ctrl+M | m | `adb shell input keyevent MENU` |
 | Play/Pause, Volume | — | p, + / - | `adb shell input keyevent MEDIA_PLAY_PAUSE` |
+| Long press (held) | Hold the key | l, then the key | `remote.sh --long-press DPAD_CENTER` ([below](#long-presses)) |
 
 Notes on the emulator window:
 - Click the emulator screen once so it has keyboard focus.
@@ -326,6 +327,35 @@ ignoring physical devices; with several emulators, or for a physical TV, pass th
 The emulator console (`adb emu event send`) would be much faster, but it only works on
 emulators, and on the API 30 Android TV image its key events never arrive (the image has no
 `goldfish_events` keyboard for the console to reach), so `remote.sh` doesn't use it.
+
+### Long presses
+
+`remote.sh --long-press <key> [serial]` holds one key and exits, on every API level. It sends
+what a remote's button sends while it's held: the key goes down; after the device's long-press
+timeout (`adb shell settings get secure long_press_timeout`) a repeat, which Android flags as a
+long press (`FLAG_LONG_PRESS`); then the release. So both views, which time how long the key
+stays down, and `onKeyLongPress()` see a long press. `<key>`
+is a key code number or the name of a remote's key (`DPAD_CENTER`, `BACK`, `HOME`, …; `--help`
+lists them). In the interactive remote, `l` then a key does the same.
+
+```bash
+remote.sh --long-press DPAD_CENTER             # long press of OK
+remote.sh --long-press BACK emulator-5556      # of Back, on another emulator
+```
+
+From API 30 on, `remote.sh` uses `adb shell input keyevent --longpress <key>`, which does just
+that. Before API 30, `--longpress` sends the release at once, so the app sees a short press (OK
+opens what it's on). There `remote.sh` has `monkey` (`adb shell monkey`) replay the three events
+instead, from a script it pushes to `/data/local/tmp` and deletes afterwards, with the release
+one long-press timeout (500 ms when unset) after the repeat. What that means before API 30:
+
+- A long press takes a moment longer than the hold itself: monkey starts a process on the device.
+- Monkey unlocks the screen rotation when it exits; `remote.sh` puts the rotation settings
+  (`accelerometer_rotation`, `user_rotation`) back as they were.
+- While the key is held, `ActivityManager.isUserAMonkey()` returns true to apps.
+
+Monkey isn't an option from API 30 on: on API 36 it adds a virtual touchscreen while it runs,
+and that configuration change recreates the app in front, which then drops the keys.
 
 ## The side toolbar under WSLg (`wslg-toolbar.py`)
 
@@ -359,7 +389,8 @@ adb shell cmd package resolve-activity --brief -a android.intent.action.MAIN -c 
 
 Don't use `adb shell getevent > file` to check input: without a terminal its output is buffered and
 the file stays empty. Simulated host input (xdotool/XTest) doesn't reach the emulator under WSLg, so
-automated tests should send keys with `adb shell input keyevent`, like `remote.sh` does.
+automated tests should send keys with `adb shell input keyevent`, like `remote.sh` does, and
+hold them with [`remote.sh --long-press`](#long-presses).
 
 ## Differences between API levels
 
@@ -371,12 +402,14 @@ TV or Google TV; these are the differences in the images that you may run into:
 | 22 | `--quick` is slower than a cold boot. The device has no `uname`. The stock launcher's HOME filter has no priority, so with another home app installed, Home opens the chooser. |
 | 22–23 | No `cmd` on the device (`cmd package resolve-activity`, …); it exists from API 24 on. |
 | 22–25 | The stock launcher is `com.google.android.leanbacklauncher`. |
+| 22–29 | `adb shell input keyevent --longpress` doesn't hold the key, so it's a short press; `remote.sh --long-press` holds it on every level ([Long presses](#long-presses)). |
 | 23, 29 | The first boot of a new AVD opens a "USB drive connected" screen (the AVD's SD card) in front of the launcher; later boots don't. |
 | 23 on | The stock launcher's HOME filter has priority 2, so `set-home-activity` and the home chooser can't pick another home app: it only takes over while the stock one is disabled (`adb shell pm disable-user --user 0 <package>`). |
 | 26 on | The stock launcher is `com.google.android.tvlauncher`. On 26–29 `leanbacklauncher` is installed too, without a HOME filter. |
 | 26, 27 | The slowest cold boots up to API 28. Home doesn't leave apps until `tv_user_setup_complete` is set, which `start-emulator.sh` does ([Home on API 26 and 27](#home-on-api-26-and-27)). |
 | 29 on | `dumpsys input` lists key events without key codes. avdmanager prints the harmless devices.xml error. |
 | 30 | `remote.sh` keys lag the most; the emulator console's key events never arrive. |
+| 36 | `adb shell monkey` adds a virtual touchscreen while it runs; that configuration change recreates the app in front, which drops the keys monkey sends. |
 | Google TV, all | The stock launcher is `com.google.android.apps.tv.launcherx`, with priority 2 like the others. Without a Google account it shows a sign-in screen instead of a home screen: "Add account" on 30–33, "Set up Google TV" on 34 and 36. |
 | Google TV, 30–34 | `tvlauncher` is installed too, without a HOME filter. |
 
@@ -404,5 +437,7 @@ TV or Google TV; these are the differences in the images that you may run into:
 | `create-avd.sh: the Android TV image of API 21 has no ranchu kernel` | the emulator can't boot that image; use API 22 or newer (see [`create-avd.sh`](#create-avdsh)) |
 | `This AVD's configuration is missing a kernel file! … "kernel-ranchu"` from the emulator | an AVD made from an image without a ranchu kernel (API 21), e.g. by avdmanager directly: it can't boot |
 | `remote.sh` keys lag behind | expected: each key is an `adb shell input keyevent` call (see [Controlling the TV](#controlling-the-tv)) |
+| A long press with `adb shell input keyevent --longpress` acts as a short press | before API 30 it doesn't hold the key: use `remote.sh --long-press` ([Long presses](#long-presses)) |
+| `remote.sh: the long press failed on …` | monkey's last lines of output follow it; usually the device is gone, offline or still booting: `adb devices` |
 | Black emulator window | if started with `--quick`, start it without |
 | `No access to /dev/kvm`, `libpulse.so.0`, `SDK location not found`, … | setup problems: [`../SETUP.md`](../SETUP.md#troubleshooting) |
