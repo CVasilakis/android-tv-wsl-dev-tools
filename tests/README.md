@@ -119,7 +119,9 @@ emulator's process has exited.
   script gets a new file; `test_conventions.py` already makes it provide `--help`, a shebang, and
   a line in [`../bin/README.md`](../bin/README.md).
 - **Stay hermetic.** A hermetic test never reads the real `$HOME`, SDK or devices, and never
-  sleeps on a fixed timer when it can wait for a condition. If a script needs a new external
+  sleeps on a fixed timer when it can wait for a condition: a script starts slower on a busy
+  machine. To type into `remote.sh` once it has handled a key, for example, wait until
+  `sandbox.calls()` shows that key's `adb` call. If a script needs a new external
   command, add a fake to `fake_tools.py` (or the command to `UTILITIES` in `sandbox.py` if it's
   a basic system utility).
 - **Check that a new test can fail.** Break the behavior on purpose, see the test fail, then restore it.

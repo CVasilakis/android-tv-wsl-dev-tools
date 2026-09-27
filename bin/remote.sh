@@ -201,22 +201,33 @@ Remote: arrows = D-pad, Enter = OK, Esc/Backspace = Back, h = Home, m = Menu,
         p = Play/Pause, +/- = Volume, l then a key = long press of that key, q = quit
 EOF
 
-# read -n1 reads one key without waiting for Enter; -s hides it; IFS= keeps spaces and Enter.
-# Enter is read as the empty string, because newline is read's delimiter.
-while IFS= read -rsn1 key; do
-    case "$key" in
+# handle_key <key>: sends what one key read stands for; returns 1 for q (quit). Enter is the
+# empty string, because newline is read's delimiter.
+handle_key() {
+    local next rest
+    case "$1" in
         $'\e')
-            # Arrow keys arrive as ESC [ A..D. A lone Esc has nothing after it, so the short
-            # timeout tells the two apart. Don't remove the timeout, or Esc waits for more keys.
-            read -rsn2 -t 0.05 rest || true
-            case "$rest" in
-                "[A") send DPAD_UP ;;
-                "[B") send DPAD_DOWN ;;
-                "[C") send DPAD_RIGHT ;;
-                "[D") send DPAD_LEFT ;;
-                "")   send BACK ;;
-                *)    HOLD_NEXT="" ;;
-            esac ;;
+            # Arrow keys arrive as ESC [ A..D (ESC O A..D in a terminal's application mode). A
+            # lone Esc has nothing after it, so the short timeout tells the two apart. Don't
+            # remove the timeout, or Esc waits for more keys. Any other key right after an Esc
+            # was typed ahead (while the key before was being sent) or piped: Esc is Back, and
+            # that key is a key of its own. (So Alt+h, which terminals send as Esc h, is Back
+            # then Home.)
+            if ! IFS= read -rsn1 -t 0.05 next; then
+                send BACK
+            elif [ "$next" = "[" ] || [ "$next" = O ]; then
+                IFS= read -rsn1 -t 0.05 rest || true
+                case "$rest" in
+                    A) send DPAD_UP ;;
+                    B) send DPAD_DOWN ;;
+                    C) send DPAD_RIGHT ;;
+                    D) send DPAD_LEFT ;;
+                    *) HOLD_NEXT="" ;;           # another key's sequence, e.g. Delete
+                esac
+            else
+                send BACK
+                handle_key "$next" || return 1
+            fi ;;
         "")        send DPAD_CENTER ;;          # what a real remote's OK button sends
                                                 # (ENTER is a keyboard key)
         $'\x7f')   send BACK ;;                 # Backspace
@@ -226,7 +237,13 @@ while IFS= read -rsn1 key; do
         +|=)       send VOLUME_UP ;;            # '=' is '+' without Shift
         -)         send VOLUME_DOWN ;;
         l)         HOLD_NEXT=1 ;;
-        q)         break ;;
+        q)         return 1 ;;
         *)         HOLD_NEXT="" ;;              # any other key cancels a pending l
     esac
+    return 0   # a failed adb call doesn't end the remote
+}
+
+# read -n1 reads one key without waiting for Enter; -s hides it; IFS= keeps spaces and Enter.
+while IFS= read -rsn1 key; do
+    handle_key "$key" || break
 done
