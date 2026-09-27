@@ -28,7 +28,7 @@ SUPPORT = Path(__file__).resolve().parent
 # which catches accidental dependencies on the host.
 UTILITIES = ["bash", "sed", "grep", "awk", "tr", "head", "tail", "dirname", "basename", "readlink",
              "ls", "sort", "cat", "wc", "sleep", "nohup", "env", "rm", "mkdir", "printf", "kill",
-             "stat", "timeout"]
+             "stat", "timeout", "mktemp"]
 HOST_FAKES = ["python3", "getent", "id", "sg"]         # host commands replaced by fakes
 SDK_TOOLS = {"adb": "platform-tools/adb",
              "emulator": "emulator/emulator",
@@ -200,6 +200,16 @@ class Sandbox:
     def device_settings(self, serial):
         """The secure settings of a running fake emulator, as `adb shell settings` changed them."""
         return json.loads((self.state / "running" / f"{serial}.json").read_text())["settings"]
+
+    def system_settings(self, serial):
+        """The system settings of a running fake emulator (e.g. accelerometer_rotation)."""
+        return json.loads((self.state / "running" / f"{serial}.json").read_text())["system_settings"]
+
+    def device_state(self, serial):
+        """What's on a device: {"files": {path: text}, "key_events": [{"action", "code",
+        "repeat", "at_ms", "down_ms", "long_press"}, ...]} (see fake_tools.monkey)."""
+        path = self.state / "device" / f"{serial}.json"
+        return json.loads(path.read_text()) if path.exists() else {"files": {}, "key_events": []}
 
     def running(self):
         """{serial: avd name} of the fake emulators that are running."""
