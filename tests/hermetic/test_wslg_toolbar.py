@@ -71,7 +71,7 @@ class OnAnXServer(unittest.TestCase):
         _, toolbar = self.windows.emulator("tv_api25")
         result = self.run_script("tv_api25", "show")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertTrue(self.windows.is_mapped(toolbar))
+        self.assertTrue(self.windows.wait_until_mapped(toolbar))
         self.assertIsNone(self.windows.transient_for(toolbar), "no longer a transient utility")
         self.assertEqual(self.windows.window_types(toolbar), ["_NET_WM_WINDOW_TYPE_NORMAL"])
 
@@ -79,7 +79,9 @@ class OnAnXServer(unittest.TestCase):
         _, toolbar = self.windows.emulator("tv_api25")
         for mode, mapped in (("show", True), ("hide", False), ("show", True)):
             self.assertEqual(self.run_script("tv_api25", mode).returncode, 0)
-            self.assertEqual(self.windows.is_mapped(toolbar), mapped, mode)
+            # Unmapping is immediate; mapping waits for the window manager, if there's one.
+            now = self.windows.wait_until_mapped(toolbar) if mapped else self.windows.is_mapped(toolbar)
+            self.assertEqual(now, mapped, mode)
 
     def test_without_a_name_acts_on_the_only_emulator(self):
         _, toolbar = self.windows.emulator("living_room")
