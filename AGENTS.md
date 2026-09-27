@@ -82,6 +82,7 @@ Each of these fixes a real problem. The reasons are in the linked file; read the
 | `-no-window` added when `$DISPLAY` is empty | `bin/start-emulator.sh` | Without a display the emulator aborts, and its log doesn't say why (CI runners, SSH). |
 | The PID from `hardware-qemu.ini.lock`, checked against the process's command line, instead of `pgrep` | `bin/stop-emulator.sh` | `pgrep -f` also matches the shell running it, and a stale lock file's PID may belong to another process. |
 | `id -nG "$(id -un)"` for kvm membership, not `$USER` or the `getent` line | `bin/start-emulator.sh` | Counts kvm as a primary group, doesn't mistake `ci` for `ci-bot`, and works where `$USER` is unset (containers). |
+| Xvfb's `-noreset` | `tests/support/x11.py` | Without it the server resets between two tests, and the next test's connection fails under load ([`tests/README.md`](tests/README.md#tiers)). |
 | `ADT_KVM_DEVICE`, `ADT_PROC_VERSION`, `WSLG_TOOLBAR_TIMEOUT`, `ADT_OFFLINE_TIMEOUT`, `ADT_PROGRESS_INTERVAL`, `ADT_ADB_TIMEOUT` | `lib/lib.sh`, `bin/wslg-toolbar.py`, `bin/start-emulator.sh` | Let the tests simulate other machines and not wait 30 or 60 s ([`tests/README.md`](tests/README.md)). |
 
 ## Emulator facts that save time

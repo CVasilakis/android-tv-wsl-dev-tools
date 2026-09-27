@@ -30,7 +30,10 @@ Some hermetic tests skip, with the reason printed, when an optional tool is miss
 - **Xvfb** (`sudo apt-get install -y xvfb`) for the `wslg-toolbar.py`
   tests, which create emulator-like windows on a private X server. It runs on the first free
   display from `:99` up, reachable only through an abstract socket. Under WSLg `/tmp/.X11-unix`
-  is read-only, and a low display number would capture the desktop's own apps.
+  is read-only, and a low display number would capture the desktop's own apps. It runs with
+  `-noreset`: each test's windows live on their own connection, so between two tests the server
+  has no clients; by default it resets then, and the next test's connection can fail while it
+  does, more often the busier the machine.
   `SCRIPT_TESTS_DISPLAY=:0` runs the tests on an existing display instead; under WSLg you'll see
   small windows flash.
 - **shellcheck** (`sudo apt-get install -y shellcheck`) for static analysis of the shell scripts.

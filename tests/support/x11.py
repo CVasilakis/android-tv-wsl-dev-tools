@@ -3,12 +3,15 @@
 XServer starts Xvfb (a virtual X server with no screen) on a free display from :99 up. $SCRIPT_TESTS_DISPLAY
 uses an existing display instead, e.g. ":0" to watch the windows appear under WSLg.
 EmulatorWindows recreates the window structure the Android Emulator shows (see the docstring of
-wslg-toolbar.py) through Xlib, and reads back what the script did to it.
+wslg-toolbar.py) through Xlib, and reads back what the script did to it. On a display with a window
+manager (WSLg's), mapping a window only asks the window manager to map it, which it does a little
+later, so EmulatorWindows waits for it (Xvfb has no window manager and maps windows at once).
 """
 import ctypes
 import os
 import shutil
 import subprocess
+import time
 
 # Xlib constants (X11/X.h, X11/Xutil.h, X11/Xatom.h).
 IS_UNMAPPED = 0
@@ -64,10 +67,13 @@ class XServer:
         for number in range(99, 150):
             read, write = os.pipe()
             # -displayfd: Xvfb writes the display number to the pipe once it accepts connections,
-            # or closes it without writing if the number is taken.
+            # or closes it without writing if the number is taken. -noreset: by default the server
+            # resets when its last client disconnects, which is between two tests (one test's
+            # EmulatorWindows closes, the next one's opens), and a connection made while it
+            # resets fails with "cannot open display", more often the busier the machine.
             process = subprocess.Popen(
                 ["Xvfb", f":{number}", "-displayfd", str(write), "-nolisten", "tcp",
-                 "-nolisten", "unix"], pass_fds=[write], stderr=subprocess.DEVNULL)
+                 "-nolisten", "unix", "-noreset"], pass_fds=[write], stderr=subprocess.DEVNULL)
             os.close(write)
             with os.fdopen(read) as pipe:
                 ready = pipe.readline().strip()
@@ -116,6 +122,8 @@ class EmulatorWindows:
         self._set_group(extended, leader)
         self.x.XMapWindow(self.d, ctypes.c_ulong(toolbar))
         self.x.XSync(self.d, 0)
+        if not (self.wait_until_mapped(main) and self.wait_until_mapped(toolbar)):
+            raise RuntimeError(f"the window manager didn't map the windows of {avd}")
         return main, toolbar
 
     def _window(self, title, width, height, mapped=True):
@@ -136,6 +144,14 @@ class EmulatorWindows:
         attrs = XWindowAttributes()
         self.x.XGetWindowAttributes(self.d, ctypes.c_ulong(win), ctypes.byref(attrs))
         return attrs.map_state != IS_UNMAPPED
+
+    def wait_until_mapped(self, win, timeout=10):
+        """Whether win is mapped, once it is or after timeout seconds: a window manager maps a
+        window some time after its client asked for it."""
+        deadline = time.monotonic() + timeout
+        while not self.is_mapped(win) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        return self.is_mapped(win)
 
     def transient_for(self, win):
         parent = ctypes.c_ulong()
