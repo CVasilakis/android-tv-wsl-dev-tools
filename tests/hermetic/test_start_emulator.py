@@ -1,9 +1,9 @@
 """start-emulator.sh: choosing the AVD, booting it, finding its serial and reporting problems."""
 import os
-import threading
+import subprocess
 import time
 
-from support.sandbox import ScriptTestCase
+from support.sandbox import Result, ScriptTestCase
 
 
 class EmulatorTestCase(ScriptTestCase):
@@ -13,6 +13,23 @@ class EmulatorTestCase(ScriptTestCase):
 
     def start(self, *args, env=None):
         return self.sandbox.run("start-emulator.sh", *args, env=env)
+
+    def start_in_background(self, *args, env=None):
+        """Starts the script as start() does, but returns its process at once, for a test that
+        acts while it runs. Its output goes to files, which output() reads; it's killed at the
+        end of the test."""
+        self.stdout, self.stderr = self.sandbox.root / "stdout", self.sandbox.root / "stderr"
+        with open(self.stdout, "w") as out, open(self.stderr, "w") as err:
+            script = subprocess.Popen([str(self.sandbox.tools / "bin" / "start-emulator.sh"), *args],
+                                      stdin=subprocess.DEVNULL, stdout=out, stderr=err,
+                                      env=self.sandbox.env(**(env or {})), cwd=self.sandbox.project)
+        self.addCleanup(script.wait)
+        self.addCleanup(script.kill)
+        return script
+
+    def output(self, script):
+        """What a script from start_in_background() has printed so far."""
+        return Result(script.returncode, self.stdout.read_text(), self.stderr.read_text())
 
     def launched(self):
         """Argument lists the emulator was started with (not -list-avds queries)."""
@@ -139,11 +156,9 @@ class Boots(EmulatorTestCase):
 
     def test_crash_during_boot_is_reported_with_the_log(self):
         self.sandbox.set_behavior(emulator_crash="unknown option: -bogus")
-        started = time.time()
         result = self.start("-bogus")
-        self.assertFailed(result, "the emulator exited")
+        self.assertFailed(result, "the emulator exited")   # not waiting for the boot timeout
         self.assertIn("unknown option: -bogus", result.output, "the log's last lines are shown")
-        self.assertLess(time.time() - started, 10, "must not keep waiting for a dead emulator")
 
 
 class ColdOrQuickBoot(EmulatorTestCase):
@@ -183,13 +198,14 @@ class ColdOrQuickBoot(EmulatorTestCase):
 
     def test_quick_gives_up_when_reconnecting_does_not_help(self):
         self.sandbox.set_behavior(adb_offline="forever")
-        started = time.time()
+        # No time check: with the default 30 s, giving up would take longer than sandbox.run
+        # lets the script run; with ADT_OFFLINE_TIMEOUT=1 it takes a few 2 s boot polls, and
+        # more on a busy machine.
         result = self.start("--quick", env=self.FAST)
         self.assertFailed(result, "adb can't reach it")
         self.assertIn("stop-emulator.sh emulator-5554 && ", result.output)
         self.assertIn("without --quick", result.output)
         self.assertEqual(len(self.reconnects()), 1, "reconnects once, then gives up")
-        self.assertLess(time.time() - started, 20)
 
     def test_a_slow_cold_boot_is_waited_for_without_reconnecting(self):
         # adbd isn't up yet early in a cold boot, so "offline" for a while is normal there.
@@ -221,26 +237,27 @@ class BootTimeout(EmulatorTestCase):
         self.assertIn("ADT_BOOT_TIMEOUT", result.output)
         self.assertIn("start-emulator.sh tv_api25 -wipe-data", result.output)
         self.assertEqual(self.sandbox.running(), {}, "the half-booted emulator is stopped")
-        self.assertLess(time.time() - started, 15)
+        # What the output can't show: a hung adb call ended after ADT_ADB_TIMEOUT, not 15 s.
+        self.assertLess(time.monotonic() - started, 15)
 
     def test_stops_an_emulator_that_never_finishes_booting(self):
         self.sandbox.set_behavior(boot_polls=10**9)
-        started = time.time()
+        started = time.monotonic()
         self.assertGaveUp(self.start(env=self.FAST), started)
 
     def test_stops_an_emulator_that_adb_never_sees(self):
         self.sandbox.set_behavior(emulator_hidden=True)
-        started = time.time()
+        started = time.monotonic()
         self.assertGaveUp(self.start(env=self.FAST), started)
 
     def test_stops_an_emulator_whose_boot_check_never_answers(self):
         self.sandbox.set_behavior(adb_hangs={"getprop": 10**9})
-        started = time.time()
+        started = time.monotonic()
         self.assertGaveUp(self.start(env={**self.FAST, "ADT_ADB_TIMEOUT": "1"}), started)
 
     def test_stops_an_emulator_whose_console_never_answers(self):
         self.sandbox.set_behavior(adb_hangs={"avd_name": 10**9})
-        started = time.time()
+        started = time.monotonic()
         self.assertGaveUp(self.start(env={**self.FAST, "ADT_ADB_TIMEOUT": "1"}), started)
 
     def test_asks_again_after_a_boot_check_that_hung(self):
@@ -290,9 +307,9 @@ class BootProgress(EmulatorTestCase):
 
     def test_says_it_is_still_booting_before_adb_sees_it(self):
         self.sandbox.set_behavior(emulator_hidden=True)
-        result = self.start(env={**self.FAST, "ADT_BOOT_TIMEOUT": "3"})
-        self.assertFailed(result, "didn't finish booting within 3 s")
-        self.assertIn("'tv_api25' is still booting (", result.err)
+        script = self.start_in_background(env=self.FAST)
+        self.wait_until(lambda: "still booting" in self.output(script).err or script.poll() is not None)
+        self.assertIn("'tv_api25' is still booting (", self.output(script).err)
 
     def test_names_no_limit_when_there_is_none(self):
         self.sandbox.set_behavior(boot_polls=2)
@@ -413,24 +430,27 @@ class AlreadyRunning(EmulatorTestCase):
         # It wasn't started here, so it's not this script's to stop.
         self.sandbox.set_behavior(boot_polls=10**9)
         serial = self.sandbox.start_emulator("tv_api25")
-        started = time.time()
         result = self.start(env={"ADT_BOOT_TIMEOUT": "2"})
         self.assertFailed(result, "didn't finish booting within 2 s")
         self.assertIn("wasn't started by this script", result.output)
         self.assertEqual(result.out, "")
         self.assertEqual(self.sandbox.running(), {serial: "tv_api25"})
-        self.assertLess(time.time() - started, 15)
 
     def test_stops_waiting_when_it_is_stopped_meanwhile(self):
         self.sandbox.set_behavior(boot_polls=10**9)
         self.sandbox.start_emulator("tv_api25")
-        timer = threading.Timer(1, self.sandbox.stop_emulators)
-        timer.start()
-        self.addCleanup(timer.cancel)
-        started = time.time()
-        result = self.start()
-        self.assertFailed(result, "stopped before it finished booting")
-        self.assertLess(time.time() - started, 15, "must not wait for the boot timeout")
+        script = self.start_in_background()
+        # Stopped once the script waits for its boot: any earlier, the script wouldn't find it
+        # and would start the AVD itself.
+        self.wait_until(lambda: self.boot_polls() or self.launched() or script.poll() is not None)
+        self.assertEqual(self.launched(), [], "started the AVD instead of waiting for it")
+        self.assertTrue(self.boot_polls(), f"never waited for the boot:\n{self.output(script).output}")
+        self.sandbox.stop_emulators()
+        try:
+            script.wait(timeout=20)   # the boot timeout is 900 s
+        except subprocess.TimeoutExpired:
+            self.fail("kept waiting for the stopped emulator")
+        self.assertFailed(self.output(script), "stopped before it finished booting")
 
 
 class PrintsTheSerial(EmulatorTestCase):

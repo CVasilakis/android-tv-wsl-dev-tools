@@ -118,12 +118,23 @@ emulator's process has exited.
 - **Every bug fix and every new option gets a test** in the script's `test_<script>.py`. A new
   script gets a new file; `test_conventions.py` already makes it provide `--help`, a shebang, and
   a line in [`../bin/README.md`](../bin/README.md).
-- **Stay hermetic.** A hermetic test never reads the real `$HOME`, SDK or devices, and never
-  sleeps on a fixed timer when it can wait for a condition: a script starts slower on a busy
-  machine. To type into `remote.sh` once it has handled a key, for example, wait until
-  `sandbox.calls()` shows that key's `adb` call. If a script needs a new external
-  command, add a fake to `fake_tools.py` (or the command to `UTILITIES` in `sandbox.py` if it's
-  a basic system utility).
+- **Stay hermetic.** A hermetic test never reads the real `$HOME`, SDK or devices. If a script
+  needs a new external command, add a fake to `fake_tools.py` (or the command to `UTILITIES` in
+  `sandbox.py` if it's a basic system utility).
+- **Wait for a condition, not for a time.** On a busy machine a script gets everywhere several
+  times later, so a test never sleeps on a fixed timer when it can wait for a condition with
+  `self.wait_until(condition)`. To type into `remote.sh` once it has handled a key, for example,
+  wait until `sandbox.calls()` shows that key's `adb` call; to stop an emulator while
+  `start-emulator.sh` waits for its boot, start the script with `start_in_background()`
+  ([`test_start_emulator.py`](hermetic/test_start_emulator.py)) and wait until the calls show
+  its boot polls. A time limit a test sets (`ADT_BOOT_TIMEOUT=2`) must only end what never
+  finishes by design, not race what the script does on the way, and a check on how long a
+  script took belongs only where its output can't show which way it went. To try a test on a
+  busy machine, share one CPU with busy loops:
+  ```bash
+  for i in $(seq 29); do timeout 600 taskset -c 0 bash -c 'while :; do :; done' & done
+  taskset -c 0 tests/run.py -k <test>; kill $(jobs -p)
+  ```
 - **Check that a new test can fail.** Break the behavior on purpose, see the test fail, then restore it.
 - Anything that needs the real emulator goes in `emulator/`, and must leave the developer's
   emulator as it found it.

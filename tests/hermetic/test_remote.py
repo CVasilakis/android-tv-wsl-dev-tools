@@ -1,6 +1,5 @@
 """remote.sh: which emulator it talks to, which key each keyboard key sends, and long presses."""
 import subprocess
-import time
 
 from support.sandbox import ScriptTestCase
 
@@ -92,9 +91,7 @@ class SendsTheRightKeys(RemoteTestCase):
         self.addCleanup(process.kill)
         process.stdin.write("\x1b")
         process.stdin.flush()
-        deadline = time.monotonic() + 10
-        while not self.presses() and time.monotonic() < deadline:
-            time.sleep(0.05)
+        self.wait_until(self.presses)
         self.assertEqual([key for _, key in self.presses()], ["BACK"],
                          "sent before h is typed")
         process.stdin.write("h")

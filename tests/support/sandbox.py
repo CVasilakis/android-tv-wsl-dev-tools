@@ -110,7 +110,8 @@ class Sandbox:
                                    env=self.env(FAKE_NO_LOG="1"), stdout=subprocess.DEVNULL,
                                    stderr=subprocess.DEVNULL)
         self._processes.append(process)
-        for _ in range(100):
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
             new = set(self.running()) - before
             if new:
                 return new.pop()
@@ -267,6 +268,14 @@ class ScriptTestCase(unittest.TestCase):
     def setUp(self):
         self.sandbox = Sandbox(Path(tempfile.mkdtemp(prefix="adt-test-")))
         self.addCleanup(self.sandbox.cleanup)
+
+    def wait_until(self, condition, timeout=10):
+        """Waits until condition() is true, or for `timeout` seconds; returns its last value. For
+        acting once a script has got somewhere, which on a busy machine takes longer."""
+        deadline = time.monotonic() + timeout
+        while not (value := condition()) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        return value
 
     def assertSucceeded(self, result):
         self.assertEqual(result.code, 0, f"expected success, got {result.code}:\n{result.output}")
