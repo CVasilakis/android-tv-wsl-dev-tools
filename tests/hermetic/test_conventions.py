@@ -49,6 +49,18 @@ class Conventions(unittest.TestCase):
                 self.assertIn(f"[`{script.name}`]({script.name})", readme)
         self.assertIn("[`lib/lib.sh`](lib/lib.sh)", (TOOLS / "README.md").read_text())
 
+    def test_time_limits_are_checked_by_time_is_up(self):
+        # $SECONDS counts whole seconds, so comparing it with a limit directly can end the limit
+        # up to a second early; time_is_up (lib.sh) doesn't. Scripts only take start times from
+        # it, and may show one in a message.
+        for script in BIN.glob("*.sh"):
+            for number, line in enumerate(script.read_text().splitlines(), 1):
+                code = line.strip()
+                if "SECONDS" in code and not code.startswith(("#", "echo ")):
+                    with self.subTest(f"{script.name}:{number}"):
+                        self.assertRegex(code, r"=\$SECONDS$",
+                                         "check time limits with time_is_up")
+
     def test_shell_syntax(self):
         for script in SHELL:
             with self.subTest(script.name):
