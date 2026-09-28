@@ -29,6 +29,9 @@ QUIET_MS = 1000
 KEY_TIMEOUT = 60     # from typing a key until a look sees it: remote.sh's adb call, the hold, a look
 QUIET_TIMEOUT = 30   # for the input dispatcher to settle: a held key, QUIET_MS, then a look
 FOCUS_TIMEOUT = 30   # for an app's window to come to the front (am start, the Home key)
+SETTLE_TIMEOUT = 120   # for Settings to stay in front, opened again while other apps come over it
+STABLE_LOOKS = 3       # looks in a row, STABLE_INTERVAL s apart, that show an app stays in front
+STABLE_INTERVAL = 2
 LONG_PRESS_TIMEOUT = 180   # for remote.sh --long-press: up to 9 adb calls, monkey's among them
 
 # Python's limits for the scripts, from the scripts' own: when Python stops a script on the way,
@@ -50,6 +53,22 @@ KILL_WAIT = 30   # stop-emulator.sh's, for a killed emulator to exit, and again 
 # Keyboard input to remote.sh -> Android KeyEvent keyCode that must arrive on the device.
 KEYS = [("\x1b[A", 19), ("\x1b[B", 20), ("\x1b[D", 21), ("\x1b[C", 22), ("\n", 23),
         ("\x7f", 4), ("m", 82), ("p", 85), ("+", 24), ("-", 25), ("h", 3)]
+
+
+def named_component(output):
+    """The activity an `am start -W` or `cmd package resolve-activity --brief` output names, with
+    its class name in full (com.android.tv.settings/com.android.tv.settings.MainSettings, as
+    `dumpsys window` names windows), or None."""
+    found = re.findall(r"^(?:Activity: )?([\w.]+)/([\w.$]+)\s*$", output, re.MULTILINE)
+    if not found:
+        return None
+    package, name = found[-1]
+    return f"{package}/{package}{name}" if name.startswith(".") else f"{package}/{name}"
+
+
+def package(component):
+    """The package of a component (com.android.tv.settings/.MainSettings), or None."""
+    return component.split("/")[0] if component else None
 
 
 def lib(snippet):
@@ -144,9 +163,9 @@ class OnTheRealEmulator(unittest.TestCase):
         kind, is QUIET_MS old: no key from before, and no focus change of a window a test before
         opened, can then be taken for one that comes after, or push it out of the recent queue
         (see RecentInput). A key held for a starting window would enter the queue only later."""
-        deadline = time.time() + QUIET_TIMEOUT
+        deadline = time.monotonic() + QUIET_TIMEOUT
         while not input_is_quiet(dump := self.adb_shell("dumpsys", "input"), QUIET_MS):
-            if time.time() > deadline:
+            if time.monotonic() > deadline:
                 if recent_queue(dump) is None:
                     self.fail(f"`dumpsys input` showed no recent queue for {QUIET_TIMEOUT} s (on a "
                               f"starved device dumpsys gives up after 10 s):\n{dump[-500:]}")
@@ -167,30 +186,76 @@ class OnTheRealEmulator(unittest.TestCase):
         self.assertEqual(result.stdout, f"{self.serial}\n")
         self.assertIn(f"already running as {self.serial}", result.stderr)
 
-    def focused_package(self):
-        """Package of the window in front, from `dumpsys window` (e.g. com.android.tv.settings)."""
-        focus = re.search(r"mCurrentFocus=Window\{\S+ \S+ ([\w.]+)/", self.adb_shell("dumpsys", "window"))
-        return focus.group(1) if focus else None
+    def front(self):
+        """What's in front, from `dumpsys window`: the activity of the window that has focus, and
+        the focused activity, the one Android brought to the front, whose window gets focus only
+        once it's drawn (on a starved device, the home app's still had none after 30 s). Each like
+        com.android.tv.settings/com.android.tv.settings.MainSettings, or None (no window has
+        focus, or it isn't an activity's, like an ANR dialog). Then the dump's lines on focus, to
+        show in a failure."""
+        dump = self.adb_shell("dumpsys", "window")
+        window = re.search(r"mCurrentFocus=Window\{\S+ \S+ ([\w.]+/[\w.$]+)\}", dump)
+        app = re.search(r"mFocusedApp=.*?ActivityRecord\{\S+ \S+ ([\w.]+/[\w.$]+)", dump)
+        shown = "\n".join(m.group(0) for name in ("mCurrentFocus", "mFocusedApp")
+                          if (m := re.search(rf"{name}=.*", dump)))
+        return (window and named_component(window.group(1)), app and named_component(app.group(1)),
+                shown or dump[-500:])
+
+    def resolved(self, *intent):
+        """The activity an intent opens, from `cmd package resolve-activity`: the one of highest
+        priority, or the chooser (android/com.android.internal.app.ResolverActivity) when there's
+        no single one. None on API 22 and 23, which have no `cmd`."""
+        if int(self.adb_shell("getprop", "ro.build.version.sdk")) < 24:
+            return None
+        return named_component(self.adb_shell("cmd", "package", "resolve-activity", "--brief",
+                                              *intent))
 
     def test_remote_home_key_leaves_an_app(self):
         # start-emulator.sh first: on API 26 and 27 it's what makes Home work (see its header),
         # and an emulator that was already running may not have been started by it.
         start_script(self.avd)
-        # Right after a boot, the home app may still be starting and come to the front over
-        # Settings (Google TV), so Settings is opened again until it stays there.
-        deadline = time.time() + FOCUS_TIMEOUT
-        while "settings" not in (self.focused_package() or "") and time.time() < deadline:
-            self.adb_shell("am", "start", "-W", "-a", "android.settings.SETTINGS")
-            time.sleep(2)
-        settings = self.focused_package()
-        self.assertIn("settings", settings or "", "Settings didn't open")
+        # The package Home opens: the home app, whose sign-in screen Google TV without an account
+        # shows instead of a home screen, or the chooser (package android) on API 22 with another
+        # home app installed. From API 24 on, `cmd` names it, but only once the user is unlocked
+        # after a boot: before, the HOME intent resolves to FallbackHome, in Settings' package,
+        # which holds the screen until then. So it's asked again at each look below. API 22 and 23
+        # have neither `cmd` nor FallbackHome: there it's the one a HOME intent opens, which comes
+        # to the front.
+        home_intent = ["-a", "android.intent.action.MAIN", "-c", "android.intent.category.HOME"]
+        if (settings := self.resolved("-a", "android.settings.SETTINGS")) is None:
+            home = package(named_component(self.adb_shell("am", "start", "-W", *home_intent)))
+        # Settings must be in front, and stay there, before Home: right after a boot the home app
+        # (or Google TV's sign-in screen) can still come to the front by itself, as if Home had
+        # worked, and FallbackHome goes by itself. So Settings is opened again until it's in front
+        # at STABLE_LOOKS looks in a row: its own activity where `cmd` can name it, else any app
+        # but the home app. Without -W: on API 22, with the chooser in front, `am start -W` of an
+        # app open behind it never returns.
+        self.adb_shell("am", "start", "-a", "android.settings.SETTINGS")
+        in_front, looks = None, 0
+        deadline = time.monotonic() + SETTLE_TIMEOUT
+        while looks < STABLE_LOOKS:
+            time.sleep(STABLE_INTERVAL)
+            if settings:
+                home = package(self.resolved(*home_intent))
+            focused, _, shown = self.front()
+            if home and focused and package(focused) != home and settings in (None, focused):
+                looks = looks + 1 if focused == in_front else 1
+            else:
+                looks = 0
+                if time.monotonic() > deadline:
+                    self.fail(f"Settings ({settings or 'any app'}) didn't stay in front of the home "
+                              f"app ({home}) within {SETTLE_TIMEOUT} s:\n{shown}")
+                self.adb_shell("am", "start", "-a", "android.settings.SETTINGS")
+            in_front = focused
         result = subprocess.run([str(BIN / "remote.sh"), self.serial], input="hq",
                                 capture_output=True, text=True, timeout=60)
         self.assertEqual(result.returncode, 0, result.stderr)
-        deadline = time.time() + FOCUS_TIMEOUT
-        while self.focused_package() == settings and time.time() < deadline:
+        # The home app's activity in front is enough: its window may not have focus yet.
+        deadline = time.monotonic() + FOCUS_TIMEOUT
+        while package((front := self.front())[1]) != home:
+            if time.monotonic() > deadline:
+                self.fail(f"Home didn't bring the home app ({home}) to the front:\n{front[2]}")
             time.sleep(0.2)
-        self.assertNotEqual(self.focused_package(), settings, "Home didn't leave Settings")
 
     def test_remote_keys_arrive_as_the_right_android_keys(self):
         # One key at a time, typed into one remote.sh as a person would, looking at the recent
@@ -207,8 +272,8 @@ class OnTheRealEmulator(unittest.TestCase):
             remote.stdin.flush()
             # Where Android prints no key codes, only the number of presses can be checked.
             expected.append(code if details else None)
-            deadline = time.time() + KEY_TIMEOUT
-            while len(received.look().key_downs()) < len(expected) and time.time() < deadline:
+            deadline = time.monotonic() + KEY_TIMEOUT
+            while len(received.look().key_downs()) < len(expected) and time.monotonic() < deadline:
                 time.sleep(0.2)
             self.assertEqual(received.key_downs(), expected, f"after the key for {code}")
             # Typed as soon as the key before arrived, two presses can come closer together than
@@ -229,9 +294,9 @@ class OnTheRealEmulator(unittest.TestCase):
         remote = subprocess.Popen([str(BIN / "remote.sh"), "--long-press", "DPAD_UP", self.serial],
                                   stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
         self.addCleanup(remote.kill)
-        deadline = time.time() + LONG_PRESS_TIMEOUT
+        deadline = time.monotonic() + LONG_PRESS_TIMEOUT
         while remote.poll() is None:   # looks while the key is held, too: see RecentInput
-            self.assertLess(time.time(), deadline, "remote.sh --long-press didn't finish")
+            self.assertLess(time.monotonic(), deadline, "remote.sh --long-press didn't finish")
             received.look()
             time.sleep(0.1)
         self.assertEqual(remote.returncode, 0, remote.stderr.read())
