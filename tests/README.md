@@ -67,6 +67,22 @@ arrive later, with its old time (`input keyevent` can send the release seconds a
 [`hermetic/test_input_dump.py`](hermetic/test_input_dump.py) checks this reading against made-up
 dumps, so it runs with the hermetic tier.
 
+The tier's time limits hold for an emulator starved of CPU, where `adb shell input keyevent`, a
+look at the input dump and an app's start each take many times longer than on an idle host. A
+wait ends as soon as what it waits for is there, so a long limit only makes a failure slower. Its
+limits for `start-emulator.sh` and `stop-emulator.sh` are longer than the scripts' own, computed
+from them (`ADT_BOOT_TIMEOUT` and `ADT_STOP_TIMEOUT`, which it passes on): a script always gets to
+its own limit, stops what it started and says why, whereas Python stopping `start-emulator.sh`
+would leave its emulator booting. An emulator the tier boots is stopped at the end even when its
+boot failed. To try the tier on a starved emulator, boot it on one host CPU shared with busy loops;
+the tier then reuses it:
+
+```bash
+serial="$(taskset -c 3 bin/start-emulator.sh tv_api31 -no-window -no-snapshot-save -read-only -cores 1)"
+for i in $(seq 9); do timeout 1800 taskset -c 3 bash -c 'while :; do :; done' & done
+ADT_AVD=tv_api31 tests/run.py --emulator -k test_remote_keys; kill $(jobs -p); bin/stop-emulator.sh "$serial"
+```
+
 ## Layout
 
 | Path | Contents |
