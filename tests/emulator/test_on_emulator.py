@@ -12,8 +12,8 @@ import signal
 import subprocess
 import time
 import unittest
-from collections import Counter
 
+from support.input_dump import RecentInput, input_is_quiet
 from support.sandbox import BIN, LIB
 
 ENABLED = os.environ.get("ADT_EMULATOR_TESTS") == "1"
@@ -73,86 +73,6 @@ def emulator_pids(*args):
     return pids
 
 
-class RecentInput:
-    """The events Android's input dispatcher handles from now on, from repeated looks at its
-    recent queue (`dumpsys input`). The queue keeps only the last 10 events, window focus changes
-    included, and Android holds keys for up to 5 s while a window it's opening starts. A key that
-    opens windows (OK on Google TV's profile or sign-in screen) brings several focus changes, so
-    keys sent right before it can be pushed out before a look sees them. So each look is merged
-    into what the ones before it saw, and tests look again after every key or long press: between
-    two looks, only one key's worth of events has to fit.
-
-    The queue is first in, first out: a look is the one before it without its oldest events, and
-    with the new ones after. Where they overlap, each event is of the same kind, and each one's
-    age has grown by the same amount, the time between the looks; that tells how many events
-    dropped out. The device's clock, read around each look, only picks between two overlaps that
-    both fit (events evenly spaced), and places a look that shares no event with the one before."""
-
-    def __init__(self, adb_shell):
-        self.adb_shell = adb_shell
-        # (ms since the first look, event without its age), in the order Android handled them,
-        # which is the queue's: a key's release can have the time of its press (input keyevent
-        # --longpress from API 30 on), and a key held for a new window comes after later events.
-        self.seen = []
-        self.last = []          # the latest look: (age, event), oldest first
-        self.last_time = None   # the latest look's moment, in ms since the first look
-        self.first_uptime = None
-        self.look()
-        self.before = Counter(self.seen)
-
-    def look(self):
-        """Takes one more look at the queue, adding the events no look showed before."""
-        out = self.adb_shell("cat /proc/uptime; dumpsys input; cat /proc/uptime")
-        lines = out.strip().splitlines()
-        uptime = (float(lines[0].split()[0]) + float(lines[-1].split()[0])) * 500   # ms, mid-look
-        queue = out.split("RecentQueue", 1)[1].split("PendingEvent", 1)[0]
-        events = [(float(age.group(1)), re.sub(r",? ?age=[\d.]+ms", "", line.strip()))
-                  for line in queue.splitlines() if (age := re.search(r"age=([\d.]+)ms", line))]
-        if self.first_uptime is None:
-            self.first_uptime = uptime
-        estimate = uptime - self.first_uptime
-        # (events of the last look that dropped out, time between the looks) of each overlap
-        # that fits; the largest overlap, then the time closest to the clock's.
-        fits = []
-        for dropped in range(len(self.last)):
-            overlap = list(zip(self.last[dropped:], events))
-            if len(overlap) < len(self.last) - dropped:
-                continue   # this look is shorter than the rest of the last one
-            gaps = [new_age - old_age for (old_age, old), (new_age, new) in overlap if old == new]
-            if len(gaps) == len(overlap) and max(gaps) - min(gaps) <= 1.5 and min(gaps) >= -1.5:
-                fits.append((dropped, self.last_time + sum(gaps) / len(gaps)))
-        if fits:
-            dropped, now = min(fits, key=lambda fit: (fit[0], abs(fit[1] - estimate)))
-            new = events[len(self.last) - dropped:]
-        else:
-            now, new = estimate, events   # no event in common: all of them are new
-        self.seen += [(round(now - age, 1), event) for age, event in new]
-        self.last, self.last_time = events, now
-        return self
-
-    def key_events(self):
-        """(ms since the first look, event) of the key events since then, in order. Android
-        5-8 print a key-down as action=0, 9 as action=DOWN, and 10 and newer print no details
-        ("KeyEvent")."""
-        before = Counter(self.before)
-        events = []
-        for event in self.seen:
-            if before[event]:
-                before[event] -= 1
-            elif event[1].startswith("KeyEvent"):
-                events.append(event)
-        return events
-
-    def key_downs(self):
-        """keyCodes of the key-downs since the first look, oldest first; where Android prints no
-        details, one None per press (a down and an up)."""
-        events = [event for _, event in self.key_events()]
-        if events and "keyCode=" not in events[0]:
-            return [None] * (len(events) // 2)
-        return [int(re.search(r"keyCode=(\d+)", e).group(1)) for e in events
-                if re.search(r"action=(?:0|DOWN),", e)]
-
-
 @unittest.skipUnless(ENABLED, "real-emulator tests run only with: tests/run.py --emulator")
 class OnTheRealEmulator(unittest.TestCase):
     @classmethod
@@ -180,13 +100,12 @@ class OnTheRealEmulator(unittest.TestCase):
                               text=True, timeout=60).stdout
 
     def wait_until_input_is_quiet(self):
-        """Waits until the input dispatcher's newest event, of any kind, is QUIET_MS old: no key
-        from before, and no focus change of a window a test before opened, can then be taken for
-        one that comes after, or push it out of the recent queue (see RecentInput)."""
+        """Waits until the input dispatcher has no event waiting, and its newest event, of any
+        kind, is QUIET_MS old: no key from before, and no focus change of a window a test before
+        opened, can then be taken for one that comes after, or push it out of the recent queue
+        (see RecentInput). A key held for a starting window would enter the queue only later."""
         deadline = time.time() + 10
-        while any(float(age) < QUIET_MS for age in re.findall(
-                r"age=([\d.]+)ms", self.adb_shell("dumpsys", "input").split("RecentQueue", 1)[1]
-                .split("PendingEvent", 1)[0])):
+        while not input_is_quiet(self.adb_shell("dumpsys", "input"), QUIET_MS):
             self.assertLess(time.time(), deadline, "input events keep coming")
             time.sleep(0.2)
 
@@ -248,6 +167,10 @@ class OnTheRealEmulator(unittest.TestCase):
             while len(received.look().key_downs()) < len(expected) and time.time() < deadline:
                 time.sleep(0.2)
             self.assertEqual(received.key_downs(), expected, f"after the key for {code}")
+            # Typed as soon as the key before arrived, two presses can come closer together than
+            # a look can place them, and a look that also sees new window focus changes can't
+            # tell them apart (Google TV API 33: 42 ms apart).
+            time.sleep(0.3)
         _, err = remote.communicate("q", timeout=30)
         self.assertEqual(remote.returncode, 0, err)
 
