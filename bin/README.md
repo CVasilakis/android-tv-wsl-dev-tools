@@ -418,18 +418,19 @@ TV or Google TV; these are the differences in the images that you may run into:
 
 | API | Difference |
 |---|---|
-| 22 | `--quick` is slower than a cold boot. The device has no `uname`. The stock launcher's HOME filter has no priority, so with another home app installed, Home opens the chooser. |
-| 22–23 | No `cmd` on the device (`cmd package resolve-activity`, …); it exists from API 24 on. |
+| 22 | `--quick` is slower than a cold boot. The device has no `uname`. The stock launcher's HOME filter has no priority, so with another home app installed, Home opens the chooser; while the chooser is in front, `adb shell am start -W` of an app open behind it never returns (without `-W` it's fine). |
+| 22–23 | No `cmd` on the device (`cmd package resolve-activity`, …); it exists from API 24 on. `adb shell am start -W …` names the activity an intent opened, on its `Activity:` line (but it opens it). |
 | 22–25 | The stock launcher is `com.google.android.leanbacklauncher`. |
 | 22–29 | `adb shell input keyevent --longpress` doesn't hold the key, so it's a short press; `remote.sh --long-press` holds it on every level ([Long presses](#long-presses)). |
 | 23, 29 | The first boot of a new AVD opens a "USB drive connected" screen (the AVD's SD card) in front of the launcher; later boots don't. |
 | 23 on | The stock launcher's HOME filter has priority 2, so `set-home-activity` and the home chooser can't pick another home app: it only takes over while the stock one is disabled (`adb shell pm disable-user --user 0 <package>`). |
+| 24 on | Until the user is unlocked after a boot, a HOME intent resolves to Settings' `com.android.tv.settings/.system.FallbackHome` (also for `cmd package resolve-activity`), which holds the screen until the home app has started; both can last past `sys.boot_completed` being 1, when `start-emulator.sh` returns. |
 | 26 on | The stock launcher is `com.google.android.tvlauncher`. On 26–29 `leanbacklauncher` is installed too, without a HOME filter. |
 | 26, 27 | The slowest cold boots up to API 28. Home doesn't leave apps until `tv_user_setup_complete` is set, which `start-emulator.sh` does ([Home on API 26 and 27](#home-on-api-26-and-27)). |
 | 29 on | `dumpsys input` lists key events without key codes. avdmanager prints the harmless devices.xml error. |
 | 30 | `remote.sh` keys lag the most; the emulator console's key events never arrive. |
 | 36 | `adb shell monkey` adds a virtual touchscreen while it runs; that configuration change recreates the app in front, which drops the keys monkey sends. |
-| Google TV, all | The stock launcher is `com.google.android.apps.tv.launcherx`, with priority 2 like the others. Without a Google account it shows a sign-in screen instead of a home screen: "Add account" on 30–33, "Set up Google TV" on 34 and 36. |
+| Google TV, all | The stock launcher is `com.google.android.apps.tv.launcherx`, with priority 2 like the others. Without a Google account it shows a sign-in screen instead of a home screen: "Add account" on 30–33, "Set up Google TV" on 34 and 36; Home opens it like a home screen. Right after a boot it can come to the front by itself, over an app just opened. |
 | Google TV, 30–34 | `tvlauncher` is installed too, without a HOME filter. |
 
 ## Troubleshooting

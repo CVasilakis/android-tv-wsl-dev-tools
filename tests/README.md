@@ -24,7 +24,7 @@ too. The emulator tier isn't run there; run it locally before a release.
 | Tier | Folder | Needs | Checks |
 |---|---|---|---|
 | hermetic | [`hermetic/`](hermetic) | Python 3; optional: Xvfb, shellcheck | Each script's behavior against fake tools and a fake machine, and how the emulator tier reads Android's input dump. Run it after every script change. |
-| emulator | [`emulator/`](emulator) | Your SDK and AVD (`ADT_AVD` picks one) | What fakes can't show: booting really completes, `remote.sh`'s keys arrive in Android as the right keys, its Home key leaves an app, `--long-press` holds the key for the device's long-press timeout and leaves the settings as they were, and `stop-emulator.sh` returns only once the AVD can start again, also for a `-read-only` emulator, which writes no lock file. |
+| emulator | [`emulator/`](emulator) | Your SDK and AVD (`ADT_AVD` picks one) | What fakes can't show: booting really completes, `remote.sh`'s keys arrive in Android as the right keys, its Home key takes the device from an app to its home app, `--long-press` holds the key for the device's long-press timeout and leaves the settings as they were, and `stop-emulator.sh` returns only once the AVD can start again, also for a `-read-only` emulator, which writes no lock file. |
 
 Some hermetic tests skip, with the reason printed, when an optional tool is missing:
 - **Xvfb** (`sudo apt-get install -y xvfb`) for the `wslg-toolbar.py`
@@ -47,6 +47,20 @@ cover every Android version you use:
 for l in 22 23 24 25 26 27 28 29 30 31 33 34 36; do ADT_AVD=tv_api$l tests/run.py --emulator; done
 for l in 30 31 33 34 36; do ADT_AVD=gtv_api$l tests/run.py --emulator; done   # Google TV
 ```
+
+The Home test decides from what's in front (`dumpsys window`'s focus), which after a boot can still
+change by itself: the home app, or Google TV's sign-in screen, comes to the front over an app just
+opened, and from API 24 on Settings' own `FallbackHome` holds the screen, and is what a HOME intent
+resolves to, until the user is unlocked ([Differences between API
+levels](../bin/README.md#differences-between-api-levels)). So the test opens Settings again until
+it's in front at three looks in a row, seconds apart, before it sends Home, and then waits until
+the activity in front (`mFocusedApp`: on a starved device its window can still lack focus 30 s
+later) is of the package Home opens, not merely until something other than Settings is: the one
+`cmd package resolve-activity` names for a HOME intent (asked again at each look before Home, as
+it's `FallbackHome` until the user is unlocked), or on API 22 and 23, which have no `cmd`, the one
+such an intent opens. On Google TV without an account that's the launcher showing its sign-in
+screen, and on API 22 with a second home app installed it's the chooser (package `android`). A
+failure shows `dumpsys window`'s focus lines.
 
 On API 29 and newer, Android's input dump doesn't show key codes, so there the tier checks only
 that each key press arrived, and how far apart a long press's events are; which Android key it
