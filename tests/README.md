@@ -23,7 +23,7 @@ too. The emulator tier isn't run there; run it locally before a release.
 
 | Tier | Folder | Needs | Checks |
 |---|---|---|---|
-| hermetic | [`hermetic/`](hermetic) | Python 3; optional: Xvfb, shellcheck | Each script's behavior against fake tools and a fake machine. Run it after every script change. |
+| hermetic | [`hermetic/`](hermetic) | Python 3; optional: Xvfb, shellcheck | Each script's behavior against fake tools and a fake machine, and how the emulator tier reads Android's input dump. Run it after every script change. |
 | emulator | [`emulator/`](emulator) | Your SDK and AVD (`ADT_AVD` picks one) | What fakes can't show: booting really completes, `remote.sh`'s keys arrive in Android as the right keys, its Home key leaves an app, `--long-press` holds the key for the device's long-press timeout and leaves the settings as they were, and `stop-emulator.sh` returns only once the AVD can start again, also for a `-read-only` emulator, which writes no lock file. |
 
 Some hermetic tests skip, with the reason printed, when an optional tool is missing:
@@ -53,9 +53,19 @@ that each key press arrived, and how far apart a long press's events are; which 
 was, and the long-press flag on the repeat, are still checked on older ones, and by the hermetic
 tests for all of them. The hermetic tests' fake `monkey` and `input keyevent --longpress` record
 the key events they send, with their times, as Android would receive them (`api_level` picks
-which one `remote.sh` uses). The tier reads Android's input dump, whose queue keeps only the last 10
-events, window focus changes included, so it sends one key at a time and looks after each
-(`RecentInput` in [`emulator/test_on_emulator.py`](emulator/test_on_emulator.py) says why).
+which one `remote.sh` uses). The tier reads Android's input dump, whose recent queue keeps only
+the last 10 events, window focus changes included, so it sends one key at a time, a moment after
+the one before arrived, and looks after each, merging the looks into one history. The events' order and ages, and the device's uptime
+read around each look, tell which events are new (`RecentInput` in
+[`support/input_dump.py`](support/input_dump.py) says how). A look fails the test rather than
+miscount: when 10 or more events came since the look before, so some may be missing, and when
+events come too evenly for the clock to tell how many came. Before its first look, a test waits
+until no event has come for a second and none is waiting: a key Android holds for a window that's
+starting enters the queue only once the window is there, with the age it had all along. Only keys
+that happened after the first look count, since on a slow device a key sent before can still
+arrive later, with its old time (`input keyevent` can send the release seconds after the press).
+[`hermetic/test_input_dump.py`](hermetic/test_input_dump.py) checks this reading against made-up
+dumps, so it runs with the hermetic tier.
 
 ## Layout
 
@@ -65,7 +75,8 @@ events, window focus changes included, so it sends one key at a time and looks a
 | [`support/sandbox.py`](support/sandbox.py) | `Sandbox`: a throwaway machine per test. `ScriptTestCase`: the base class. |
 | [`support/fake_tools.py`](support/fake_tools.py) | Fakes for `adb`, `emulator`, `avdmanager`, `android`, `sdkmanager`, `python3`, `getent`, `id`, `sg`. |
 | [`support/x11.py`](support/x11.py) | Private Xvfb server and fake emulator windows. |
-| `hermetic/test_<script>.py` | One file per script, plus [`test_conventions.py`](hermetic/test_conventions.py) for the rules all scripts follow. |
+| [`support/input_dump.py`](support/input_dump.py) | Reading Android's input dispatcher from `dumpsys input`, for the emulator tier. |
+| `hermetic/test_<script>.py` | One file per script, plus [`test_conventions.py`](hermetic/test_conventions.py) for the rules all scripts follow, and [`test_input_dump.py`](hermetic/test_input_dump.py) for `support/input_dump.py`. |
 | [`emulator/test_on_emulator.py`](emulator/test_on_emulator.py) | The real-emulator tier. |
 
 ## How the hermetic tier works

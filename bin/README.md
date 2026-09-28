@@ -400,6 +400,11 @@ adb shell dumpsys input | sed -n '/RecentQueue/,/PendingEvent/p'   # last 10 inp
 adb shell cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME   # API 24 on
 ```
 
+The recent queue lists events in the order Android handled them, each with its age when the dump
+was taken. A key Android holds while a window it's going to starts (up to 5 s) is listed under
+`PendingEvent` or `InboundQueue` meanwhile, and joins the recent queue only once handled: after
+events that came later, with the age it had all along.
+
 Don't use `adb shell getevent > file` to check input: without a terminal its output is buffered and
 the file stays empty. Simulated host input (xdotool/XTest) doesn't reach the emulator under WSLg, so
 automated tests should send keys with `adb shell input keyevent`, like `remote.sh` does, and
