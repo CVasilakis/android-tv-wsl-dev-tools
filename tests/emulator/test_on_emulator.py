@@ -13,11 +13,39 @@ import subprocess
 import time
 import unittest
 
-from support.input_dump import RecentInput, input_is_quiet
+from support.input_dump import RecentInput, input_is_quiet, recent_queue
 from support.sandbox import BIN, LIB
 
 ENABLED = os.environ.get("ADT_EMULATOR_TESTS") == "1"
 QUIET_MS = 1000
+
+# How long a test waits for something on the device, in seconds. The waits end as soon as it's
+# there, so these limits only decide how long a failure takes, and must hold for an emulator
+# starved of CPU (-cores 1 on a busy host). There, `adb shell input keyevent` alone can take over
+# 15 s to start `input` on the device, `input` can send a key's release seconds after its press,
+# and a look at `dumpsys input` can take 15 s (dumpsys gives up on a service after 10 s). Android
+# holds a key for up to 5 s while a window it's going to starts (5 s x ro.hw_timeout_multiplier,
+# which no tested image sets, so 1).
+KEY_TIMEOUT = 60     # from typing a key until a look sees it: remote.sh's adb call, the hold, a look
+QUIET_TIMEOUT = 30   # for the input dispatcher to settle: a held key, QUIET_MS, then a look
+FOCUS_TIMEOUT = 30   # for an app's window to come to the front (am start, the Home key)
+LONG_PRESS_TIMEOUT = 180   # for remote.sh --long-press: up to 9 adb calls, monkey's among them
+
+# Python's limits for the scripts, from the scripts' own: when Python stops a script on the way,
+# its emulator can be left running (start-emulator.sh starts it with nohup), so a script must
+# always reach its own limits first, and clean up and say why. Each adb call they make gets
+# ADB_CALL s (adb_bounded in lib.sh: 15 s, then SIGKILL 5 s later), and each of their limits lasts
+# up to 1 s longer (time_is_up in lib.sh). ADB_CALLS is more than either script makes on the way
+# with up to three emulators running.
+ADB_CALL = 15 + 5
+ADB_CALLS = 10
+BOOT_TIMEOUT = int(os.environ.get("ADT_BOOT_TIMEOUT") or 900)   # passed on to start-emulator.sh
+STOP_TIMEOUT = int(os.environ.get("ADT_STOP_TIMEOUT") or 60)    # passed on to stop-emulator.sh
+# start-emulator.sh: the boot limit, then either stopping the emulator that didn't boot (SIGTERM,
+# up to 30 s, then SIGKILL) or, on API 26 and 27, waiting 30 s for Android to save a setting. No
+# limit when ADT_BOOT_TIMEOUT is 0 (the script's own "no limit").
+START_LIMIT = BOOT_TIMEOUT + 1 + 31 + ADB_CALLS * ADB_CALL if BOOT_TIMEOUT else None
+KILL_WAIT = 30   # stop-emulator.sh's, for a killed emulator to exit, and again for adb to unlist it
 
 # Keyboard input to remote.sh -> Android KeyEvent keyCode that must arrive on the device.
 KEYS = [("\x1b[A", 19), ("\x1b[B", 20), ("\x1b[D", 21), ("\x1b[C", 22), ("\n", 23),
@@ -52,10 +80,25 @@ def exited(pid):
         return True
 
 
+def start_script(*args):
+    """Runs start-emulator.sh, which gives up on a boot before Python gives up on it."""
+    return subprocess.run([str(BIN / "start-emulator.sh"), *args], capture_output=True, text=True,
+                          timeout=START_LIMIT, env={**os.environ, "ADT_BOOT_TIMEOUT": str(BOOT_TIMEOUT)})
+
+
 def start(avd, *flags):
     """Boots the AVD the way this tier does: no window, no snapshot saved when it's stopped."""
-    return subprocess.run([str(BIN / "start-emulator.sh"), avd, "-no-window", "-no-snapshot-save",
-                           *flags], capture_output=True, text=True, timeout=600)
+    return start_script(avd, "-no-window", "-no-snapshot-save", *flags)
+
+
+def stop(target, stop_timeout=STOP_TIMEOUT):
+    """Runs stop-emulator.sh, which returns once the emulator has exited, with Python's limit
+    longer than its longest run: stop_timeout s for the emulator to exit (after adb emu kill, or
+    SIGTERM), KILL_WAIT for it to exit after SIGKILL, KILL_WAIT again for adb to unlist it, and
+    its adb calls."""
+    limit = stop_timeout + 2 * KILL_WAIT + 3 + ADB_CALLS * ADB_CALL
+    return subprocess.run([str(BIN / "stop-emulator.sh"), target], capture_output=True, text=True,
+                          timeout=limit, env={**os.environ, "ADT_STOP_TIMEOUT": str(stop_timeout)})
 
 
 def emulator_pids(*args):
@@ -82,18 +125,15 @@ class OnTheRealEmulator(unittest.TestCase):
         cls.serial = serial_of(cls.avd)
         cls.started_here = cls.serial is None
         if cls.started_here:
+            # stop-emulator.sh waits until it has exited: the next test class may boot the same
+            # AVD. A class cleanup, not tearDownClass, which isn't called when setUpClass fails,
+            # and registered before the boot, which can fail with the emulator still running.
+            cls.addClassCleanup(stop, cls.avd)
             cls.start_result = start(cls.avd)
             if cls.start_result.returncode != 0:
                 raise RuntimeError(f"start-emulator.sh failed:\n{cls.start_result.stdout}"
                                    f"{cls.start_result.stderr}")
             cls.serial = serial_of(cls.avd)
-
-    @classmethod
-    def tearDownClass(cls):
-        # stop-emulator.sh waits until it has exited: the next test class may boot the same AVD.
-        if cls.started_here and cls.serial:
-            subprocess.run([str(BIN / "stop-emulator.sh"), cls.serial], capture_output=True,
-                           timeout=120)
 
     def adb_shell(self, *args):
         return subprocess.run([self.adb, "-s", self.serial, "shell", *args], capture_output=True,
@@ -104,9 +144,14 @@ class OnTheRealEmulator(unittest.TestCase):
         kind, is QUIET_MS old: no key from before, and no focus change of a window a test before
         opened, can then be taken for one that comes after, or push it out of the recent queue
         (see RecentInput). A key held for a starting window would enter the queue only later."""
-        deadline = time.time() + 10
-        while not input_is_quiet(self.adb_shell("dumpsys", "input"), QUIET_MS):
-            self.assertLess(time.time(), deadline, "input events keep coming")
+        deadline = time.time() + QUIET_TIMEOUT
+        while not input_is_quiet(dump := self.adb_shell("dumpsys", "input"), QUIET_MS):
+            if time.time() > deadline:
+                if recent_queue(dump) is None:
+                    self.fail(f"`dumpsys input` showed no recent queue for {QUIET_TIMEOUT} s (on a "
+                              f"starved device dumpsys gives up after 10 s):\n{dump[-500:]}")
+                self.fail(f"input events kept coming for {QUIET_TIMEOUT} s, or one kept waiting "
+                          "(PendingEvent, InboundQueue)")
             time.sleep(0.2)
 
     def test_start_returns_once_android_has_booted(self):
@@ -117,8 +162,7 @@ class OnTheRealEmulator(unittest.TestCase):
         self.assertIn(f"booted as {self.serial}", self.start_result.stderr)
 
     def test_start_again_reports_the_running_emulator(self):
-        result = subprocess.run([str(BIN / "start-emulator.sh"), self.avd],
-                                capture_output=True, text=True, timeout=60)
+        result = start_script(self.avd)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, f"{self.serial}\n")
         self.assertIn(f"already running as {self.serial}", result.stderr)
@@ -131,10 +175,10 @@ class OnTheRealEmulator(unittest.TestCase):
     def test_remote_home_key_leaves_an_app(self):
         # start-emulator.sh first: on API 26 and 27 it's what makes Home work (see its header),
         # and an emulator that was already running may not have been started by it.
-        subprocess.run([str(BIN / "start-emulator.sh"), self.avd], capture_output=True, timeout=60)
+        start_script(self.avd)
         # Right after a boot, the home app may still be starting and come to the front over
         # Settings (Google TV), so Settings is opened again until it stays there.
-        deadline = time.time() + 30
+        deadline = time.time() + FOCUS_TIMEOUT
         while "settings" not in (self.focused_package() or "") and time.time() < deadline:
             self.adb_shell("am", "start", "-W", "-a", "android.settings.SETTINGS")
             time.sleep(2)
@@ -143,7 +187,7 @@ class OnTheRealEmulator(unittest.TestCase):
         result = subprocess.run([str(BIN / "remote.sh"), self.serial], input="hq",
                                 capture_output=True, text=True, timeout=60)
         self.assertEqual(result.returncode, 0, result.stderr)
-        deadline = time.time() + 10
+        deadline = time.time() + FOCUS_TIMEOUT
         while self.focused_package() == settings and time.time() < deadline:
             time.sleep(0.2)
         self.assertNotEqual(self.focused_package(), settings, "Home didn't leave Settings")
@@ -163,7 +207,7 @@ class OnTheRealEmulator(unittest.TestCase):
             remote.stdin.flush()
             # Where Android prints no key codes, only the number of presses can be checked.
             expected.append(code if details else None)
-            deadline = time.time() + 12   # longer than Android holds keys for a new window
+            deadline = time.time() + KEY_TIMEOUT
             while len(received.look().key_downs()) < len(expected) and time.time() < deadline:
                 time.sleep(0.2)
             self.assertEqual(received.key_downs(), expected, f"after the key for {code}")
@@ -185,7 +229,9 @@ class OnTheRealEmulator(unittest.TestCase):
         remote = subprocess.Popen([str(BIN / "remote.sh"), "--long-press", "DPAD_UP", self.serial],
                                   stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
         self.addCleanup(remote.kill)
+        deadline = time.time() + LONG_PRESS_TIMEOUT
         while remote.poll() is None:   # looks while the key is held, too: see RecentInput
+            self.assertLess(time.time(), deadline, "remote.sh --long-press didn't finish")
             received.look()
             time.sleep(0.1)
         self.assertEqual(remote.returncode, 0, remote.stderr.read())
@@ -221,8 +267,7 @@ class StopOnTheRealEmulator(unittest.TestCase):
         if serial_of(self.avd):
             self.skipTest(f"{self.avd} is running, and a test doesn't stop the developer's "
                           "emulator")
-        self.addCleanup(subprocess.run, [str(BIN / "stop-emulator.sh"), self.avd],
-                        capture_output=True, timeout=180)
+        self.addCleanup(stop, self.avd)
 
     def start_and_get_pid(self):
         """Boots the AVD; returns its serial and its emulator's PID, from the AVD's lock file."""
@@ -235,8 +280,7 @@ class StopOnTheRealEmulator(unittest.TestCase):
     def test_stop_kills_an_emulator_that_does_not_answer(self):
         serial, pid = self.start_and_get_pid()
         os.kill(pid, signal.SIGSTOP)   # frozen: its console answers nothing, SIGTERM waits
-        result = subprocess.run([str(BIN / "stop-emulator.sh"), self.avd], capture_output=True,
-                                text=True, timeout=180, env={**os.environ, "ADT_STOP_TIMEOUT": "5"})
+        result = stop(self.avd, stop_timeout=5)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("killed (SIGKILL)", result.stderr)
         self.assertTrue(exited(pid), "returned before the emulator had exited")
@@ -251,8 +295,7 @@ class StopOnTheRealEmulator(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(lib(f"avd_dir {self.avd}"),
                                                      "hardware-qemu.ini.lock")))
         [pid] = emulator_pids("-avd", self.avd, "-read-only")
-        result = subprocess.run([str(BIN / "stop-emulator.sh"), self.avd], capture_output=True,
-                                text=True, timeout=120)
+        result = stop(self.avd)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stderr, f"Stopped '{self.avd}' ({serial}).\n")
         self.assertTrue(exited(pid), "returned before the emulator had exited")
@@ -262,8 +305,7 @@ class StopOnTheRealEmulator(unittest.TestCase):
         serial, pid = self.start_and_get_pid()
         lock = self.lock
 
-        result = subprocess.run([str(BIN / "stop-emulator.sh"), avd], capture_output=True,
-                                text=True, timeout=120)
+        result = stop(avd)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(f"Stopped '{avd}' ({serial}).", result.stderr)
         self.assertTrue(exited(pid), "returned before the emulator had exited")
@@ -272,7 +314,6 @@ class StopOnTheRealEmulator(unittest.TestCase):
 
         again = start(avd)   # right away: the AVD's files are free
         self.assertEqual(again.returncode, 0, again.stderr)
-        result = subprocess.run([str(BIN / "stop-emulator.sh"), avd], capture_output=True,
-                                text=True, timeout=120)
+        result = stop(avd)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIsNone(serial_of(avd))

@@ -401,7 +401,8 @@ adb shell cmd package resolve-activity --brief -a android.intent.action.MAIN -c 
 ```
 
 The recent queue lists events in the order Android handled them, each with its age when the dump
-was taken. A key Android holds while a window it's going to starts (up to 5 s) is listed under
+was taken. A key Android holds while a window it's going to starts (up to 5 s; from API 31 on,
+5 s times `ro.hw_timeout_multiplier`, which no tested image sets) is listed under
 `PendingEvent` or `InboundQueue` meanwhile, and joins the recent queue only once handled: after
 events that came later, with the age it had all along.
 
