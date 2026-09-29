@@ -59,7 +59,7 @@ class OnAnXServer(unittest.TestCase):
         return run(*args, display=self.display)
 
     def test_hide_unmaps_only_the_toolbar(self):
-        main, toolbar = self.windows.emulator("tv_api25")
+        main, toolbar, _ = self.windows.emulator("tv_api25")
         result = self.run_script("tv_api25", "hide")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("toolbar hidden", result.stdout)
@@ -67,12 +67,12 @@ class OnAnXServer(unittest.TestCase):
         self.assertTrue(self.windows.is_mapped(main), "the emulator screen stays")
 
     def test_hide_is_the_default_mode(self):
-        _, toolbar = self.windows.emulator("tv_api25")
+        _, toolbar, _ = self.windows.emulator("tv_api25")
         self.assertEqual(self.run_script("tv_api25").returncode, 0)
         self.assertFalse(self.windows.is_mapped(toolbar))
 
     def test_show_turns_the_toolbar_into_a_normal_window(self):
-        _, toolbar = self.windows.emulator("tv_api25")
+        _, toolbar, _ = self.windows.emulator("tv_api25")
         result = self.run_script("tv_api25", "show")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(self.windows.wait_until_mapped(toolbar))
@@ -80,28 +80,45 @@ class OnAnXServer(unittest.TestCase):
         self.assertEqual(self.windows.window_types(toolbar), ["_NET_WM_WINDOW_TYPE_NORMAL"])
 
     def test_switching_back_and_forth(self):
-        _, toolbar = self.windows.emulator("tv_api25")
-        for mode, mapped in (("show", True), ("hide", False), ("show", True)):
+        # After "show" the window manager puts the toolbar on top, above the hidden bar that is
+        # also titled "Emulator": a "hide" then hid the bar and left the toolbar shown.
+        _, toolbar, bar = self.windows.emulator("tv_api25")
+        for mode, mapped in (("hide", False), ("show", True), ("hide", False), ("show", True),
+                             ("show", True), ("hide", False)):
             self.assertEqual(self.run_script("tv_api25", mode).returncode, 0)
             # Unmapping is immediate; mapping waits for the window manager, if there's one.
             now = self.windows.wait_until_mapped(toolbar) if mapped else self.windows.is_mapped(toolbar)
             self.assertEqual(now, mapped, mode)
+            self.assertFalse(self.windows.is_mapped(bar), f"{mode}: the bar stays hidden")
+            if mapped:
+                self.windows.raise_(toolbar)        # as a window manager does (Xvfb has none)
+
+    def test_several_windows_like_the_toolbar(self):
+        # Changing the wrong one would leave the toolbar as it was: the script doesn't guess.
+        main, toolbar, _ = self.windows.emulator("tv_api25")
+        other = self.windows.utility(main, 40, 300)
+        result = self.run_script("tv_api25", "hide")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("several windows look like the toolbar", result.stderr)
+        self.assertIn(hex(toolbar), result.stderr)
+        self.assertIn(hex(other), result.stderr)
+        self.assertTrue(self.windows.is_mapped(toolbar) and self.windows.is_mapped(other))
 
     def test_without_a_name_acts_on_the_only_emulator(self):
-        _, toolbar = self.windows.emulator("living_room")
+        _, toolbar, _ = self.windows.emulator("living_room")
         self.assertEqual(self.run_script("hide").returncode, 0)
         self.assertFalse(self.windows.is_mapped(toolbar))
 
     def test_with_a_name_acts_only_on_that_emulator(self):
-        _, phone_toolbar = self.windows.emulator("phone", port=5554)
-        _, tv_toolbar = self.windows.emulator("tv_api25", port=5556)
+        _, phone_toolbar, _ = self.windows.emulator("phone", port=5554)
+        _, tv_toolbar, _ = self.windows.emulator("tv_api25", port=5556)
         self.assertEqual(self.run_script("tv_api25", "hide").returncode, 0)
         self.assertFalse(self.windows.is_mapped(tv_toolbar))
         self.assertTrue(self.windows.is_mapped(phone_toolbar))
 
     def test_several_emulators_without_a_name(self):
-        _, phone_toolbar = self.windows.emulator("phone", port=5554)
-        _, tv_toolbar = self.windows.emulator("tv_api25", port=5556)
+        _, phone_toolbar, _ = self.windows.emulator("phone", port=5554)
+        _, tv_toolbar, _ = self.windows.emulator("tv_api25", port=5556)
         result = self.run_script("hide")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("several emulators are running", result.stderr)
@@ -123,7 +140,7 @@ class OnAnXServer(unittest.TestCase):
         # The script reads every window on the display; one closing between being listed and
         # being read (a tooltip, a menu, the emulator's own startup windows) made Xlib end it
         # with "BadWindow", and the toolbar stayed shown.
-        _, toolbar = self.windows.emulator("tv_api25")
+        _, toolbar, _ = self.windows.emulator("tv_api25")
         with x11.WindowChurn(self.display):
             result = self.run_script("tv_api25", "hide")
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -137,7 +154,7 @@ class OnAnXServer(unittest.TestCase):
         for _ in range(5):
             windows = x11.EmulatorWindows(self.display)
             self.addCleanup(windows.close)
-            _, toolbar = windows.emulator("tv_api25")
+            _, toolbar, _ = windows.emulator("tv_api25")
             script = subprocess.Popen([sys.executable, SCRIPT, "tv_api25", "show"], text=True,
                                       stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                       env=env(self.display))
