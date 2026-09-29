@@ -39,9 +39,15 @@ Things that look removable but aren't
   for that would be shorter; but re-mapping the toolbar of a running emulator, with its
   original properties put back, doesn't park it at (-32768, -32768) again, so a replacement can
   only be checked on a freshly started emulator each time, and hasn't been.
-- Reading _NET_WM_NAME before WM_NAME: after the toolbar has been re-mapped once, Qt leaves
-  WM_NAME empty and only _NET_WM_NAME still says "Emulator".
+- Reading _NET_WM_NAME before WM_NAME: Qt can leave the toolbar's WM_NAME empty (emulator
+  37.1 does from the start), and only _NET_WM_NAME still says "Emulator".
 - Skipping the group leader: a hidden 1x1 window is also titled "Emulator".
+- Picking the window taller than wide: the 620x21 bar (see "The emulator's windows") has
+  everything else in common with the toolbar. The first "Emulator" window found isn't
+  enough: the window manager puts a window it maps on top, so after "show" the bar came first
+  and a "hide" then unmapped the bar, which was hidden anyway, and left the toolbar shown.
+  When several windows are taller than wide, the script looks again until its time limit and
+  then fails rather than guess.
 - The X error handler ignoring BadWindow during the search: the search reads every window on
   the display, and any of them (a tooltip, a menu, the emulator's own startup windows) can
   close between being listed and being read. Xlib's default handler ends the program on that
@@ -57,14 +63,39 @@ Things that don't work (don't try them again)
 - Simulated input (XTest) and XSetInputFocus, e.g. for automated tests: XWayland under WSLg
   ignores them, so only real mouse and keyboard input can test this.
 
+The emulator's windows
+----------------------
+Seen with emulator 37.1 under WSLg (tv_api25, booted -read-only). All share
+one window group (WM_HINTS) and WM_CLIENT_LEADER; all but the leader have WM_CLASS
+"qemu-system-<arch>", "Emulator".
+
+  "Android Emulator - <avd>:<port>"  the screen (960x540 for tv_api25); a normal, mapped
+                                     window
+  "Emulator" 54x418 (the toolbar)    fixed size (WM_NORMAL_HINTS min = max); WM_TRANSIENT_FOR
+                                     the main window, _NET_WM_WINDOW_TYPE UTILITY (plus KDE
+                                     OVERRIDE and NORMAL); mapped by the emulator, its frame
+                                     parked at (-32768, -32768)
+  "Emulator" 620x21 (a bar)          purpose unknown (a startup message?); the same transient
+                                     hint, types, WM_CLASS and _MOTIF_WM_HINTS as the toolbar;
+                                     the emulator itself maps it at startup, 620x102 and parked
+                                     like the toolbar, and a few seconds after Android has
+                                     booted (after start-emulator.sh's "hide") unmaps it
+                                     (WM_STATE Withdrawn) and shrinks it to 620x21
+                                     (WM_NORMAL_HINTS height min = max = 21)
+  "Emulator" 1x1                     the group leader; never mapped, no WM_CLASS
+  "Extended Controls"                when opened from the toolbar
+
+Only the toolbar and the bar have their title in _NET_WM_NAME alone. The window manager
+reparents the toolbar and the bar into frames, and stacks a window it maps on top of the
+others, so their order changes with every "show".
+
 Debugging
 ---------
   xwininfo -root -tree | grep qemu-system   # windows and absolute positions (x11-utils package)
   xprop -id <window-id>                     # its title, WM_TRANSIENT_FOR, type, group leader
 Broken state: the 54x418 "Emulator" window at "+-32736+-32736". Hidden: `xwininfo -id <id>`
-shows "Map State: IsUnMapped". The main window's title is "Android Emulator - <avd>:<port>".
-Emulator restarts create new windows, so this script finds them by title and window group,
-never by window id.
+shows "Map State: IsUnMapped". Emulator restarts create new windows, so this script finds them
+by title, window group and shape, never by window id.
 
 Only needs libX11 (called through ctypes, so there are no pip dependencies). Safe to re-run
 and to switch modes on a running emulator. Restarting the emulator undoes it.
@@ -143,10 +174,11 @@ searching = False  # True while find_windows() reads windows that may close at a
 
 def on_x_error(display, event):
     # The search only makes calls that wait for the server's answer (XQueryTree,
-    # XGetWindowProperty, XFetchName, XGetWMHints), so an error arrives during the call that
-    # caused it, and that call then returns "nothing": no children, no name, no hints. The only
-    # error a window closing meanwhile causes them is BadWindow. Anything else goes to Xlib's
-    # default handler, which prints the error and exits with status 1.
+    # XGetWindowProperty, XFetchName, XGetWMHints, XGetWindowAttributes), so an error arrives
+    # during the call that caused it, and that call then returns "nothing": no children, no
+    # name, no hints, no size. The only error a window closing meanwhile causes them is
+    # BadWindow. Anything else goes to Xlib's default handler, which prints the error and exits
+    # with status 1.
     if searching and event.contents.error_code == BAD_WINDOW:
         return 0
     return xlib_default_error_handler(display, event)
@@ -220,38 +252,53 @@ def find_windows():
         searching = False
 
 
+def taller_than_wide(win):
+    attrs = XWindowAttributes()
+    # 0: the window closed since it was listed.
+    return bool(x11.XGetWindowAttributes(d, ctypes.c_ulong(win), ctypes.byref(attrs))) \
+        and attrs.height > attrs.width
+
+
 def search():
     windows = list(all_windows(root.value))
     # The main window's title is "Android Emulator - <avd>:<port>".
     prefix = f"Android Emulator - {AVD}:" if AVD else "Android Emulator - "
     mains = [w for w in windows if name(w).startswith(prefix)]
     if not mains:
-        return None, None
+        return None, []
     if len(mains) > 1 and not AVD:
         titles = ", ".join(name(w).removeprefix("Android Emulator - ") for w in mains)
         sys.exit(f"wslg-toolbar: several emulators are running ({titles}); pass the AVD name")
     main = mains[0]
     group = group_leader(main)
-    # The toolbar is titled plain "Emulator" and shares the main window's group; the group
-    # leader itself (a hidden 1x1 window) has the same title, so skip it. "Extended Controls"
-    # windows share the group too, but have a different title.
-    toolbar = next((w for w in windows
-                    if w not in (main, group) and name(w) == "Emulator" and group_leader(w) == group),
-                   None)
-    return main, toolbar
+    # The toolbar is titled plain "Emulator" and shares the main window's group. So do the group
+    # leader itself (a hidden 1x1 window), skipped, and a 620x21 bar: the toolbar is the
+    # one taller than wide, a column of buttons. Their order on the display can't tell them
+    # apart: it changes whenever one is mapped. "Extended Controls" windows share the group too,
+    # but have a different title.
+    return main, [w for w in windows
+                  if w not in (main, group) and name(w) == "Emulator" and group_leader(w) == group
+                  and taller_than_wide(w)]
 
 
 deadline = time.monotonic() + TIMEOUT  # monotonic: WSL2 steps the clock after the host sleeps
-main, toolbar = find_windows()
-while not toolbar and time.monotonic() < deadline:
+main, toolbars = find_windows()
+while len(toolbars) != 1 and time.monotonic() < deadline:
     time.sleep(1)
-    main, toolbar = find_windows()
-if not toolbar:
-    # Wrong AVD name, emulator not running, or a new emulator build that titles its windows
-    # differently: check with `xwininfo -root -tree | grep qemu-system`.
+    main, toolbars = find_windows()
+if len(toolbars) > 1:
+    # A new emulator build with another window that looks like the toolbar: changing the wrong
+    # one would leave the toolbar as it was, so don't guess.
+    ids = ", ".join(hex(w) for w in toolbars)
+    sys.exit(f"wslg-toolbar: several windows look like the toolbar ({ids}); "
+             "check with `xwininfo -root -tree | grep qemu-system`")
+if not toolbars:
+    # Wrong AVD name, emulator not running, or a new emulator build that titles or shapes its
+    # windows differently: check with `xwininfo -root -tree | grep qemu-system`.
     sys.exit(f"wslg-toolbar: no toolbar window found for AVD '{AVD}'" if AVD
              else "wslg-toolbar: no running emulator window found")
 
+toolbar = toolbars[0]
 tb = ctypes.c_ulong(toolbar)
 x11.XUnmapWindow(d, tb)  # this alone is the "hide" mode
 x11.XSync(d, 0)

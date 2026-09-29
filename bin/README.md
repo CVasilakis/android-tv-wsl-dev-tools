@@ -430,10 +430,12 @@ You can't have both a clickable toolbar and a working keyboard, so `wslg-toolbar
 | `hide` (default in `start-emulator.sh`) | works | hidden |
 | `show` | goes to the toolbar (use `remote.sh`) | clickable, including "⋯" → Extended controls → *Directional pad* |
 
-Switch at any time on a running emulator: `wslg-toolbar.py show`. Without an AVD
+Switch at any time on a running emulator, as often as you like: `wslg-toolbar.py show`. Without an AVD
 name it acts on the only emulator window; with several, pass the name: `wslg-toolbar.py tv_api25 show`.
-Restarting the emulator undoes it. The script's docstring explains the mechanism, how to inspect the
-windows (`xwininfo`, `xprop`) and which approaches don't work.
+The emulator has a second window titled "Emulator" (a 620x21 bar, hidden once it has booted);
+the script tells the toolbar apart by its shape, a column taller than wide. Restarting the
+emulator undoes it. The script's docstring describes the emulator's windows and explains the
+mechanism, how to inspect them (`xwininfo`, `xprop`) and which approaches don't work.
 
 ## Checking what the emulator is doing
 
@@ -487,6 +489,7 @@ TV or Google TV; these are the differences in the images that you may run into:
 | Toolbar buttons ignore clicks | `wslg-toolbar.py show` |
 | `wslg-toolbar: no toolbar window found` | wrong AVD name or emulator not running; inspect with `xwininfo -root -tree \| grep qemu-system` |
 | `wslg-toolbar: no running emulator window found` | emulator not running, or started with `-no-window` |
+| `wslg-toolbar: several windows look like the toolbar` | an emulator version with another tall window titled "Emulator": compare them with `xwininfo -root -tree \| grep qemu-system` and update the script's search |
 | `wslg-toolbar.py`: `X Error of failed request: BadWindow` | the emulator's toolbar or window closed while the script changed it (the emulator exited or restarted): run it again once the emulator is up |
 | `start-emulator.sh: the emulator exited` | the printed log lines say why (e.g. an unknown flag); full log in `${TMPDIR:-/tmp}/emulator-<name>.log` |
 | `start-emulator.sh: '<avd>' didn't finish booting within 900 s` | the host is slow: raise `ADT_BOOT_TIMEOUT`; or Android can't boot: without `--quick` if you used it, else try `-wipe-data` (factory reset) |

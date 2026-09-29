@@ -111,7 +111,7 @@ ADT_AVD=tv_api31 tests/run.py --emulator -k test_remote_keys; kill $(jobs -p); b
 | [`run.py`](run.py) | Entry point: picks the tiers, filters, prints skip reasons. |
 | [`support/sandbox.py`](support/sandbox.py) | `Sandbox`: a throwaway machine per test. `ScriptTestCase`: the base class. |
 | [`support/fake_tools.py`](support/fake_tools.py) | Fakes for `adb`, `emulator`, `avdmanager`, `android`, `sdkmanager`, `python3`, `getent`, `id`, `sg`. |
-| [`support/x11.py`](support/x11.py) | Private Xvfb server, fake emulator windows, and `WindowChurn`, a client that keeps opening and closing windows. |
+| [`support/x11.py`](support/x11.py) | Private Xvfb server, fake emulator windows (the main window, the toolbar, and the hidden bar also titled "Emulator"; Xvfb has no window manager, so `raise_()` puts a window on top as one would when it maps it), and `WindowChurn`, a client that keeps opening and closing windows. |
 | [`support/input_dump.py`](support/input_dump.py) | Reading Android's input dispatcher from `dumpsys input`, for the emulator tier. |
 | `hermetic/test_<script>.py` | One file per script, plus [`test_conventions.py`](hermetic/test_conventions.py) for the rules all scripts follow, and [`test_input_dump.py`](hermetic/test_input_dump.py) for `support/input_dump.py`. |
 | [`emulator/test_on_emulator.py`](emulator/test_on_emulator.py) | The real-emulator tier. |

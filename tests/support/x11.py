@@ -103,6 +103,7 @@ class EmulatorWindows:
         self.x.XDefaultRootWindow.restype = ctypes.c_ulong
         self.x.XCreateSimpleWindow.restype = ctypes.c_ulong
         self.x.XGetAtomName.restype = ctypes.c_void_p
+        self.x.XGetWMHints.restype = ctypes.POINTER(XWMHints)
         self.d = ctypes.c_void_p(self.x.XOpenDisplay(display.encode()))
         if not self.d.value:
             raise RuntimeError(f"cannot open display {display}")
@@ -114,21 +115,39 @@ class EmulatorWindows:
     # --- Building ---------------------------------------------------------------------------
 
     def emulator(self, avd, port=5554):
-        """Creates one emulator's windows as the real emulator does; returns (main, toolbar)."""
+        """Creates one emulator's windows as the real emulator does; returns (main, toolbar, bar).
+        The bar is the 620x21 window titled "Emulator" like the toolbar, hidden as it is once the
+        emulator has booted. It's created after the toolbar, so it's above it, as on WSLg after
+        boot; raise_() puts the toolbar on top, as a window manager does when it maps it."""
         leader = self._window("Emulator", 1, 1, mapped=False)       # hidden group leader
         self._set_group(leader, leader)
         main = self._window(f"Android Emulator - {avd}:{port}", 400, 225)
         self._set_group(main, leader)
-        toolbar = self._window("Emulator", 54, 418, mapped=False)   # mapped once it's transient
-        self._set_group(toolbar, leader)
-        self.x.XSetTransientForHint(self.d, ctypes.c_ulong(toolbar), ctypes.c_ulong(main))
+        toolbar = self.utility(main, 54, 418)
+        bar = self.utility(main, 620, 21, mapped=False)
         extended = self._window("Extended Controls", 300, 300)
         self._set_group(extended, leader)
-        self.x.XMapWindow(self.d, ctypes.c_ulong(toolbar))
-        self.x.XSync(self.d, 0)
         if not (self.wait_until_mapped(main) and self.wait_until_mapped(toolbar)):
             raise RuntimeError(f"the window manager didn't map the windows of {avd}")
-        return main, toolbar
+        return main, toolbar, bar
+
+    def utility(self, main, width, height, mapped=True):
+        """Another window titled "Emulator" in main's group, a transient utility of it, like the
+        toolbar and the bar."""
+        hints = self.x.XGetWMHints(self.d, ctypes.c_ulong(main))
+        leader = hints.contents.window_group
+        self.x.XFree(hints)
+        win = self._window("Emulator", width, height, mapped=False)  # mapped once it's transient
+        self._set_group(win, leader)
+        self.x.XSetTransientForHint(self.d, ctypes.c_ulong(win), ctypes.c_ulong(main))
+        if mapped:
+            self.x.XMapWindow(self.d, ctypes.c_ulong(win))
+        self.x.XSync(self.d, 0)
+        return win
+
+    def raise_(self, win):
+        self.x.XRaiseWindow(self.d, ctypes.c_ulong(win))
+        self.x.XSync(self.d, 0)
 
     def _window(self, title, width, height, mapped=True):
         win = self.x.XCreateSimpleWindow(self.d, self.root, 0, 0, width, height, 0, 0, 0)

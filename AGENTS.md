@@ -76,6 +76,7 @@ Each of these fixes a real problem. The reasons are in the linked file; read the
 | Cold boot by default, the offline watchdog only with `--quick` | `bin/start-emulator.sh` | A restored snapshot can leave adb `offline` for good; a cold boot is offline for a while normally. |
 | `install_hint`'s fallback to `sdkmanager` | `lib/lib.sh` | `android` only ships from cmdline-tools 22.0; on older SDKs the hint would name a command the user doesn't have. |
 | Toolbar hidden by default under WSL | `bin/start-emulator.sh`, `bin/wslg-toolbar.py` | Otherwise typed keys never reach Android. |
+| Picking the toolbar by its shape (taller than wide) | `bin/wslg-toolbar.py` | A 620x21 window, hidden after boot, has the toolbar's title, group and hints, and comes first in the search once "show" has put the toolbar on top; a later "hide" then left the toolbar shown (its docstring). |
 | The X error handler that ignores BadWindow while the toolbar is searched for | `bin/wslg-toolbar.py` | Any window on the display can close while the search reads it, and Xlib's default handler then ends the script, leaving the toolbar shown (its docstring). |
 | No `set -e`, Esc read timeout | `bin/remote.sh` | Keep the remote alive; tell Esc from arrow keys. |
 | `input keyevent` instead of the faster `adb emu event send`, `< /dev/null` on `adb shell` | `bin/remote.sh` | Console key events are emulator-only and vanish on the API 30 TV image; `adb shell` swallows the keys typed after it. |
