@@ -2,9 +2,10 @@
 # Boots the development emulator and returns once Android has finished booting, so it can be
 # chained: start-emulator.sh && ./gradlew installDebug
 #
-# Usage:   start-emulator.sh [--quick] [avd-name] [extra emulator flags...]
+# Usage:   start-emulator.sh [--quick] [--wait-for-home] [avd-name] [extra emulator flags...]
 #            start-emulator.sh                       # the default AVD (see below), cold boot
 #            start-emulator.sh --quick               # boot from the Quick Boot snapshot instead
+#            start-emulator.sh --wait-for-home       # return once the home app has settled in front
 #            start-emulator.sh -wipe-data            # default AVD, factory reset
 #            start-emulator.sh my_tv -gpu host       # another AVD, hardware rendering
 #          EMULATOR_TOOLBAR=show start-emulator.sh   # keep a clickable side toolbar (WSL)
@@ -37,6 +38,20 @@
 # still be booting, e.g. started by another call or CI step a moment ago. So the script waits for
 # its boot like for its own, with the same timeout, but never stops it: it's not this script's.
 #
+# Waiting for the home app (--wait-for-home, opt-in): sys.boot_completed=1 comes before the device
+# has settled. From API 24 on, Settings' FallbackHome holds the screen until the user is unlocked,
+# and HOME resolves to it; the home app comes to the front only then, sometimes after
+# sys.boot_completed; and on a host short of CPU no window had the focus long after it, so no key
+# reached any app (an instrumented test's first key waits for a focused window, and fails). With
+# --wait-for-home the script then also waits until the home app is in front, with the focus, for
+# a few seconds in a row (wait_for_home in lib.sh says exactly what it checks), for at most
+# $ADT_HOME_TIMEOUT seconds (default 300; 0: no limit), counted from when Android has booted. When
+# time's up it fails, naming what was in front, and stops the emulator if it started it, as after
+# a boot timeout. When another app's screen keeps the focus (a new AVD's first boot shows "USB
+# drive connected" on API 23 and 29), it presses Back, twice at most, but only on an emulator whose
+# boot it waited for: one that had booted before may be in use, so there it only looks, and fails
+# if an app stays in front. With --quick the restored device has usually settled already.
+#
 # Home on Android TV 8.0 and 8.1: on the API 26 and 27 Android TV images, the Home key never
 # leaves an app until tv_user_setup_complete is set, so after the boot the script sets it (see
 # the code below), and then waits 30 s so Android saves it. Any other image is left as it is.
@@ -59,13 +74,16 @@
 #   "adb can't reach it" (--quick only)
 #       The restored snapshot left adb offline, even after a reconnect: stop the emulator and
 #       start it without --quick.
+#   "its home app wasn't in front ... within ... s" (--wait-for-home only)
+#       What was in front instead is named: something kept the focus, or nothing had it. On a
+#       slow host, raise ADT_HOME_TIMEOUT.
 #
 # Everything below exists for a reason; see the comment on each step before removing one.
 set -euo pipefail
 
 usage() {
     cat <<'EOF'
-Usage: start-emulator.sh [--quick] [avd-name] [emulator flags...]
+Usage: start-emulator.sh [--quick] [--wait-for-home] [avd-name] [emulator flags...]
 
 Boots an Android TV emulator in the background and returns once Android is ready, so it can be
 chained: start-emulator.sh && ./gradlew installDebug. Cold boot by default.
@@ -76,6 +94,11 @@ serial="$(start-emulator.sh)" captures it. Without $DISPLAY it adds -no-window.
   --quick         boot from the Quick Boot snapshot saved when the emulator was last stopped
                   (faster); if adb can't reach the restored emulator for 30 s, reconnect adb once,
                   then give up
+  --wait-for-home once Android has booted, also wait until the device has settled: its home app
+                  in front, holding the focus, for a few seconds in a row; if another screen
+                  keeps the focus, press Back (twice at most), except on an emulator that had
+                  booted before this call. If that takes over $ADT_HOME_TIMEOUT s, fail, and stop
+                  the emulator if this script started it
   avd-name        the AVD to boot. Default: $ADT_AVD, else tv_api25 if it exists, else the
                   only Android TV AVD
   emulator flags  passed on to the emulator, e.g. -wipe-data, -no-window,
@@ -86,6 +109,8 @@ Environment:
   ADT_AVD           default AVD name
   ADT_BOOT_TIMEOUT  seconds to wait for Android to boot before stopping the emulator and
                     failing (default: 900; 0: no limit)
+  ADT_HOME_TIMEOUT  with --wait-for-home: seconds to wait for the home app after the boot
+                    (default: 300; 0: no limit)
   EMULATOR_TOOLBAR  WSL only: hide (default) or show the emulator's side toolbar
                     (see bin/README.md)
 
@@ -110,13 +135,24 @@ if ! [[ "$BOOT_TIMEOUT" =~ ^[0-9]+$ ]]; then
     die "ADT_BOOT_TIMEOUT must be a number of seconds (0: no limit), not '$BOOT_TIMEOUT'."
 fi
 
-# --quick is this script's own flag, allowed anywhere; the emulator's flags have a single dash.
+# --quick and --wait-for-home are this script's own flags, allowed anywhere; the emulator's flags
+# have a single dash.
 QUICK=""
+WAIT_FOR_HOME=""
 ARGS=()
 for arg in "$@"; do
-    if [ "$arg" = --quick ]; then QUICK=1; else ARGS+=("$arg"); fi
+    case "$arg" in
+        --quick) QUICK=1 ;;
+        --wait-for-home) WAIT_FOR_HOME=1 ;;
+        *) ARGS+=("$arg") ;;
+    esac
 done
 set -- ${ARGS[@]+"${ARGS[@]}"}
+
+HOME_TIMEOUT="${ADT_HOME_TIMEOUT:-300}"   # seconds, 0 = no limit (see the header)
+if [ -n "$WAIT_FOR_HOME" ] && ! [[ "$HOME_TIMEOUT" =~ ^[0-9]+$ ]]; then
+    die "ADT_HOME_TIMEOUT must be a number of seconds (0: no limit), not '$HOME_TIMEOUT'."
+fi
 
 # The first argument is the AVD name, unless it's already an emulator flag (e.g. just -wipe-data).
 AVD_NAME=""
@@ -192,7 +228,7 @@ and to keep that across restarts:
     ME="$(id -un)"
     if [[ " $(id -nG "$ME" 2>/dev/null || true) " == *" kvm "* ]] && [ -z "${_IN_SG_KVM:-}" ]; then
         exec sg kvm -c "_IN_SG_KVM=1 $(printf '%q ' "$BIN_DIR/start-emulator.sh" "$AVD_NAME" \
-            ${QUICK:+--quick} "$@")"
+            ${QUICK:+--quick} ${WAIT_FOR_HOME:+--wait-for-home} "$@")"
     fi
     die "No access to $KVM_DEVICE. Run: sudo usermod -aG kvm $ME"
 fi
@@ -385,6 +421,31 @@ case "$AVD_IMAGE" in
         fi
         ;;
 esac
+
+# The boot comes before the device has settled; with --wait-for-home, wait for that too (see the
+# header). Back, for a screen that keeps the focus, only on an emulator whose boot the script saw:
+# one that had booted before may be in use. A failure is handled like a boot timeout: an emulator
+# started here is of no use unsettled.
+if [ -n "$WAIT_FOR_HOME" ]; then
+    limit=""
+    if [ "$HOME_TIMEOUT" -gt 0 ]; then limit=" (up to $HOME_TIMEOUT s)"; fi
+    echo "Waiting for the home app to be in front, with the focus$limit..." >&2
+    BACKS=0
+    if [ -n "$STARTED_HERE" ] || [ -n "${WAITED:-}" ]; then BACKS=2; fi
+    if FRONT="$(wait_for_home "$SERIAL" "$HOME_TIMEOUT" "$BACKS")"; then
+        echo "The home app ($FRONT) is in front." >&2
+    elif [ -z "$STARTED_HERE" ]; then
+        die "'$AVD_NAME' ($SERIAL) booted, but its home app wasn't in front with the focus within $HOME_TIMEOUT s.
+In front: $FRONT.
+It wasn't started by this script, so it's left running. On a slow host, set ADT_HOME_TIMEOUT to
+wait longer (0: no limit)."
+    else
+        stop_emulator
+        die "'$AVD_NAME' booted, but its home app wasn't in front with the focus within $HOME_TIMEOUT s,
+so it was stopped. In front: $FRONT.
+On a slow host, set ADT_HOME_TIMEOUT to wait longer (0: no limit)."
+    fi
+fi
 
 # With several devices connected, adb refuses to guess and `./gradlew installDebug` installs on
 # all of them. Both honor ANDROID_SERIAL.

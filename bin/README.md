@@ -8,7 +8,7 @@ their path, e.g. `../android-tv-wsl-dev-tools/bin/start-emulator.sh`.
 | Script | Purpose |
 |---|---|
 | [`create-avd.sh`](create-avd.sh) | Creates an Android TV emulator with the right hardware settings (`tv_api25`, or `--api <level>`, or Google TV with `--google-tv`; another screen with `--size`/`--density`). |
-| [`start-emulator.sh`](start-emulator.sh) | Boots it (cold boot, or Quick Boot with `--quick`), waits until Android is ready, applies the WSLg toolbar fix. |
+| [`start-emulator.sh`](start-emulator.sh) | Boots it (cold boot, or Quick Boot with `--quick`), waits until Android is ready (and with `--wait-for-home` until its home app has settled in front), applies the WSLg toolbar fix. |
 | [`stop-emulator.sh`](stop-emulator.sh) | Stops it and returns once it has exited, with a time limit (one emulator, or `--all`). |
 | [`remote.sh`](remote.sh) | TV remote in the terminal (D-pad, OK, Back, Home, Menu, …); holds a key as a long press on any API level (`--long-press`). |
 | [`wslg-toolbar.py`](wslg-toolbar.py) | Works around the emulator toolbar's input problems under WSLg. |
@@ -165,11 +165,12 @@ start-emulator.sh tv30_720p
 
 ## `start-emulator.sh`
 
-`start-emulator.sh [--quick] [name] [emulator flags…]`
+`start-emulator.sh [--quick] [--wait-for-home] [name] [emulator flags…]`
 
 ```bash
 start-emulator.sh                          # cold boot the default AVD (see Finding your setup)
 start-emulator.sh --quick                  # boot from its Quick Boot snapshot instead
+start-emulator.sh --wait-for-home          # also wait until the home app has settled (tests, CI)
 start-emulator.sh -wipe-data               # factory reset (also re-enables a disabled stock launcher)
 start-emulator.sh my_tv -gpu host          # another AVD, with hardware rendering
 EMULATOR_TOOLBAR=show start-emulator.sh    # keep a clickable side toolbar (see below)
@@ -188,6 +189,40 @@ booting, e.g. started by another call or CI step a moment ago. The script then w
 like for its own, with the same timeout, and prints its serial once Android is ready. It never
 stops an emulator it didn't start: on a timeout it only fails, and if the emulator is stopped
 meanwhile, it stops waiting.
+
+**Waiting for the home app (`--wait-for-home`).** `sys.boot_completed=1` comes before the device
+has settled. From API 24 on, until the user is unlocked, Settings' `FallbackHome` holds the screen
+and a HOME intent resolves to it; the home app comes to the front only then, which can be after
+`sys.boot_completed`. And on a host short of CPU, no window had the focus long after the boot, so
+no key reached any app: an instrumented test's first key, which waits for a focused
+window, then fails. With `--wait-for-home`, once Android has booted, the script also waits until:
+
+- the activity in front (`dumpsys window`'s `mFocusedApp`) is the home app's, and a window of the
+  home app has the focus (`mCurrentFocus`), so keys go to it;
+- from API 24 on, a HOME intent no longer resolves to `FallbackHome`
+  (`cmd package resolve-activity`), and the home app is the one it resolves to. API 22 and 23 have
+  no `cmd` and no `FallbackHome`: there the home app is the activity in front when a HOME intent
+  started its task (`dumpsys activity activities`);
+- all this has held for a few seconds in a row, as the front changes a few times while the home
+  app starts.
+
+Google TV's home app shows a sign-in screen without a Google account, and on API 22 with a second
+home app installed Android's home chooser is in front: each counts as the home app. The script
+says which package it found.
+
+Another screen can keep the focus: on API 23 and 29 the first boot of a new AVD, which is every
+boot in CI, opens "USB drive connected" in front of the home app, and it stays until Back. So when
+a window of another app has kept the focus for 10 s, once the user is unlocked, the script presses
+Back, twice at most. It does so only on an emulator whose boot it waited for (one it started, or
+one that was still booting); on one that had booted before, which someone may be using, it only
+looks, and fails if an app stays in front: press Home first, or leave out the flag. It never
+starts an app. With `--quick`, the restored device has usually settled already, so the wait is
+short.
+
+It waits at most `ADT_HOME_TIMEOUT` seconds (default 300; `0`: no limit), counted from when
+Android has booted, on top of `ADT_BOOT_TIMEOUT`. When time's up it fails, naming what was in
+front (the focused activity, the focused window, and what a HOME intent resolves to), and stops
+the emulator it started, as after a boot timeout; one that was already running is left running.
 
 **Home on API 26 and 27.** On the Android TV images of API 26 and 27 (Android 8.0 and 8.1), the
 Home key never leaves an app until the TV setup wizard has set `tv_user_setup_complete`, and
@@ -394,7 +429,7 @@ windows (`xwininfo`, `xprop`) and which approaches don't work.
 ## Checking what the emulator is doing
 
 ```bash
-adb shell dumpsys window | grep mCurrentFocus                       # activity in front
+adb shell dumpsys window | grep -E 'mCurrentFocus|mFocusedApp'     # focused window, activity in front
 adb exec-out screencap -p > screen.png                             # screenshot
 adb shell dumpsys input | sed -n '/RecentQueue/,/PendingEvent/p'   # last 10 input events (key codes up to API 28)
 adb shell cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME   # API 24 on
@@ -419,12 +454,12 @@ TV or Google TV; these are the differences in the images that you may run into:
 | API | Difference |
 |---|---|
 | 22 | `--quick` is slower than a cold boot. The device has no `uname`. The stock launcher's HOME filter has no priority, so with another home app installed, Home opens the chooser; while the chooser is in front, `adb shell am start -W` of an app open behind it never returns (without `-W` it's fine). |
-| 22–23 | No `cmd` on the device (`cmd package resolve-activity`, …); it exists from API 24 on. `adb shell am start -W …` names the activity an intent opened, on its `Activity:` line (but it opens it). |
+| 22–23 | No `cmd` on the device (`cmd package resolve-activity`, …); it exists from API 24 on. `adb shell am start -W …` names the activity an intent opened, on its `Activity:` line (but it opens it). `dumpsys activity activities` shows the intent that started each task (`intent={…}`) and the focused activity (`mFocusedActivity`); `start-emulator.sh --wait-for-home` finds the home app that way. On API 22 an app started from the home chooser joins the chooser's stack (`stackId=0`), so the stack doesn't tell the home app. |
 | 22–25 | The stock launcher is `com.google.android.leanbacklauncher`. |
 | 22–29 | `adb shell input keyevent --longpress` doesn't hold the key, so it's a short press; `remote.sh --long-press` holds it on every level ([Long presses](#long-presses)). |
-| 23, 29 | The first boot of a new AVD opens a "USB drive connected" screen (the AVD's SD card) in front of the launcher; later boots don't. |
+| 23, 29 | The first boot of a new AVD opens a "USB drive connected" screen (the AVD's SD card, `com.android.tv.settings/.device.storage.NewStorageActivity`) in front of the launcher, until Back; later boots don't. `start-emulator.sh --wait-for-home` presses Back for it. |
 | 23 on | The stock launcher's HOME filter has priority 2, so `set-home-activity` and the home chooser can't pick another home app: it only takes over while the stock one is disabled (`adb shell pm disable-user --user 0 <package>`). |
-| 24 on | Until the user is unlocked after a boot, a HOME intent resolves to Settings' `com.android.tv.settings/.system.FallbackHome` (also for `cmd package resolve-activity`), which holds the screen until the home app has started; both can last past `sys.boot_completed` being 1, when `start-emulator.sh` returns. |
+| 24 on | Until the user is unlocked after a boot, a HOME intent resolves to Settings' `com.android.tv.settings/.system.FallbackHome` (also for `cmd package resolve-activity`), which holds the screen until the home app has started; both can last past `sys.boot_completed` being 1, when `start-emulator.sh` returns (without [`--wait-for-home`](#start-emulatorsh)). |
 | 26 on | The stock launcher is `com.google.android.tvlauncher`. On 26–29 `leanbacklauncher` is installed too, without a HOME filter. |
 | 26, 27 | The slowest cold boots up to API 28. Home doesn't leave apps until `tv_user_setup_complete` is set, which `start-emulator.sh` does ([Home on API 26 and 27](#home-on-api-26-and-27)). |
 | 29 on | `dumpsys input` lists key events without key codes. avdmanager prints the harmless devices.xml error. |
@@ -446,6 +481,7 @@ TV or Google TV; these are the differences in the images that you may run into:
 | `start-emulator.sh: the emulator exited` | the printed log lines say why (e.g. an unknown flag); full log in `${TMPDIR:-/tmp}/emulator-<name>.log` |
 | `start-emulator.sh: '<avd>' didn't finish booting within 900 s` | the host is slow: raise `ADT_BOOT_TIMEOUT`; or Android can't boot: without `--quick` if you used it, else try `-wipe-data` (factory reset) |
 | `create-avd.sh: AVD '<name>' already exists` | it never overwrites one; `--if-missing` accepts it when it's from the same system image (see [`create-avd.sh`](#create-avdsh)) |
+| `start-emulator.sh: '<avd>' booted, but its home app wasn't in front with the focus within 300 s` (with `--wait-for-home`) | the next line says what was in front: nothing focused (a host short of CPU: raise `ADT_HOME_TIMEOUT`), another app (on an emulator that had booted before: press Home, or leave out the flag), or a screen that two Backs didn't close |
 | `start-emulator.sh: … was stopped before it finished booting` | the AVD was already running and booting (another call started it), and was stopped while this one waited; start it again |
 | `start-emulator.sh: … adb can't reach it` (with `--quick`) | the restored snapshot left adb offline: `stop-emulator.sh <serial>`, then start it without `--quick` |
 | `… It's still running.` from `stop-emulator.sh` | the emulator couldn't be stopped (see [`stop-emulator.sh`](#stop-emulatorsh)); kill its `qemu-system-…` process by the PID in the `pid_<PID>.ini` that `adb -s <serial> emu avd discoverypath` names, or in `hardware-qemu.ini.lock` in the AVD's folder, or reboot WSL (`wsl --shutdown` in Windows) |

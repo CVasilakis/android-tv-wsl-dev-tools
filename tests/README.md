@@ -24,7 +24,7 @@ too. The emulator tier isn't run there; run it locally before a release.
 | Tier | Folder | Needs | Checks |
 |---|---|---|---|
 | hermetic | [`hermetic/`](hermetic) | Python 3; optional: Xvfb, shellcheck | Each script's behavior against fake tools and a fake machine, and how the emulator tier reads Android's input dump. Run it after every script change. |
-| emulator | [`emulator/`](emulator) | Your SDK and AVD (`ADT_AVD` picks one) | What fakes can't show: booting really completes, `remote.sh`'s keys arrive in Android as the right keys, its Home key takes the device from an app to its home app, `--long-press` holds the key for the device's long-press timeout and leaves the settings as they were, and `stop-emulator.sh` returns only once the AVD can start again, also for a `-read-only` emulator, which writes no lock file. |
+| emulator | [`emulator/`](emulator) | Your SDK and AVD (`ADT_AVD` picks one) | What fakes can't show: booting really completes, and with `--wait-for-home` returns with the home app in front and focused, `remote.sh`'s keys arrive in Android as the right keys, its Home key takes the device from an app to its home app, `--long-press` holds the key for the device's long-press timeout and leaves the settings as they were, and `stop-emulator.sh` returns only once the AVD can start again, also for a `-read-only` emulator, which writes no lock file. |
 
 Some hermetic tests skip, with the reason printed, when an optional tool is missing:
 - **Xvfb** (`sudo apt-get install -y xvfb`) for the `wslg-toolbar.py`
@@ -39,7 +39,8 @@ Some hermetic tests skip, with the reason printed, when an optional tool is miss
 - **shellcheck** (`sudo apt-get install -y shellcheck`) for static analysis of the shell scripts.
 
 The emulator tier reuses the AVD if it's already running and leaves it running. Otherwise it boots
-it (cold) with `-no-window -no-snapshot-save` and stops it at the end. The `stop-emulator.sh` tests
+it (cold) with `--wait-for-home -no-window -no-snapshot-save`, so every test starts on a device
+that has settled, and stops it at the end. The `stop-emulator.sh` tests
 skip when the AVD was already running, since they would have to stop it. It tests one AVD per run, so to
 cover every Android version you use:
 
@@ -52,15 +53,15 @@ The Home test decides from what's in front (`dumpsys window`'s focus), which aft
 change by itself: the home app, or Google TV's sign-in screen, comes to the front over an app just
 opened, and from API 24 on Settings' own `FallbackHome` holds the screen, and is what a HOME intent
 resolves to, until the user is unlocked ([Differences between API
-levels](../bin/README.md#differences-between-api-levels)). So the test opens Settings again until
-it's in front at three looks in a row, seconds apart, before it sends Home, and then waits until
-the activity in front (`mFocusedApp`: on a starved device its window can still lack focus 30 s
-later) is of the package Home opens, not merely until something other than Settings is: the one
-`cmd package resolve-activity` names for a HOME intent (asked again at each look before Home, as
-it's `FallbackHome` until the user is unlocked), or on API 22 and 23, which have no `cmd`, the one
-such an intent opens. On Google TV without an account that's the launcher showing its sign-in
-screen, and on API 22 with a second home app installed it's the chooser (package `android`). A
-failure shows `dumpsys window`'s focus lines.
+levels](../bin/README.md#differences-between-api-levels)). So the test first brings the home app to
+the front with a HOME intent (an emulator that was already running may show another app) and waits
+for it with `wait_for_home` from `lib.sh`, what `start-emulator.sh --wait-for-home` runs, which
+also names its package. On Google TV without an account that's the launcher showing its sign-in
+screen, and on API 22 with a second home app installed it's the chooser (package `android`). Then
+the test opens Settings again until it's in front at three looks in a row, seconds apart, sends
+Home, and waits until the activity in front (`mFocusedApp`: on a starved device its window can
+still lack focus 30 s later) is of that package, not merely until something other than Settings
+is. A failure shows `dumpsys window`'s focus lines.
 
 On API 29 and newer, Android's input dump doesn't show key codes, so there the tier checks only
 that each key press arrived, and how far apart a long press's events are; which Android key it
@@ -85,7 +86,7 @@ The tier's time limits hold for an emulator starved of CPU, where `adb shell inp
 look at the input dump and an app's start each take many times longer than on an idle host. A
 wait ends as soon as what it waits for is there, so a long limit only makes a failure slower. Its
 limits for `start-emulator.sh` and `stop-emulator.sh` are longer than the scripts' own, computed
-from them (`ADT_BOOT_TIMEOUT` and `ADT_STOP_TIMEOUT`, which it passes on): a script always gets to
+from them (`ADT_BOOT_TIMEOUT`, `ADT_HOME_TIMEOUT` and `ADT_STOP_TIMEOUT`, which it passes on): a script always gets to
 its own limit, stops what it started and says why, whereas Python stopping `start-emulator.sh`
 would leave its emulator booting. An emulator the tier boots is stopped at the end even when its
 boot failed. To try the tier on a starved emulator, boot it on one host CPU shared with busy loops;
@@ -146,7 +147,10 @@ symlinks in `~/.local/bin`. `cwd` defaults to the project folder. Behavior that 
 script was called (finding `lib.sh`, suggested commands) is tested every way.
 
 Arrange failures and odd situations with `sandbox.set_behavior(...)` (see `DEFAULT_BEHAVIOR` in
-`fake_tools.py`; e.g. `adb_offline` for an emulator adb can't reach, with `ADT_OFFLINE_TIMEOUT=1`
+`fake_tools.py`; e.g. `front` and `home_resolves` for what the device shows in front over time, one item per look, for
+`--wait-for-home` (a `"BACK"` item in `front`: what comes after it waits for a Back key), with
+`ADT_HOME_STABLE=0` so the home app needn't stay in front 3 s, and another screen gets Back after
+1 s rather than 10; `adb_offline` for an emulator adb can't reach, with `ADT_OFFLINE_TIMEOUT=1`
 in the script's environment so `start-emulator.sh --quick` doesn't wait 30 s, or
 `emulator_stuck` for one that won't exit, with `ADT_STOP_TIMEOUT=1` for `stop-emulator.sh`), `connect_device()`, `wsl()` and file permissions on `sandbox.kvm`. Check the
 results with `result.code/out/err`, `sandbox.calls()`/`argvs(tool)` (each call has the `time` it

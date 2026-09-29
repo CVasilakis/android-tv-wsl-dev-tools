@@ -173,3 +173,90 @@ running_emulators() {
 emulator_avd() {
     adb_bounded -s "$1" emu avd name 2>/dev/null | head -n 1 | tr -d '\r'
 }
+
+# wait_for_home <serial> <seconds> [<backs>]: waits until a device has settled after its boot, which
+# sys.boot_completed doesn't mean: until its home app's activity is in front, a window of the home
+# app has the focus (keys go only to the focused window; on a device short of CPU, none had it
+# long after the boot), and, from API 24 on, a HOME intent resolves to the home app. Until the
+# user is unlocked it resolves to Settings' FallbackHome, which holds the screen meanwhile. All
+# that for more than HOME_STABLE s in a row, as the front changes a few times while the home app
+# starts. API 22 and 23 have no `cmd` to ask, and no FallbackHome: there the home app is the
+# activity in front when its task was started by a HOME intent. Google TV's home app without an
+# account shows a sign-in screen, and on API 22 with another home app installed, Android's chooser
+# (package android) is in front instead: each counts as the home app. Another screen can keep
+# the focus: a new AVD's first boot shows "USB drive connected" (for its SD card) in front of the
+# home app on API 23 and 29, until Back. So when a window of another app has kept the focus for
+# BACK_AFTER s, once the user is unlocked, it presses Back, up to <backs> times (default 0: it
+# only looks; never on a device someone may be using). Prints the home app's package. After
+# <seconds> (0: no limit) it prints what was in front instead, and fails. ADT_HOME_STABLE exists
+# for the tests (BACK_AFTER follows it).
+HOME_STABLE="${ADT_HOME_STABLE:-3}"
+BACK_AFTER=$((HOME_STABLE * 3 + 1))
+wait_for_home() {
+    local serial="$1" limit="$2" backs="${3:-0}" start=$SECONDS since="" sdk="" resolved home
+    local dump window app package other="" other_since=""
+    while true; do
+        [ -n "$sdk" ] || sdk="$(adb_bounded -s "$serial" shell getprop ro.build.version.sdk \
+            < /dev/null 2>/dev/null | tr -d '\r' || true)"
+        [[ "$sdk" =~ ^[0-9]+$ ]] || sdk=""
+        resolved=""
+        if [ -n "$sdk" ] && [ "$sdk" -ge 24 ]; then
+            resolved="$(adb_bounded -s "$serial" shell cmd package resolve-activity --brief \
+                -a android.intent.action.MAIN -c android.intent.category.HOME < /dev/null \
+                2>/dev/null | tr -d '\r' | grep -E '^[[:alnum:]_.]+/[[:alnum:]_.$]+$' | tail -n 1 \
+                || true)"
+        fi
+        home="$resolved"
+        # mCurrentFocus=Window{7a8a869 u0 <title>}, where an activity's window has the title
+        # <package>/<class>, or mCurrentFocus=null. mFocusedApp names an ActivityRecord{<hash> u0
+        # <package>/<class> t<task>}, alone or inside an AppWindowToken (before API 29).
+        dump="$(adb_bounded -s "$serial" shell dumpsys window < /dev/null 2>/dev/null | tr -d '\r' \
+            || true)"
+        window="$(sed -n 's/^ *mCurrentFocus=Window{[^ ]* [^ ]* \(.*\)}$/\1/p' <<<"$dump" | head -n 1)"
+        app="$(sed -n 's/^ *mFocusedApp=.*ActivityRecord{[^ ]* [^ ]* \([^ }]*\).*/\1/p' <<<"$dump" \
+            | head -n 1)"
+        # Before API 24: the focused activity, if its task was started by a HOME intent. The dump
+        # lists each task as "* TaskRecord{<hash> #<id> ...", then its intent={...}, and at the end
+        # mFocusedActivity: ActivityRecord{<hash> u0 <package>/<class> t<id>}.
+        if [ -n "$sdk" ] && [ "$sdk" -lt 24 ]; then
+            home="$(adb_bounded -s "$serial" shell dumpsys activity activities < /dev/null \
+                2>/dev/null | tr -d '\r' | awk '
+                    /^ *\* TaskRecord\{/ { task = substr($3, 2) }
+                    /^ *intent=\{/ { home[task] = /android\.intent\.category\.HOME/ }
+                    /^ *mFocusedActivity: / { t = $NF; gsub(/[^0-9]/, "", t); if (home[t]) print $(NF - 1) }' \
+                || true)"
+        fi
+        package="${home%%/*}"
+        if [ -n "$home" ] && [[ "$home" != *FallbackHome ]] && [ "${app%%/*}" = "$package" ] \
+                && [[ "$window" == "$package/"* ]]; then
+            [ -n "$since" ] || since=$SECONDS
+            if time_is_up "$since" "$HOME_STABLE"; then echo "$package"; return 0; fi
+            other=""
+        else
+            since=""
+            # The same window of another app with the focus for BACK_AFTER s, once the user is
+            # unlocked (from API 24 on, a HOME intent no longer resolves to FallbackHome): Back.
+            # Without a focused window, a key would reach nothing.
+            if [ -n "$window" ] && [[ "$window" != "$package/"* ]] && [ -n "$sdk" ] \
+                    && { [ "$sdk" -lt 24 ] || { [ -n "$resolved" ] \
+                    && [[ "$resolved" != *FallbackHome ]]; }; }; then
+                if [ "$window" != "$other" ]; then
+                    other="$window"
+                    other_since=$SECONDS
+                elif [ "$backs" -gt 0 ] && time_is_up "$other_since" "$BACK_AFTER"; then
+                    adb_bounded -s "$serial" shell input keyevent BACK < /dev/null > /dev/null \
+                        2>&1 || true
+                    backs=$((backs - 1))
+                    other=""
+                fi
+            else
+                other=""
+            fi
+            if [ "$limit" -gt 0 ] && time_is_up "$start" "$limit"; then
+                echo "activity ${app:-none}, focused window ${window:-none}${resolved:+; a HOME intent resolves to $resolved}"
+                return 1
+            fi
+        fi
+        sleep 1
+    done
+}

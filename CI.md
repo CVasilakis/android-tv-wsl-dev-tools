@@ -90,6 +90,16 @@ Why the steps look like this:
 - **`serial="$(…)"` on a line of its own.** As an assignment by itself, a failed boot fails the
   step; inside `echo "…$(start-emulator.sh)" >> …` the step would carry on with an empty serial.
 - **`ANDROID_SERIAL`** makes adb and Gradle use that emulator in every later step.
+- **`--wait-for-home`** (in releases after v1.4.0, so not in the example above, which is pinned to
+  v1.4.0: add it to the `start-emulator.sh` line when you pin a release that has it):
+  `start-emulator.sh` returns once Android has booted
+  (`sys.boot_completed`), which on a runner comes before the device has settled: the home app can
+  still be starting, and no window may have the focus yet, so the tests' first keys would reach no
+  app. With `--wait-for-home` it also waits until the home app is in front, with the focus, for a
+  few seconds in a row, presses Back for a screen that stays in front of it (on API 23 and 29, a
+  new AVD's first boot opens "USB drive connected"), and fails, naming what was in front, if the
+  home app doesn't settle within `ADT_HOME_TIMEOUT` seconds
+  ([`bin/README.md`](bin/README.md#start-emulatorsh)).
 - **Freeing disk space.** On its first boot the emulator creates the AVD's data partition, and
   it needs 7.2 GB free for that. Once the system image is installed, the runner's disk has about
   that or less: with API 26 and 27 (3.2 GB images) it was 65 MB short, with API 36 (8.2 GB)
@@ -105,9 +115,9 @@ Why the steps look like this:
   when the install fails, where it says why.
 - **`-no-snapshot-save`**: the emulator saves a Quick Boot snapshot when it's stopped, which is
   slow and of no use on a runner that's thrown away. Boots are cold by default anyway.
-- **Time limits.** A stuck boot fails after `ADT_BOOT_TIMEOUT` seconds
-  ([`bin/README.md`](bin/README.md#start-emulatorsh)); set it in `env:`. `timeout-minutes` bounds
-  the whole job, including the tests.
+- **Time limits.** A stuck boot fails after `ADT_BOOT_TIMEOUT` seconds, and a device that doesn't
+  settle after `ADT_HOME_TIMEOUT` more ([`bin/README.md`](bin/README.md#start-emulatorsh)); set
+  them in `env:`. `timeout-minutes` bounds the whole job, including the tests.
 - **The log.** The emulator logs to `${TMPDIR:-/tmp}/emulator-<avd>.log`; the last step prints it
   when something failed.
 - **One emulator per job.** A matrix keeps each job small. Several emulators in one job work too:

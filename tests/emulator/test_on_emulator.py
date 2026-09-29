@@ -2,8 +2,8 @@
 
 Uses the developer's own setup (SDK, AVD) exactly as the scripts find it; set ADT_AVD to pick
 the AVD. If that AVD is already running it's reused and left running; otherwise it's booted
-without a window and stopped afterwards (without saving a snapshot, so the next normal start is
-unaffected). The stop-emulator.sh tests need an AVD of their own to stop, so they skip if the
+without a window, with --wait-for-home so the tests start on a device that has settled, and
+stopped afterwards (without saving a snapshot, so the next normal start is unaffected). The stop-emulator.sh tests need an AVD of their own to stop, so they skip if the
 AVD was already running.
 """
 import os
@@ -43,11 +43,16 @@ LONG_PRESS_TIMEOUT = 180   # for remote.sh --long-press: up to 9 adb calls, monk
 ADB_CALL = 15 + 5
 ADB_CALLS = 10
 BOOT_TIMEOUT = int(os.environ.get("ADT_BOOT_TIMEOUT") or 900)   # passed on to start-emulator.sh
+HOME_TIMEOUT = int(os.environ.get("ADT_HOME_TIMEOUT") or 300)   # and to its --wait-for-home
 STOP_TIMEOUT = int(os.environ.get("ADT_STOP_TIMEOUT") or 60)    # passed on to stop-emulator.sh
-# start-emulator.sh: the boot limit, then either stopping the emulator that didn't boot (SIGTERM,
-# up to 30 s, then SIGKILL) or, on API 26 and 27, waiting 30 s for Android to save a setting. No
-# limit when ADT_BOOT_TIMEOUT is 0 (the script's own "no limit").
-START_LIMIT = BOOT_TIMEOUT + 1 + 31 + ADB_CALLS * ADB_CALL if BOOT_TIMEOUT else None
+# lib.sh's wait_for_home: its limit, then the few seconds the home app must stay in front
+# (HOME_STABLE), or a last look of up to four adb calls.
+HOME_LIMIT = HOME_TIMEOUT + 1 + 3 + 1 + 4 * ADB_CALL if HOME_TIMEOUT else None
+# start-emulator.sh: the boot limit; on API 26 and 27, waiting 30 s for Android to save a setting;
+# with --wait-for-home, that wait; then stopping an emulator that didn't boot or settle (SIGTERM,
+# up to 30 s, then SIGKILL). No limit when a limit is 0 (the script's own "no limit").
+START_LIMIT = (BOOT_TIMEOUT + 1 + 30 + HOME_LIMIT + 31 + ADB_CALLS * ADB_CALL
+               if BOOT_TIMEOUT and HOME_LIMIT else None)
 KILL_WAIT = 30   # stop-emulator.sh's, for a killed emulator to exit, and again for adb to unlist it
 
 # Keyboard input to remote.sh -> Android KeyEvent keyCode that must arrive on the device.
@@ -56,10 +61,10 @@ KEYS = [("\x1b[A", 19), ("\x1b[B", 20), ("\x1b[D", 21), ("\x1b[C", 22), ("\n", 2
 
 
 def named_component(output):
-    """The activity an `am start -W` or `cmd package resolve-activity --brief` output names, with
-    its class name in full (com.android.tv.settings/com.android.tv.settings.MainSettings, as
+    """The activity a `cmd package resolve-activity --brief` output, or a window's title, names,
+    with its class name in full (com.android.tv.settings/com.android.tv.settings.MainSettings, as
     `dumpsys window` names windows), or None."""
-    found = re.findall(r"^(?:Activity: )?([\w.]+)/([\w.$]+)\s*$", output, re.MULTILINE)
+    found = re.findall(r"^([\w.]+)/([\w.$]+)\s*$", output, re.MULTILINE)
     if not found:
         return None
     package, name = found[-1]
@@ -69,6 +74,21 @@ def named_component(output):
 def package(component):
     """The package of a component (com.android.tv.settings/.MainSettings), or None."""
     return component.split("/")[0] if component else None
+
+
+def focus(dump):
+    """What's in front, from a `dumpsys window`: the activity of the window that has focus, and
+    the focused activity, the one Android brought to the front, whose window gets focus only once
+    it's drawn (on a starved device, the home app's still had none after 30 s). Each like
+    com.android.tv.settings/com.android.tv.settings.MainSettings, or None (no window has focus,
+    or it isn't an activity's, like an ANR dialog). Then the dump's lines on focus, to show in a
+    failure."""
+    window = re.search(r"mCurrentFocus=Window\{\S+ \S+ ([\w.]+/[\w.$]+)\}", dump)
+    app = re.search(r"mFocusedApp=.*?ActivityRecord\{\S+ \S+ ([\w.]+/[\w.$]+)", dump)
+    shown = "\n".join(m.group(0) for name in ("mCurrentFocus", "mFocusedApp")
+                      if (m := re.search(rf"{name}=.*", dump)))
+    return (window and named_component(window.group(1)), app and named_component(app.group(1)),
+            shown or dump[-500:])
 
 
 def lib(snippet):
@@ -102,7 +122,17 @@ def exited(pid):
 def start_script(*args):
     """Runs start-emulator.sh, which gives up on a boot before Python gives up on it."""
     return subprocess.run([str(BIN / "start-emulator.sh"), *args], capture_output=True, text=True,
-                          timeout=START_LIMIT, env={**os.environ, "ADT_BOOT_TIMEOUT": str(BOOT_TIMEOUT)})
+                          timeout=START_LIMIT, env={**os.environ, "ADT_BOOT_TIMEOUT": str(BOOT_TIMEOUT),
+                                                    "ADT_HOME_TIMEOUT": str(HOME_TIMEOUT)})
+
+
+def wait_for_home(serial):
+    """lib.sh's wait_for_home, which start-emulator.sh --wait-for-home runs: waits until the home
+    app is in front, with the focus, for a few seconds in a row. Returns its package, or None and
+    what was in front instead."""
+    result = subprocess.run(["bash", "-c", f'source {LIB}\nwait_for_home "$1" "$2"', "bash", serial,
+                             str(HOME_TIMEOUT)], capture_output=True, text=True, timeout=HOME_LIMIT)
+    return (result.stdout.strip(), None) if result.returncode == 0 else (None, result.stdout)
 
 
 def start(avd, *flags):
@@ -148,11 +178,14 @@ class OnTheRealEmulator(unittest.TestCase):
             # AVD. A class cleanup, not tearDownClass, which isn't called when setUpClass fails,
             # and registered before the boot, which can fail with the emulator still running.
             cls.addClassCleanup(stop, cls.avd)
-            cls.start_result = start(cls.avd)
+            cls.start_result = start(cls.avd, "--wait-for-home")
             if cls.start_result.returncode != 0:
                 raise RuntimeError(f"start-emulator.sh failed:\n{cls.start_result.stdout}"
                                    f"{cls.start_result.stderr}")
             cls.serial = serial_of(cls.avd)
+            cls.focus_after_start = focus(subprocess.run(
+                [cls.adb, "-s", cls.serial, "shell", "dumpsys", "window"], capture_output=True,
+                text=True, timeout=60).stdout)
 
     def adb_shell(self, *args):
         return subprocess.run([self.adb, "-s", self.serial, "shell", *args], capture_output=True,
@@ -180,6 +213,15 @@ class OnTheRealEmulator(unittest.TestCase):
         self.assertEqual(self.start_result.stdout, f"{self.serial}\n", "stdout is only the serial")
         self.assertIn(f"booted as {self.serial}", self.start_result.stderr)
 
+    def test_start_waits_for_home_until_the_home_app_has_the_focus(self):
+        # What was in front when start-emulator.sh --wait-for-home returned.
+        if not self.started_here:
+            self.skipTest(f"{self.avd} was already running")
+        home = re.search(r"The home app \((\S+)\) is in front", self.start_result.stderr)
+        self.assertTrue(home, self.start_result.stderr)
+        window, app, shown = self.focus_after_start
+        self.assertEqual((package(window), package(app)), (home.group(1),) * 2, shown)
+
     def test_start_again_reports_the_running_emulator(self):
         result = start_script(self.avd)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -187,19 +229,8 @@ class OnTheRealEmulator(unittest.TestCase):
         self.assertIn(f"already running as {self.serial}", result.stderr)
 
     def front(self):
-        """What's in front, from `dumpsys window`: the activity of the window that has focus, and
-        the focused activity, the one Android brought to the front, whose window gets focus only
-        once it's drawn (on a starved device, the home app's still had none after 30 s). Each like
-        com.android.tv.settings/com.android.tv.settings.MainSettings, or None (no window has
-        focus, or it isn't an activity's, like an ANR dialog). Then the dump's lines on focus, to
-        show in a failure."""
-        dump = self.adb_shell("dumpsys", "window")
-        window = re.search(r"mCurrentFocus=Window\{\S+ \S+ ([\w.]+/[\w.$]+)\}", dump)
-        app = re.search(r"mFocusedApp=.*?ActivityRecord\{\S+ \S+ ([\w.]+/[\w.$]+)", dump)
-        shown = "\n".join(m.group(0) for name in ("mCurrentFocus", "mFocusedApp")
-                          if (m := re.search(rf"{name}=.*", dump)))
-        return (window and named_component(window.group(1)), app and named_component(app.group(1)),
-                shown or dump[-500:])
+        """What's in front now: see focus()."""
+        return focus(self.adb_shell("dumpsys", "window"))
 
     def resolved(self, *intent):
         """The activity an intent opens, from `cmd package resolve-activity`: the one of highest
@@ -216,29 +247,28 @@ class OnTheRealEmulator(unittest.TestCase):
         start_script(self.avd)
         # The package Home opens: the home app, whose sign-in screen Google TV without an account
         # shows instead of a home screen, or the chooser (package android) on API 22 with another
-        # home app installed. From API 24 on, `cmd` names it, but only once the user is unlocked
-        # after a boot: before, the HOME intent resolves to FallbackHome, in Settings' package,
-        # which holds the screen until then. So it's asked again at each look below. API 22 and 23
-        # have neither `cmd` nor FallbackHome: there it's the one a HOME intent opens, which comes
-        # to the front.
-        home_intent = ["-a", "android.intent.action.MAIN", "-c", "android.intent.category.HOME"]
-        if (settings := self.resolved("-a", "android.settings.SETTINGS")) is None:
-            home = package(named_component(self.adb_shell("am", "start", "-W", *home_intent)))
-        # Settings must be in front, and stay there, before Home: right after a boot the home app
-        # (or Google TV's sign-in screen) can still come to the front by itself, as if Home had
-        # worked, and FallbackHome goes by itself. So Settings is opened again until it's in front
-        # at STABLE_LOOKS looks in a row: its own activity where `cmd` can name it, else any app
-        # but the home app. Without -W: on API 22, with the chooser in front, `am start -W` of an
-        # app open behind it never returns.
+        # home app installed. wait_for_home names it once it's in front and has settled: after a
+        # boot, from API 24 on, a HOME intent resolves to Settings' FallbackHome until the user is
+        # unlocked, and the home app may lack the focus for a while. A HOME intent (not the Home
+        # key) first brings it to the front, where an emulator that was already running may show
+        # another app.
+        self.adb_shell("am", "start", "-a", "android.intent.action.MAIN",
+                       "-c", "android.intent.category.HOME")
+        home, shown = wait_for_home(self.serial)
+        self.assertTrue(home, f"the home app didn't settle in front within {HOME_TIMEOUT} s: {shown}")
+        settings = self.resolved("-a", "android.settings.SETTINGS")
+        # Settings must be in front, and stay there, before Home: the home app (or Google TV's
+        # sign-in screen) could still come to the front by itself, as if Home had worked. So
+        # Settings is opened again until it's in front at STABLE_LOOKS looks in a row: its own
+        # activity where `cmd` can name it, else any app but the home app. Without -W: on API 22,
+        # with the chooser in front, `am start -W` of an app open behind it never returns.
         self.adb_shell("am", "start", "-a", "android.settings.SETTINGS")
         in_front, looks = None, 0
         deadline = time.monotonic() + SETTLE_TIMEOUT
         while looks < STABLE_LOOKS:
             time.sleep(STABLE_INTERVAL)
-            if settings:
-                home = package(self.resolved(*home_intent))
             focused, _, shown = self.front()
-            if home and focused and package(focused) != home and settings in (None, focused):
+            if focused and package(focused) != home and settings in (None, focused):
                 looks = looks + 1 if focused == in_front else 1
             else:
                 looks = 0
