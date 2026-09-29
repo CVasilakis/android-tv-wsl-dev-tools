@@ -395,6 +395,20 @@ class StopOnTheRealEmulator(unittest.TestCase):
         self.assertEqual(result.stderr, f"Stopped '{self.avd}' ({serial}).\n")
         self.assertTrue(exited(pid), "returned before the emulator had exited")
 
+    def test_stop_an_emulator_that_is_exiting_already(self):
+        # As when the test run that started it is killed: after SIGTERM its console answers
+        # nothing, and adb lists it for a moment after its exit. Depending on when the script gets
+        # there it sees it running, exiting or gone; never still running.
+        started = start(self.avd, "-read-only")
+        self.assertEqual(started.returncode, 0, started.stderr)
+        serial = started.stdout.strip()
+        [pid] = emulator_pids("-avd", self.avd, "-read-only")
+        os.kill(pid, signal.SIGTERM)
+        result = stop(serial)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("still running", result.stderr)
+        self.assertNotIn(serial, lib("running_emulators").split())
+
     def test_stop_returns_once_the_avd_can_start_again(self):
         avd = self.avd
         serial, pid = self.start_and_get_pid()

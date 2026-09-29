@@ -145,6 +145,58 @@ class NotRunning(StopTestCase):
         self.assertEqual(result.err, "'tv_api25' isn't running.\n")
 
 
+class AlreadyExiting(StopTestCase):
+    """An emulator that's exiting, or has exited, when the script gets to it (e.g. killed with the
+    test run that started it): its console no longer answers, and adb lists it, as offline, until
+    it notices a moment later. That's no failure to stop it, and it isn't "still running"."""
+
+    def setUp(self):
+        super().setUp()
+        self.sandbox.set_behavior(adb_lists_exited=10)
+
+    def assertNoLongerListed(self, serial):
+        listed = self.sandbox.bash("running_emulators", env={"FAKE_NO_LOG": "1"}).out
+        self.assertNotIn(serial, listed, "returned while adb still listed it")
+
+    def test_by_serial_once_its_process_has_exited(self):
+        for reap in (False, True):   # a zombie, or a process that's gone
+            with self.subTest(reap=reap):
+                serial = self.sandbox.start_emulator("tv_api25")
+                self.sandbox.kill_emulator(serial, reap=reap)
+                result = self.sandbox.run("stop-emulator.sh", serial)
+                self.assertSucceeded(result)
+                self.assertEqual(result.err, f"'{serial}' didn't answer adb emu kill, and adb no "
+                                 "longer lists it: it was exiting already. Its process wasn't "
+                                 "found, so it may not have exited yet.\n")
+                self.assertNoLongerListed(serial)
+
+    def test_all_once_its_process_has_exited(self):
+        exited = self.sandbox.start_emulator("tv_api25")
+        other = self.sandbox.start_emulator("tv_api30")
+        self.sandbox.kill_emulator(exited)
+        result = self.sandbox.run("stop-emulator.sh", "--all")
+        self.assertSucceeded(result)
+        self.assertIn(f"'{exited}' didn't answer adb emu kill, and adb no longer lists it",
+                      result.err)
+        self.assertIn(f"Stopped 'tv_api30' ({other}).", result.err)
+        self.assertNoLongerListed(exited)
+        self.assertEqual(self.sandbox.running(), {})
+
+    def test_by_avd_name_while_it_exits(self):
+        # Its console still says its name, but no longer answers adb emu kill; a -read-only
+        # emulator whose console can't name its PID leaves adb as the only thing to wait on.
+        self.sandbox.set_behavior(emulator_already_exiting=True, emulator_lock_file=False,
+                                  emulator_discoverable=False)
+        serial = self.sandbox.start_emulator("tv_api25")
+        pid = self.sandbox.emulator_pid(serial)
+        result = self.sandbox.run("stop-emulator.sh", "tv_api25")
+        self.assertSucceeded(result)
+        self.assertFalse(self.sandbox.alive(pid))
+        self.assertIn(f"'tv_api25' ({serial}) didn't answer adb emu kill, and adb no longer lists "
+                      "it: it was exiting already.", result.err)
+        self.assertNoLongerListed(serial)
+
+
 class WaitsForTheProcess(StopTestCase):
     def test_returns_only_once_the_emulator_has_exited(self):
         # The emulator keeps running for a while after `adb emu kill`, saving its snapshot.

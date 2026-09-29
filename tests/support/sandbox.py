@@ -213,20 +213,28 @@ class Sandbox:
         return json.loads(path.read_text()) if path.exists() else {"files": {}, "key_events": []}
 
     def running(self):
-        """{serial: avd name} of the fake emulators that are running."""
+        """{serial: avd name} of the fake emulators that are running (not a zombie's)."""
         result = {}
         for path in (self.state / "running").glob("emulator-*.json"):
             info = json.loads(path.read_text())
-            try:
-                os.kill(info["pid"], 0)
-            except OSError:
-                continue
-            result[path.stem] = info["avd"]
+            if self.alive(info["pid"]):
+                result[path.stem] = info["avd"]
         return result
 
     def emulator_pid(self, serial):
         """The process ID of a fake emulator, running or not."""
         return json.loads((self.state / "running" / f"{serial}.json").read_text())["pid"]
+
+    def kill_emulator(self, serial, reap=False):
+        """Kills a fake emulator's process (SIGKILL), as when the test run that started it is
+        killed. It stays a zombie until reaped: at once with reap=True, else at the cleanup."""
+        pid = self.emulator_pid(serial)
+        [process] = [p for p in self._processes if p.pid == pid]
+        process.kill()
+        if reap:
+            process.wait()
+        else:
+            os.waitid(os.P_PID, pid, os.WEXITED | os.WNOWAIT)   # exited, still unreaped
 
     @staticmethod
     def alive(pid):

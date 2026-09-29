@@ -28,14 +28,18 @@
 # a new process may have taken, can't make it kill the wrong process. Searching processes by name
 # (pgrep -f, pkill -f) could match others, including the shell that runs the search, so it isn't
 # used. When no PID is found, the script can only wait until adb no longer lists the emulator,
-# which can be before its process has exited, and says so.
+# which can be before its process has exited, and says so. That's also how it recognizes an
+# emulator that was exiting already (e.g. sent SIGTERM with a test run that was killed): its
+# console answers nothing, and adb lists it for a moment after its exit, the last moment as
+# offline. A zombie (an exited process its parent hasn't reaped yet) has exited.
 #
 # Time limit: the emulator gets $ADT_STOP_TIMEOUT seconds (default 60) to exit after
 # `adb emu kill`, and is then killed (SIGKILL), which loses its Quick Boot snapshot. When its
 # console doesn't answer `adb emu kill` at all (a hung emulator), or adb doesn't list it (e.g. it's
 # stuck early in its boot), it's sent SIGTERM instead, which lets it shut down, and gets as long
-# again before SIGKILL. The script says which of these it did. Its process is found through the
-# AVD's name, which a hung console doesn't tell: name such an emulator by its AVD, not its serial.
+# again before SIGKILL; without its PID, it gets as long to leave adb's list by itself. The script
+# says which of these it did. Its process is found through the AVD's name, which a hung console
+# doesn't tell: name such an emulator by its AVD, not its serial.
 # Each limit lasts at least its number of seconds, and at most one more (time_is_up in lib.sh).
 #
 # Stopping doesn't save recent changes: `adb emu kill` doesn't shut Android down, so a setting or
@@ -169,6 +173,13 @@ stop() {
         if [ -n "$pid" ]; then
             kill -TERM "$pid" 2>/dev/null || true
             if wait_until_gone "$STOP_TIMEOUT" "$pid" ""; then how="stopped with SIGTERM"; fi
+        elif wait_until_gone "$STOP_TIMEOUT" "" "$serial"; then
+            # An emulator that's exiting (e.g. sent SIGTERM with a test run that was killed)
+            # answers no console command, and adb lists it until a moment after its exit, the
+            # last moment as offline. Without its PID, adb's list is all there is to wait on.
+            echo "$label $problem, and adb no longer lists it: it was exiting already. Its" \
+                 "process wasn't found, so it may not have exited yet." >&2
+            return 0
         fi
     fi
     if [ -n "$problem" ] && [ -z "$how" ]; then
