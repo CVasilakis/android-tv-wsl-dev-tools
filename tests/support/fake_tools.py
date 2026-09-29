@@ -28,6 +28,9 @@ import sys
 import time
 from pathlib import Path
 
+HOME = "com.google.android.tvlauncher/.MainActivity"
+HOME_WINDOW = "com.google.android.tvlauncher/com.google.android.tvlauncher.MainActivity"
+
 DEFAULT_BEHAVIOR = {
     "boot_polls": 0,              # getprop sys.boot_completed answers "" this many times, then "1"
     "adb_offline": None,          # a booting emulator shows as "offline" in adb devices and its
@@ -56,7 +59,18 @@ DEFAULT_BEHAVIOR = {
                                   # images' values)
     "settings_put_error": None,   # `adb shell settings put` prints this and exits 1
     "monkey_output": None,        # `adb shell monkey` prints this and injects nothing (it failed)
-    "api_level": 25,              # every device's `getprop ro.build.version.sdk`
+    "api_level": 25,              # every device's `getprop ro.build.version.sdk`; below 24 there's
+                                  # no `cmd` (adb shell prints "cmd: not found" and exits 0)
+    "home_resolves": [HOME],      # what `cmd package resolve-activity --brief` answers for a HOME
+                                  # intent, one per call, the last one repeated: e.g. FallbackHome
+                                  # (FALLBACK_HOME) first, as until the user is unlocked
+    "front": [[HOME, HOME_WINDOW]],  # [focused activity (mFocusedApp), focused window's title
+                                  # (mCurrentFocus)] that `dumpsys window` shows, one per call, the
+                                  # last one repeated; None: null. A "BACK" item: the ones after it
+                                  # come only once `input keyevent BACK` was sent (one per BACK).
+                                  # Before API 24, `dumpsys activity activities` shows the same
+                                  # activity focused, in a task that a HOME intent started if it's
+                                  # of the last home_resolves' package
     "adb_hangs": {},              # {"getprop": N, "avd_name": N, "emu_kill": N}: the first N
                                   # `adb shell getprop sys.boot_completed`, `adb emu avd name` or
                                   # `adb emu kill` calls never return, like adb on a half-booted
@@ -97,6 +111,36 @@ def take(counter, limit):
     counts[counter] = counts.get(counter, 0) + 1
     path.write_text(json.dumps(counts))
     return counts[counter] <= limit
+
+
+def step(knob):
+    """For knobs that list what a device shows over time: this call's item, the last one once
+    they're used up."""
+    path = STATE / "counters.json"
+    counts = json.loads(path.read_text()) if path.exists() else {}
+    counts[knob] = counts.get(knob, 0) + 1
+    path.write_text(json.dumps(counts))
+    items = behavior()[knob]
+    return items[min(counts[knob], len(items)) - 1]
+
+
+def front(advance=True):
+    """What's in front for this call, from the `front` knob: its items up to the next "BACK", one
+    per call (the last one repeated), until as many Back keys as BACKs before them were sent."""
+    parts = [[]]
+    for item in behavior()["front"]:
+        if item == "BACK":
+            parts.append([])
+        else:
+            parts[-1].append(item)
+    path = STATE / "counters.json"
+    counts = json.loads(path.read_text()) if path.exists() else {}
+    part = min(counts.get("backs", 0), len(parts) - 1)
+    key = f"front_{part}"
+    if advance:
+        counts[key] = counts.get(key, 0) + 1
+        path.write_text(json.dumps(counts))
+    return parts[part][min(max(counts.get(key, 1), 1), len(parts[part])) - 1]
 
 
 def hang_if(call):
@@ -300,10 +344,22 @@ def adb(args):
     elif args[:3] == ["shell", "input", "keyevent"] and len(args) == 4:
         if take("keyevent", behavior()["keyevent_failures"]):
             fail("error: closed")
+        if args[3] in ("BACK", "4"):
+            take("backs", 0)   # only counts them, for front()
     elif args[:4] == ["shell", "input", "keyevent", "--longpress"] and len(args) == 5:
         input_long_press(serial, emulators, int(args[4]))
     elif args == ["shell", "getprop", "ro.build.version.sdk"]:
         sys.stdout.write(f"{behavior()['api_level']}\r\n")
+    elif args[:2] == ["shell", "cmd"] and behavior()["api_level"] < 24:
+        sys.stdout.write("/system/bin/sh: cmd: not found\r\n")
+    elif args[:4] == ["shell", "cmd", "package", "resolve-activity"] \
+            and "android.intent.category.HOME" in args:
+        sys.stdout.write("priority=0 preferredOrder=0 match=0x108000 specificIndex=-1 "
+                         f"isDefault=true\r\n{step('home_resolves')}\r\n")
+    elif args == ["shell", "dumpsys", "window"]:
+        dumpsys_window(*front())
+    elif args == ["shell", "dumpsys", "activity", "activities"] and behavior()["api_level"] < 24:
+        dumpsys_activities(front(advance=False)[0])
     elif args[:4] == ["shell", "settings", "delete", "system"] and len(args) == 5:
         if serial in emulators:
             info = emulators[serial]
@@ -314,6 +370,36 @@ def adb(args):
 
 
 NAMESPACES = {"secure": "settings", "system": "system_settings"}   # -> key in running/<serial>.json
+
+
+def dumpsys_window(activity, window):
+    """The lines of `dumpsys window` on focus, among others, in the format of the API level."""
+    record = f"ActivityRecord{{2df0e36e u0 {activity} t7}}" if activity else "null"
+    if activity and behavior()["api_level"] < 29:
+        record = f"AppWindowToken{{1c158a9c token=Token{{9f08a0f {record}}}}}"
+    focus = f"Window{{299ed2cc u0 {window}}}" if window else "null"
+    sys.stdout.write("WINDOW MANAGER WINDOWS (dumpsys window windows)\r\n"
+                     f"  Window #0 Window{{5e1 u0 StatusBar}}:\r\n    mOwnerUid=10012\r\n"
+                     f"  mCurrentFocus={focus}\r\n  mFocusedApp={record}\r\n")
+
+
+def dumpsys_activities(activity):
+    """`dumpsys activity activities` before API 24: the focused activity, in a task a HOME intent
+    started if it's of the home package (the last of home_resolves), else in one of its own."""
+    home = behavior()["home_resolves"][-1]
+    if activity and activity.split("/")[0] == home.split("/")[0]:
+        intent = "act=android.intent.action.MAIN cat=[android.intent.category.HOME] flg=0x10800000"
+    else:
+        intent = "act=android.settings.SETTINGS flg=0x10000000"
+    focused = f"ActivityRecord{{2df0e36e u0 {activity} t7}}" if activity else "null"
+    sys.stdout.write("ACTIVITY MANAGER ACTIVITIES (dumpsys activity activities)\r\n"
+                     "  Stack #0:\r\n    Task id #7\r\n"
+                     f"    * TaskRecord{{36c46df0 #7 I={activity} U=0 sz=1}}\r\n"
+                     f"      intent={{{intent} cmp={activity}}}\r\n"
+                     f"      * Hist #0: ActivityRecord{{2df0e36e u0 {activity} t7}}\r\n"
+                     f"          Intent {{ {intent} }}\r\n"
+                     f"  mFocusedActivity: {focused}\r\n"
+                     "  mFocusedStack=ActivityStack{266f8dee stackId=0, 1 tasks}\r\n")
 
 
 def device_state(serial):

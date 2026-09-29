@@ -5,6 +5,12 @@ import time
 
 from support.sandbox import Result, ScriptTestCase
 
+# The fake device's home app (fake_tools.py's default), and Settings' FallbackHome.
+HOME = "com.google.android.tvlauncher/.MainActivity"
+HOME_WINDOW = "com.google.android.tvlauncher/com.google.android.tvlauncher.MainActivity"
+FALLBACK_HOME = "com.android.tv.settings/.system.FallbackHome"
+FALLBACK_HOME_WINDOW = "com.android.tv.settings/com.android.tv.settings.system.FallbackHome"
+
 
 class EmulatorTestCase(ScriptTestCase):
     def setUp(self):
@@ -453,6 +459,169 @@ class AlreadyRunning(EmulatorTestCase):
         self.assertFailed(self.output(script), "stopped before it finished booting")
 
 
+class WaitsForHome(EmulatorTestCase):
+    """--wait-for-home: after the boot, the script also waits until the device has settled: the
+    home app's activity in front, a window of it focused, and from API 24 on a HOME intent no longer
+    resolving to FallbackHome, for a few seconds in a row (ADT_HOME_STABLE, 3 by default; 0 here,
+    so another screen gets Back after 1 s instead of 10); for at most ADT_HOME_TIMEOUT seconds.
+    The fake device shows what `front` and `home_resolves` list, one item per look."""
+
+    SETTINGS = "com.android.tv.settings/.MainSettings"
+    SETTINGS_WINDOW = "com.android.tv.settings/com.android.tv.settings.MainSettings"
+    USB = ["com.android.tv.settings/.device.storage.NewStorageActivity",   # "USB drive connected"
+           "com.android.tv.settings/com.android.tv.settings.device.storage.NewStorageActivity"]
+    SENSOR_PRIVACY = ["com.android.systemui/.sensorprivacy.television.TvSensorPrivacyChangedActivity",
+                      "com.android.systemui/com.android.systemui.sensorprivacy.television."
+                      "TvSensorPrivacyChangedActivity"]   # shown for a moment at boot, API 34
+    CHOOSER = "android/com.android.internal.app.ResolverActivity"
+    SOON = {"ADT_HOME_TIMEOUT": "10"}   # to fail rather than wait, if it doesn't press Back
+    NO_FOCUS = [HOME, None]   # the home app in front, but no window has the focus
+    FAST = {"ADT_HOME_TIMEOUT": "2"}
+
+    def setUp(self):
+        super().setUp()
+        self.sandbox.add_avd("tv_api25")
+
+    def start(self, *args, env=None):
+        return super().start(*args, env={"ADT_HOME_STABLE": "0", **(env or {})})
+
+    def looks(self):
+        return [a for a in self.sandbox.argvs("adb") if a[-2:] == ["dumpsys", "window"]]
+
+    def backs(self):
+        return [a for a in self.sandbox.argvs("adb") if a[-3:] == ["input", "keyevent", "BACK"]]
+
+    def test_waits_until_a_window_of_the_home_app_has_the_focus(self):
+        self.sandbox.set_behavior(front=[self.NO_FOCUS] * 3 + [[HOME, HOME_WINDOW]])
+        result = self.start("--wait-for-home")
+        self.assertSucceeded(result)
+        self.assertGreater(len(self.looks()), 3, "returned before the focus came")
+        self.assertIn("The home app (com.google.android.tvlauncher) is in front.", result.err)
+        self.assertEqual(result.out, "emulator-5554\n", "stdout holds only the serial")
+        [argv] = self.launched()
+        self.assertNotIn("--wait-for-home", argv, "the emulator doesn't know --wait-for-home")
+        self.assertEqual(self.backs(), [], "no Back without a need")
+
+    def test_waits_while_home_resolves_to_fallback_home(self):
+        # Until the user is unlocked, FallbackHome is in front, with the focus, and a HOME intent
+        # resolves to it: it looks like a home app that has settled.
+        self.sandbox.set_behavior(home_resolves=[FALLBACK_HOME] * 3 + [HOME],
+                                  front=[[FALLBACK_HOME, FALLBACK_HOME_WINDOW]] * 3
+                                  + [[HOME, HOME_WINDOW]])
+        result = self.start("--wait-for-home")
+        self.assertSucceeded(result)
+        self.assertIn("(com.google.android.tvlauncher) is in front", result.err,
+                      "took FallbackHome for the home app")
+
+    def test_waits_until_the_home_app_has_stayed_in_front(self):
+        flapping = [[HOME, HOME_WINDOW], self.NO_FOCUS] * 2
+        self.sandbox.set_behavior(front=flapping + [[HOME, HOME_WINDOW]])
+        self.assertSucceeded(self.start("--wait-for-home", env={"ADT_HOME_STABLE": None}))
+        looks = [call for call in self.sandbox.calls("adb") if call["argv"][-2:] == ["dumpsys", "window"]]
+        self.assertGreater(len(looks), len(flapping) + 1, "returned while it still changed")
+        self.assertGreaterEqual(looks[-1]["time"] - looks[len(flapping)]["time"], 2,
+                                "didn't wait for it to stay in front")
+
+    def test_presses_back_when_another_screen_keeps_the_focus(self):
+        # A new AVD's first boot shows "USB drive connected" over the home app on API 23 and 29.
+        self.sandbox.set_behavior(front=[self.USB, "BACK", [HOME, HOME_WINDOW]])
+        result = self.start("--wait-for-home", env=self.SOON)
+        self.assertSucceeded(result)
+        self.assertEqual(len(self.backs()), 1)
+        self.assertIn("(com.google.android.tvlauncher) is in front", result.err)
+
+    def test_presses_back_on_one_already_running_whose_boot_it_waited_for(self):
+        # Started a moment ago, e.g. by another CI step: nobody uses it yet.
+        self.sandbox.set_behavior(front=[self.USB, "BACK", [HOME, HOME_WINDOW]], boot_polls=1)
+        self.sandbox.start_emulator("tv_api25")
+        self.assertSucceeded(self.start("--wait-for-home", env=self.SOON))
+        self.assertEqual(len(self.backs()), 1)
+
+    def test_presses_back_twice_at_most(self):
+        self.sandbox.set_behavior(front=[self.USB])
+        result = self.start("--wait-for-home", env={"ADT_HOME_TIMEOUT": "8"})
+        self.assertFailed(result, f"In front: activity {self.USB[0]}, focused window {self.USB[1]}")
+        self.assertEqual(len(self.backs()), 2)
+
+    def test_no_back_before_the_user_is_unlocked(self):
+        # Another app's window over FallbackHome.
+        self.sandbox.set_behavior(home_resolves=[FALLBACK_HOME] * 4 + [HOME],
+                                  front=[self.SENSOR_PRIVACY] * 4 + [[HOME, HOME_WINDOW]])
+        self.assertSucceeded(self.start("--wait-for-home"))
+        self.assertEqual(self.backs(), [])
+
+    def test_waits_while_another_window_has_the_focus(self):
+        for front in ([HOME, "Application Not Responding: com.example.tv"],   # a dialog
+                      ["com.android.systemui/.SomeActivity",
+                       "com.android.systemui/com.android.systemui.SomeActivity"]):
+            with self.subTest(front=front):
+                self.sandbox.set_behavior(front=[front])
+                result = self.start("--wait-for-home", env=self.FAST)
+                self.assertFailed(result, "home app wasn't in front with the focus within 2 s")
+                self.assertIn(f"In front: activity {front[0]}, focused window {front[1]}; a HOME "
+                              f"intent resolves to {HOME}", result.output)
+
+    def test_gives_up_and_stops_the_emulator_it_started(self):
+        self.sandbox.set_behavior(front=[self.NO_FOCUS])
+        result = self.start("--wait-for-home", env=self.FAST)
+        self.assertFailed(result, "home app wasn't in front with the focus within 2 s")
+        self.assertIn(f"In front: activity {HOME}, focused window none;", result.output)
+        self.assertIn("so it was stopped", result.output)
+        self.assertIn("ADT_HOME_TIMEOUT", result.output)
+        self.assertEqual(result.out, "")
+        self.assertEqual(self.sandbox.running(), {}, "the unsettled emulator is stopped")
+
+    def test_leaves_one_that_had_booted_as_it_is(self):
+        # Someone may be using it: no Back, and it keeps running.
+        self.sandbox.set_behavior(front=[[self.SETTINGS, self.SETTINGS_WINDOW]])
+        serial = self.sandbox.start_emulator("tv_api25")
+        result = self.start("--wait-for-home", env={"ADT_HOME_TIMEOUT": "4"})
+        self.assertFailed(result, "wasn't started by this script, so it's left running")
+        self.assertIn(f"In front: activity {self.SETTINGS}", result.output)
+        self.assertEqual(self.backs(), [])
+        self.assertEqual(self.sandbox.running(), {serial: "tv_api25"})
+
+    def test_zero_means_no_limit(self):
+        self.sandbox.set_behavior(front=[self.NO_FOCUS] * 3 + [[HOME, HOME_WINDOW]])
+        self.assertSucceeded(self.start("--wait-for-home", env={"ADT_HOME_TIMEOUT": "0"}))
+
+    def test_before_api_24_the_home_app_is_the_one_a_home_intent_started(self):
+        # No `cmd`, no FallbackHome; on API 22 with a second home app, Android's chooser.
+        for home, window in ((HOME, HOME_WINDOW), (self.CHOOSER, self.CHOOSER)):
+            with self.subTest(home=home):
+                self.sandbox.set_behavior(api_level=22, home_resolves=[home], front=[[home, window]])
+                result = self.start("--wait-for-home")
+                self.assertSucceeded(result)
+                self.assertIn(f"The home app ({home.split('/')[0]}) is in front", result.err)
+                self.sandbox.stop_emulators()
+
+    def test_before_api_24_another_app_in_front_is_not_home(self):
+        self.sandbox.set_behavior(api_level=23, front=[[self.SETTINGS, self.SETTINGS_WINDOW]])
+        result = self.start("--wait-for-home", env=self.FAST)
+        self.assertFailed(result, "home app wasn't in front")
+        self.assertIn(f"In front: activity {self.SETTINGS}, focused window {self.SETTINGS_WINDOW}.",
+                      result.output)
+
+    def test_before_api_24_presses_back_too(self):
+        self.sandbox.set_behavior(api_level=23, front=[self.USB, "BACK", [HOME, HOME_WINDOW]])
+        self.assertSucceeded(self.start("--wait-for-home", env=self.SOON))
+        self.assertEqual(len(self.backs()), 1)
+
+    def test_without_the_flag_it_does_not_wait(self):
+        self.sandbox.set_behavior(front=[self.NO_FOCUS])
+        result = self.start(env={"ADT_HOME_TIMEOUT": "not checked without the flag"})
+        self.assertSucceeded(result)
+        self.assertEqual(self.looks(), [])
+        self.assertNotIn("home app", result.err)
+
+    def test_the_limit_must_be_a_number_of_seconds(self):
+        for value in ("5m", "-1"):
+            with self.subTest(value=value):
+                self.assertFailed(self.start("--wait-for-home", env={"ADT_HOME_TIMEOUT": value}),
+                                  "ADT_HOME_TIMEOUT must be a number of seconds")
+        self.assertEqual(self.launched(), [], "nothing is started with a bad limit")
+
+
 class PrintsTheSerial(EmulatorTestCase):
     """stdout holds the serial and nothing else, so serial="$(start-emulator.sh)" works; every
     message goes to stderr."""
@@ -636,12 +805,12 @@ class Kvm(EmulatorTestCase):
         self.assertIn("_IN_SG_KVM=1", argv[2])
         self.assertIn("tv_api25 -no-window", argv[2], "the re-run keeps the AVD and flags")
 
-    def test_the_sg_rerun_keeps_quick(self):
+    def test_the_sg_rerun_keeps_the_scripts_own_flags(self):
         self.sandbox.kvm.chmod(0o444)
         self.sandbox.set_behavior(kvm_group_members=["tester"])
-        self.start("--quick")
+        self.start("--wait-for-home", "--quick")
         [argv] = self.sandbox.argvs("sg")
-        self.assertIn("tv_api25 --quick", argv[2])
+        self.assertIn("tv_api25 --quick --wait-for-home", argv[2])
 
     def test_the_sg_rerun_finds_the_script_when_called_through_a_symlink(self):
         self.sandbox.kvm.chmod(0o444)
