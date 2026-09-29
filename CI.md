@@ -45,7 +45,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: CVasilakis/android-tv-wsl-dev-tools
-          ref: v1.4.0                                  # a release tag, or a full commit SHA
+          ref: v1.5.0                                  # a release tag, or a full commit SHA
           path: .android-tv-wsl-dev-tools
       - name: Put the tools on PATH
         run: echo "$GITHUB_WORKSPACE/.android-tv-wsl-dev-tools/bin" >> "$GITHUB_PATH"
@@ -73,7 +73,7 @@ jobs:
       - name: Boot the emulator
         run: |
           create-avd.sh --api ${{ matrix.api }} --if-missing
-          serial="$(start-emulator.sh tv_api${{ matrix.api }} -no-snapshot-save)"
+          serial="$(start-emulator.sh --wait-for-home tv_api${{ matrix.api }} -no-snapshot-save)"
           echo "ANDROID_SERIAL=$serial" >> "$GITHUB_ENV"
       - run: ./gradlew connectedDebugAndroidTest
 
@@ -90,9 +90,7 @@ Why the steps look like this:
 - **`serial="$(…)"` on a line of its own.** As an assignment by itself, a failed boot fails the
   step; inside `echo "…$(start-emulator.sh)" >> …` the step would carry on with an empty serial.
 - **`ANDROID_SERIAL`** makes adb and Gradle use that emulator in every later step.
-- **`--wait-for-home`** (in releases after v1.4.0, so not in the example above, which is pinned to
-  v1.4.0: add it to the `start-emulator.sh` line when you pin a release that has it):
-  `start-emulator.sh` returns once Android has booted
+- **`--wait-for-home`** (from v1.5.0 on): `start-emulator.sh` returns once Android has booted
   (`sys.boot_completed`), which on a runner comes before the device has settled: the home app can
   still be starting, and no window may have the focus yet, so the tests' first keys would reach no
   app. With `--wait-for-home` it also waits until the home app is in front, with the focus, for a
