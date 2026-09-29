@@ -35,7 +35,13 @@ Some hermetic tests skip, with the reason printed, when an optional tool is miss
   has no clients; by default it resets then, and the next test's connection can fail while it
   does, more often the busier the machine.
   `SCRIPT_TESTS_DISPLAY=:0` runs the tests on an existing display instead; under WSLg you'll see
-  small windows flash.
+  small windows flash. Only use it to watch, with no Linux GUI app open that you'd mind losing:
+  WSLg's compositor (weston) can crash during such a run, which closes every Linux GUI app and
+  breaks the tests' X connections. Each crash seen came right after WSLg's RDP client had
+  disconnected (`stopRdpNotifyEvent` in `/mnt/wslg/weston.log`), when a test created a window
+  (`CreateWndow(): rdp_peer is not initalized`, then `terminated with signal 11` in
+  `/mnt/wslg/stderr.log`); after the restart, the window manager can stop mapping new windows
+  for a while.
 - **shellcheck** (`sudo apt-get install -y shellcheck`) for static analysis of the shell scripts.
 
 The emulator tier reuses the AVD if it's already running and leaves it running. Otherwise it boots
@@ -105,7 +111,7 @@ ADT_AVD=tv_api31 tests/run.py --emulator -k test_remote_keys; kill $(jobs -p); b
 | [`run.py`](run.py) | Entry point: picks the tiers, filters, prints skip reasons. |
 | [`support/sandbox.py`](support/sandbox.py) | `Sandbox`: a throwaway machine per test. `ScriptTestCase`: the base class. |
 | [`support/fake_tools.py`](support/fake_tools.py) | Fakes for `adb`, `emulator`, `avdmanager`, `android`, `sdkmanager`, `python3`, `getent`, `id`, `sg`. |
-| [`support/x11.py`](support/x11.py) | Private Xvfb server and fake emulator windows. |
+| [`support/x11.py`](support/x11.py) | Private Xvfb server, fake emulator windows, and `WindowChurn`, a client that keeps opening and closing windows. |
 | [`support/input_dump.py`](support/input_dump.py) | Reading Android's input dispatcher from `dumpsys input`, for the emulator tier. |
 | `hermetic/test_<script>.py` | One file per script, plus [`test_conventions.py`](hermetic/test_conventions.py) for the rules all scripts follow, and [`test_input_dump.py`](hermetic/test_input_dump.py) for `support/input_dump.py`. |
 | [`emulator/test_on_emulator.py`](emulator/test_on_emulator.py) | The real-emulator tier. |
@@ -175,8 +181,11 @@ emulator's process has exited.
   wait until `sandbox.calls()` shows that key's `adb` call; to stop an emulator while
   `start-emulator.sh` waits for its boot, start the script with `start_in_background()`
   ([`test_start_emulator.py`](hermetic/test_start_emulator.py)) and wait until the calls show
-  its boot polls. A time limit a test sets (`ADT_BOOT_TIMEOUT=2`) must only end what never
-  finishes by design, not race what the script does on the way, and a check on how long a
+  its boot polls. To act while `wslg-toolbar.py` is between two steps, wait until the windows
+  show the first step, and grab the X server (`EmulatorWindows.grabbed()`): the script can't go
+  on while the test checks that it's still there. A time limit a test sets
+  (`ADT_BOOT_TIMEOUT=2`) must only end what never finishes by design, not race what the script
+  does on the way, and a check on how long a
   script took belongs only where its output can't show which way it went. The scripts' own
   limits count whole seconds (`$SECONDS`, through `time_is_up` in `lib.sh`), so where a test
   checks that one lasts its full length, it makes the script start it late in a second

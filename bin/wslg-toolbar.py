@@ -34,10 +34,20 @@ Things that look removable but aren't
 - The unmap before changing properties: window managers read a window's type and transient
   hints when it is mapped (ICCCM), so the change has to be followed by a fresh map.
 - The 0.5 s sleep after unmapping: gives the window manager time to process the unmap before
-  the window is mapped again. Unmap, sleep, change, map is the tested sequence.
+  the window is mapped again. Unmap, sleep, change, map is the tested sequence. WSLg's window
+  manager marks the toolbar's WM_STATE Withdrawn within milliseconds of the unmap, so waiting
+  for that would be shorter; but re-mapping the toolbar of a running emulator, with its
+  original properties put back, doesn't park it at (-32768, -32768) again, so a replacement can
+  only be checked on a freshly started emulator each time, and hasn't been.
 - Reading _NET_WM_NAME before WM_NAME: after the toolbar has been re-mapped once, Qt leaves
   WM_NAME empty and only _NET_WM_NAME still says "Emulator".
 - Skipping the group leader: a hidden 1x1 window is also titled "Emulator".
+- The X error handler ignoring BadWindow during the search: the search reads every window on
+  the display, and any of them (a tooltip, a menu, the emulator's own startup windows) can
+  close between being listed and being read. Xlib's default handler ends the program on that
+  error, and start-emulator.sh ignores this script's failure, so the toolbar would stay shown.
+  Once the toolbar is found, every X error is fatal again, as it should be for the windows the
+  script changes.
 
 Things that don't work (don't try them again)
 ---------------------------------------------
@@ -91,6 +101,7 @@ TIMEOUT = float(os.environ.get("WSLG_TOOLBAR_TIMEOUT", "30"))
 
 # Xlib constants used below (values from X11/X.h and X11/Xutil.h).
 XA_ATOM = 4                # property type "ATOM"
+BAD_WINDOW = 3             # error code
 PROP_MODE_REPLACE = 0
 WINDOW_GROUP_HINT = 1 << 6
 
@@ -115,7 +126,34 @@ class XWindowAttributes(ctypes.Structure):
                 ("height", ctypes.c_int), ("_rest", ctypes.c_byte * 256)]
 
 
+class XErrorEvent(ctypes.Structure):
+    _fields_ = [("type", ctypes.c_int), ("display", ctypes.c_void_p),
+                ("resourceid", ctypes.c_ulong), ("serial", ctypes.c_ulong),
+                ("error_code", ctypes.c_ubyte), ("request_code", ctypes.c_ubyte),
+                ("minor_code", ctypes.c_ubyte)]
+
+
 x11.XGetWMHints.restype = ctypes.POINTER(XWMHints)
+ERROR_HANDLER = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.POINTER(XErrorEvent))
+x11.XSetErrorHandler.argtypes = [ERROR_HANDLER]
+x11.XSetErrorHandler.restype = ERROR_HANDLER
+
+searching = False  # True while find_windows() reads windows that may close at any moment
+
+
+def on_x_error(display, event):
+    # The search only makes calls that wait for the server's answer (XQueryTree,
+    # XGetWindowProperty, XFetchName, XGetWMHints), so an error arrives during the call that
+    # caused it, and that call then returns "nothing": no children, no name, no hints. The only
+    # error a window closing meanwhile causes them is BadWindow. Anything else goes to Xlib's
+    # default handler, which prints the error and exits with status 1.
+    if searching and event.contents.error_code == BAD_WINDOW:
+        return 0
+    return xlib_default_error_handler(display, event)
+
+
+on_x_error = ERROR_HANDLER(on_x_error)  # kept in a variable: Xlib holds only a C pointer to it
+xlib_default_error_handler = x11.XSetErrorHandler(on_x_error)
 
 display = x11.XOpenDisplay(None)
 if not display:
@@ -174,6 +212,15 @@ def group_leader(win):
 
 
 def find_windows():
+    global searching
+    searching = True
+    try:
+        return search()
+    finally:
+        searching = False
+
+
+def search():
     windows = list(all_windows(root.value))
     # The main window's title is "Android Emulator - <avd>:<port>".
     prefix = f"Android Emulator - {AVD}:" if AVD else "Android Emulator - "
@@ -194,9 +241,9 @@ def find_windows():
     return main, toolbar
 
 
-deadline = time.time() + TIMEOUT
+deadline = time.monotonic() + TIMEOUT  # monotonic: WSL2 steps the clock after the host sleeps
 main, toolbar = find_windows()
-while not toolbar and time.time() < deadline:
+while not toolbar and time.monotonic() < deadline:
     time.sleep(1)
     main, toolbar = find_windows()
 if not toolbar:

@@ -6,11 +6,15 @@ EmulatorWindows recreates the window structure the Android Emulator shows (see t
 wslg-toolbar.py) through Xlib, and reads back what the script did to it. On a display with a window
 manager (WSLg's), mapping a window only asks the window manager to map it, which it does a little
 later, so EmulatorWindows waits for it (Xvfb has no window manager and maps windows at once).
+WindowChurn is another client that keeps opening and closing windows, as a desktop's tooltips and
+menus do, while the script searches the display.
 """
+import contextlib
 import ctypes
 import os
 import shutil
 import subprocess
+import sys
 import time
 
 # Xlib constants (X11/X.h, X11/Xutil.h, X11/Xatom.h).
@@ -133,6 +137,22 @@ class EmulatorWindows:
             self.x.XMapWindow(self.d, ctypes.c_ulong(win))
         return win
 
+    def destroy(self, win):
+        self.x.XDestroyWindow(self.d, ctypes.c_ulong(win))
+        self.x.XSync(self.d, 0)
+
+    @contextlib.contextmanager
+    def grabbed(self):
+        """While the block runs, the X server handles only this connection's requests: other
+        clients, such as the script, wait."""
+        self.x.XGrabServer(self.d)
+        self.x.XSync(self.d, 0)
+        try:
+            yield
+        finally:
+            self.x.XUngrabServer(self.d)
+            self.x.XSync(self.d, 0)
+
     def _set_group(self, win, leader):
         hints = XWMHints(flags=WINDOW_GROUP_HINT, window_group=leader)
         self.x.XSetWMHints(self.d, ctypes.c_ulong(win), ctypes.byref(hints))
@@ -145,13 +165,13 @@ class EmulatorWindows:
         self.x.XGetWindowAttributes(self.d, ctypes.c_ulong(win), ctypes.byref(attrs))
         return attrs.map_state != IS_UNMAPPED
 
-    def wait_until_mapped(self, win, timeout=10):
-        """Whether win is mapped, once it is or after timeout seconds: a window manager maps a
-        window some time after its client asked for it."""
+    def wait_until_mapped(self, win, timeout=10, mapped=True):
+        """Whether win is mapped (or unmapped, with mapped=False) once it is, or after timeout
+        seconds: a window manager maps a window some time after its client asked for it."""
         deadline = time.monotonic() + timeout
-        while not self.is_mapped(win) and time.monotonic() < deadline:
-            time.sleep(0.05)
-        return self.is_mapped(win)
+        while self.is_mapped(win) != mapped and time.monotonic() < deadline:
+            time.sleep(0.01)
+        return self.is_mapped(win) == mapped
 
     def transient_for(self, win):
         parent = ctypes.c_ulong()
@@ -176,3 +196,45 @@ class EmulatorWindows:
         if data:
             self.x.XFree(data)
         return names
+
+
+class WindowChurn:
+    """Context manager: while it's open, another client keeps a few hundred windows on the display
+    and replaces them all the time, the oldest first, so that windows the script has just listed
+    close before it reads them. Runs this file as a separate process, with its own X connection,
+    and returns once every window of the first set has been replaced."""
+
+    def __init__(self, display):
+        self.display = display
+
+    def __enter__(self):
+        self.process = subprocess.Popen([sys.executable, __file__, "churn", self.display],
+                                        stdout=subprocess.PIPE, text=True)
+        if not self.process.stdout.readline():
+            raise RuntimeError(f"the window churn didn't start on {self.display}")
+        return self
+
+    def __exit__(self, *exc):
+        self.process.terminate()
+        self.process.wait()
+        self.process.stdout.close()
+
+
+def churn(display, count=500):
+    # XQueryTree lists a window's children from the bottom of the stack up, and a new window
+    # goes on top, so the script reads these windows oldest first: the ones replaced next.
+    windows = EmulatorWindows(display)
+    x, d, root = windows.x, windows.d, windows.root
+    alive = [x.XCreateSimpleWindow(d, root, 0, 0, 1, 1, 0, 0, 0) for _ in range(count)]
+    replaced = 0
+    while True:
+        x.XDestroyWindow(d, ctypes.c_ulong(alive.pop(0)))
+        alive.append(x.XCreateSimpleWindow(d, root, 0, 0, 1, 1, 0, 0, 0))
+        replaced += 1
+        if replaced == count:
+            x.XSync(d, 0)
+            print("churning", flush=True)
+
+
+if __name__ == "__main__" and sys.argv[1:2] == ["churn"]:
+    churn(sys.argv[2])
