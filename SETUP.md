@@ -138,6 +138,12 @@ getent group kvm           # kvm:x:<gid>:<members>
   echo 'z /dev/kvm 0660 root kvm -' | sudo tee /etc/tmpfiles.d/kvm.conf
   ```
 
+  With **several WSL distros**, that isn't enough: they share one kernel and one `/dev`, and when
+  another distro boots, its udev hands `/dev/kvm` to *its* `kvm` group, whose gid may differ, while
+  this distro keeps running. Give the `kvm` group the same gid in every distro that has one, e.g.
+  in the other distro (with 993 being this distro's `kvm` gid, and free there):
+  `sudo groupmod -g 993 kvm`.
+
 `bin/start-emulator.sh` tells the two cases apart and prints the fix for the one you have.
 
 Check: `test -w /dev/kvm && echo ok` in a session started after `usermod` (or under `sg kvm`).
