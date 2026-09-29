@@ -166,6 +166,19 @@ class RecentInputTest(unittest.TestCase):
                                                     "two looks: overlaps that drop 1 or 2 or 3 "):
             self.device.watch()
 
+    def test_a_press_that_is_all_left_of_the_look_before_counts_once(self):
+        # 8 events came since: the look before's last two, a press's down and up at one moment,
+        # are all that's left of it, and an overlap with only the up fits at the same time.
+        self.device.keys(5_000)
+        self.device.look(5_100)
+        self.device.keys(5_300)
+        for i, text in enumerate(["FocusEvent(hasFocus=false)", "FocusEvent(hasFocus=true)"] * 3):
+            self.device.handle(text, 5_400 + 60 * i + 7 * i * i)
+        for _ in range(LOOKS_TO_DECIDE):   # looking again doesn't help: both fit at the same time
+            self.device.look(6_000)
+        received = self.device.watch()
+        self.assertEqual([t for t, _ in received.key_events()], [200.0, 200.0])
+
     def test_looks_again_until_the_clock_can_tell(self):
         for i in range(40):
             self.device.handle(KEY, 10_000 + 50 * i)

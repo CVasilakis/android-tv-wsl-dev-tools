@@ -57,11 +57,15 @@ class RecentInput:
     in between, so the time between two looks is known give or take how long the two took. Only
     an overlap whose time falls in that range counts, and its time is the exact one, from the
     ages. The range must be all of it: `dumpsys` can read its clock long after the uptime read
-    before it, and a narrower range throws out the right overlap.
+    before it, and a narrower range throws out the right overlap. The clock can't tell two
+    overlaps apart that fit at the very same time: all that's left of the look before is then
+    alike events of one moment, a press's down and up (API 29 and newer), and the other overlap
+    takes the up for a new event of that moment. No key the tests send has a third event at the
+    moment of its press, so of those, the one that drops fewest is right.
 
     A look fails the test, rather than miscount, when no overlap fits the clock: every event the
     look before saw is gone, so 10 or more came in between and some may have been missed. It
-    looks again when more than one fits, which a quicker look settles, or when dumpsys gave up
+    looks again when more than one fits, which a quicker look can settle, or when dumpsys gave up
     before the queue, and fails after LOOKS_TO_DECIDE looks that don't settle it."""
 
     def __init__(self, adb_shell):
@@ -103,6 +107,9 @@ class RecentInput:
                     f"as the device's clock says it should be ({low:.0f}-{high:.0f} ms later), so "
                     f"{QUEUE_SIZE} or more came between two looks.\n"
                     f"Before: {self.last}\nThen: {events}")
+            # Of overlaps that fit at the very same time, the one dropping fewest (see the class).
+            fits = [(dropped, gap) for dropped, gap in fits
+                    if not any(abs(other - gap) < 0.01 and fewer < dropped for fewer, other in fits)]
             if len(fits) == 1:
                 [(dropped, gap)] = fits
                 self.add(events[len(self.last) - dropped:], self.last_time + gap, events, clock)
