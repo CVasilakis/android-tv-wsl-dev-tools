@@ -24,7 +24,7 @@ too. The emulator tier isn't run there; run it locally before a release.
 | Tier | Folder | Needs | Checks |
 |---|---|---|---|
 | hermetic | [`hermetic/`](hermetic) | Python 3; optional: Xvfb, shellcheck | Each script's behavior against fake tools and a fake machine, and how the emulator tier reads Android's input dump. Run it after every script change. |
-| emulator | [`emulator/`](emulator) | Your SDK and AVD (`ADT_AVD` picks one) | What fakes can't show: booting really completes, and with `--wait-for-home` returns with the home app in front and focused, `remote.sh`'s keys arrive in Android as the right keys, its Home key takes the device from an app to its home app, `--long-press` holds the key for the device's long-press timeout and leaves the settings as they were, and `stop-emulator.sh` returns only once the AVD can start again, also for a `-read-only` emulator, which writes no lock file. |
+| emulator | [`emulator/`](emulator) | Your SDK and AVD (`ADT_AVD` picks one) | What fakes can't show: booting really completes, and with `--wait-for-home` returns with the home app in front and focused, `remote.sh`'s keys arrive in Android as the right keys, its Home key takes the device from an app to its home app, `--long-press` holds the key for the device's long-press timeout and leaves the settings as they were, and `stop-emulator.sh` returns only once the AVD can start again, also for a `-read-only` emulator, which writes no lock file, and doesn't fail on one that's exiting already (sent SIGTERM). |
 
 Some hermetic tests skip, with the reason printed, when an optional tool is missing:
 - **Xvfb** (`sudo apt-get install -y xvfb`) for the `wslg-toolbar.py`
@@ -158,11 +158,15 @@ Arrange failures and odd situations with `sandbox.set_behavior(...)` (see `DEFAU
 `ADT_HOME_STABLE=0` so the home app needn't stay in front 3 s, and another screen gets Back after
 1 s rather than 10; `adb_offline` for an emulator adb can't reach, with `ADT_OFFLINE_TIMEOUT=1`
 in the script's environment so `start-emulator.sh --quick` doesn't wait 30 s, or
-`emulator_stuck` for one that won't exit, with `ADT_STOP_TIMEOUT=1` for `stop-emulator.sh`), `connect_device()`, `wsl()` and file permissions on `sandbox.kvm`. Check the
+`emulator_stuck` for one that won't exit, with `ADT_STOP_TIMEOUT=1` for `stop-emulator.sh`;
+`adb_lists_exited` for adb's lag in unlisting an emulator whose process has exited, with
+`sandbox.kill_emulator(serial)`, which leaves a zombie, or `emulator_already_exiting` for one
+that's shutting down when `adb emu kill` comes), `connect_device()`, `wsl()` and file permissions on `sandbox.kvm`. Check the
 results with `result.code/out/err`, `sandbox.calls()`/`argvs(tool)` (each call has the `time` it
 was made), `sandbox.running()` and the
 files in `sandbox.home`; `sandbox.emulator_pid(serial)` and `sandbox.alive(pid)` show whether an
-emulator's process has exited.
+emulator's process has exited (a zombie has: fake emulators are the test's children, so a killed
+one stays a zombie until the cleanup reaps it).
 
 ## Writing tests
 

@@ -299,7 +299,8 @@ console doesn't answer, so a script built on them can hang. `stop-emulator.sh` a
 | The emulator exits (it saves its Quick Boot snapshot first) | waits for its process, then until adb no longer lists it |
 | It hasn't exited `ADT_STOP_TIMEOUT` seconds (default 60) after `adb emu kill` | kills it (SIGKILL): its Quick Boot snapshot isn't saved |
 | Its console doesn't answer `adb emu kill`, or adb doesn't list it (e.g. stuck early in its boot; name it by its AVD) | sends SIGTERM, which lets it shut down, and SIGKILL if it's still running `ADT_STOP_TIMEOUT` seconds later |
-| Its process can't be found or killed, and it doesn't exit | fails (exit 1) and says it's still running |
+| Its console doesn't answer, and its process can't be found (e.g. it was exiting already, sent SIGTERM with a test run that was killed) | waits up to `ADT_STOP_TIMEOUT` seconds for adb to stop listing it |
+| Its process can't be found or killed, and it doesn't exit (adb keeps listing it) | fails (exit 1) and says it's still running |
 | Its process can't be found, and adb stops listing it | exits 0, and says its process may still be exiting |
 
 It says which of these happened. Each time limit lasts at least its number of seconds, and at
@@ -320,6 +321,14 @@ by a killed emulator can't make the script stop another process. The script find
 folder through the AVD's name, which a hung console doesn't tell: to stop such an emulator, name
 its AVD rather than its serial (adb may then list it for a moment after the script returns,
 until adb notices it's gone).
+
+An emulator that's exiting, or has exited, when the script gets to it isn't a failure to stop
+it. Its console answers nothing from the moment it starts shutting down, so the script can't
+learn its AVD's name (with `--all` or a serial) or its PID from it; adb lists it until a moment
+after its process has exited (seen after a SIGTERM: listed as a device for 2 s while it shut
+down, then as offline with qemu already a zombie, then gone). The script then waits for adb to
+stop listing it. A zombie, an exited process its parent hasn't reaped yet, has exited: its
+command line is empty, so its PID never counts as the AVD's.
 
 Don't wait for an emulator by searching for its process by name: `pgrep -f`/`pkill -f` match
 their pattern against every command line, including the shell that runs them when the command
@@ -485,7 +494,7 @@ TV or Google TV; these are the differences in the images that you may run into:
 | `start-emulator.sh: '<avd>' booted, but its home app wasn't in front with the focus within 300 s` (with `--wait-for-home`) | the next line says what was in front: nothing focused (a host short of CPU: raise `ADT_HOME_TIMEOUT`), another app (on an emulator that had booted before: press Home, or leave out the flag), or a screen that two Backs didn't close |
 | `start-emulator.sh: … was stopped before it finished booting` | the AVD was already running and booting (another call started it), and was stopped while this one waited; start it again |
 | `start-emulator.sh: … adb can't reach it` (with `--quick`) | the restored snapshot left adb offline: `stop-emulator.sh <serial>`, then start it without `--quick` |
-| `… It's still running.` from `stop-emulator.sh` | the emulator couldn't be stopped (see [`stop-emulator.sh`](#stop-emulatorsh)); kill its `qemu-system-…` process by the PID in the `pid_<PID>.ini` that `adb -s <serial> emu avd discoverypath` names, or in `hardware-qemu.ini.lock` in the AVD's folder, or reboot WSL (`wsl --shutdown` in Windows) |
+| `… It's still running.` from `stop-emulator.sh` | the emulator couldn't be stopped, or, without its PID, adb still listed it after `ADT_STOP_TIMEOUT` seconds (see [`stop-emulator.sh`](#stop-emulatorsh)); kill its `qemu-system-…` process by the PID in the `pid_<PID>.ini` that `adb -s <serial> emu avd discoverypath` names (without an answer: the one in `$XDG_RUNTIME_DIR/avd/running/` whose `port.serial=` is the serial's number; a killed emulator's file stays behind, so check the PID's command line first), or in `hardware-qemu.ini.lock` in the AVD's folder, or reboot WSL (`wsl --shutdown` in Windows) |
 | `adb devices` shows `offline` or `unauthorized` | `adb reconnect offline`; if that doesn't help, `adb kill-server && adb start-server`; else stop the emulator and cold boot it |
 | `can't tell which AVD to use` / `there's no AVD named …` | pass the AVD name or set `ADT_AVD`; the message lists the AVDs found |
 | `'avdmanager' not found` (or `emulator`, `platform-tools`) | the SDK wasn't found, or lacks that package: set `ANDROID_HOME` (see [Finding your setup](#finding-your-setup)) |

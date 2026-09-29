@@ -44,6 +44,14 @@ DEFAULT_BEHAVIOR = {
                                   # the case where waiting for adb alone would return too early
     "emulator_stuck": False,      # a started emulator answers `adb emu kill` with OK but keeps
                                   # running, and ignores SIGTERM: only SIGKILL stops it
+    "emulator_already_exiting": False,  # `adb emu kill` finds a started emulator shutting down
+                                  # already (sent SIGTERM by someone else, e.g. with a test run that
+                                  # was killed): its console no longer answers that call, which
+                                  # fails, and the emulator exits then
+    "adb_lists_exited": 0,        # adb devices keeps listing an emulator whose process has exited
+                                  # (a zombie, or gone) as offline for this many more calls, as adb
+                                  # notices only a moment later; meanwhile its console refuses
+                                  # connections
     "emulator_lock_file": True,   # a started emulator writes hardware-qemu.ini.lock; False: it
                                   # writes none, like a real one started with -read-only
     "emulator_discoverable": True,  # a started emulator's console answers `adb emu avd
@@ -104,13 +112,17 @@ def behavior():
     return {**DEFAULT_BEHAVIOR, **data}
 
 
+def counters():
+    path = STATE / "counters.json"
+    return json.loads(path.read_text()) if path.exists() else {}
+
+
 def take(counter, limit):
     """Counts calls for a knob: True for the first `limit` calls, then False."""
-    path = STATE / "counters.json"
-    counts = json.loads(path.read_text()) if path.exists() else {}
-    counts[counter] = counts.get(counter, 0) + 1
-    path.write_text(json.dumps(counts))
-    return counts[counter] <= limit
+    counted = counters()
+    counted[counter] = counted.get(counter, 0) + 1
+    (STATE / "counters.json").write_text(json.dumps(counted))
+    return counted[counter] <= limit
 
 
 def step(knob):
@@ -238,6 +250,25 @@ def running():
     return result
 
 
+def listed_exited(poll=False):
+    """{serial: info} of the fake emulators whose process has exited but that adb still lists
+    (adb_lists_exited); poll=True counts this as one of those listings (adb devices)."""
+    limit = behavior()["adb_lists_exited"]
+    result = {}
+    for path in sorted(RUNNING.glob("emulator-*.json")) if limit else ():
+        try:
+            info = json.loads(path.read_text())
+        except ValueError:
+            continue
+        if alive(info["pid"]) or info.get("hidden"):
+            continue
+        counter = f"listed_exited_{info['pid']}"
+        listed = take(counter, limit) if poll else counters().get(counter, 0) < limit
+        if listed:
+            result[path.stem] = info
+    return result
+
+
 def physical_devices():
     path = STATE / "devices.json"
     return json.loads(path.read_text()) if path.exists() else []
@@ -264,6 +295,8 @@ def adb(args):
         print("List of devices attached")
         for s, info in running().items():
             print(f"{s}\t{'offline' if is_offline(info) else 'device'}")
+        for s in listed_exited(poll=True):
+            print(f"{s}\toffline")
         for s in physical_devices():
             print(f"{s}\tdevice")
         print()
@@ -288,6 +321,10 @@ def adb(args):
         if len(devices) > 1:
             fail("adb: more than one device/emulator")
         serial = devices[0]
+    if serial not in devices and serial in listed_exited():
+        if args[:1] == ["emu"]:
+            fail(f"error: could not connect to TCP port {serial.split('-')[1]}: Connection refused")
+        fail("error: device offline")
     if serial not in devices:
         fail(f"adb: device '{serial}' not found")
 
@@ -491,6 +528,12 @@ def adb_emu(serial, info, args):
                              "query virtual device name\r\n\r\nKO:  bad sub-command\r\n")
     elif args == ["kill"]:
         hang_if("emu_kill")
+        if behavior()["emulator_already_exiting"]:
+            os.kill(info["pid"], signal.SIGTERM)
+            deadline = time.time() + 5
+            while alive(info["pid"]) and time.time() < deadline:
+                time.sleep(0.02)
+            fail(f"error: could not connect to TCP port {serial.split('-')[1]}: Connection refused")
         print("OK: killing emulator, bye bye")
         if info.get("stuck"):
             return
