@@ -478,6 +478,7 @@ TV or Google TV; these are the differences in the images that you may run into:
 | Toolbar buttons ignore clicks | `wslg-toolbar.py show` |
 | `wslg-toolbar: no toolbar window found` | wrong AVD name or emulator not running; inspect with `xwininfo -root -tree \| grep qemu-system` |
 | `wslg-toolbar: no running emulator window found` | emulator not running, or started with `-no-window` |
+| `wslg-toolbar.py`: `X Error of failed request: BadWindow` | the emulator's toolbar or window closed while the script changed it (the emulator exited or restarted): run it again once the emulator is up |
 | `start-emulator.sh: the emulator exited` | the printed log lines say why (e.g. an unknown flag); full log in `${TMPDIR:-/tmp}/emulator-<name>.log` |
 | `start-emulator.sh: '<avd>' didn't finish booting within 900 s` | the host is slow: raise `ADT_BOOT_TIMEOUT`; or Android can't boot: without `--quick` if you used it, else try `-wipe-data` (factory reset) |
 | `create-avd.sh: AVD '<name>' already exists` | it never overwrites one; `--if-missing` accepts it when it's from the same system image (see [`create-avd.sh`](#create-avdsh)) |

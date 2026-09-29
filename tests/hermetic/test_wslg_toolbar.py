@@ -9,12 +9,16 @@ from support.sandbox import BIN
 SCRIPT = str(BIN / "wslg-toolbar.py")
 
 
-def run(*args, display=None, timeout="0.5"):
-    env = {"PATH": "/usr/bin:/bin", "WSLG_TOOLBAR_TIMEOUT": timeout}
+def env(display=None, timeout="0.5"):
+    result = {"PATH": "/usr/bin:/bin", "WSLG_TOOLBAR_TIMEOUT": timeout}
     if display:
-        env["DISPLAY"] = display
+        result["DISPLAY"] = display
+    return result
+
+
+def run(*args, display=None, timeout="0.5"):
     return subprocess.run([sys.executable, SCRIPT, *args], capture_output=True, text=True,
-                          env=env, timeout=60)
+                          env=env(display, timeout), timeout=60)
 
 
 class WithoutX(unittest.TestCase):
@@ -114,3 +118,38 @@ class OnAnXServer(unittest.TestCase):
         result = self.run_script("hide")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("no running emulator window found", result.stderr)
+
+    def test_windows_closing_during_the_search_are_skipped(self):
+        # The script reads every window on the display; one closing between being listed and
+        # being read (a tooltip, a menu, the emulator's own startup windows) made Xlib end it
+        # with "BadWindow", and the toolbar stayed shown.
+        _, toolbar = self.windows.emulator("tv_api25")
+        with x11.WindowChurn(self.display):
+            result = self.run_script("tv_api25", "hide")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(self.windows.is_mapped(toolbar))
+
+    def test_an_error_on_the_toolbar_it_changes_is_still_reported(self):
+        # Only the search skips windows that closed. "show" unmaps the toolbar and waits a
+        # moment before it changes the toolbar and maps it again: the toolbar closing then must
+        # make the script fail. With the server grabbed, the script can't go on while the test
+        # checks that it's still in that moment; if it isn't (a slow test), try again.
+        for _ in range(5):
+            windows = x11.EmulatorWindows(self.display)
+            self.addCleanup(windows.close)
+            _, toolbar = windows.emulator("tv_api25")
+            script = subprocess.Popen([sys.executable, SCRIPT, "tv_api25", "show"], text=True,
+                                      stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                      env=env(self.display))
+            windows.wait_until_mapped(toolbar, mapped=False)
+            with windows.grabbed():
+                in_time = not windows.is_mapped(toolbar)
+                if in_time:
+                    windows.destroy(toolbar)
+            _, err = script.communicate(timeout=60)
+            if in_time:
+                break
+        else:
+            self.fail("the test never closed the toolbar while the script waited")
+        self.assertNotEqual(script.returncode, 0)
+        self.assertIn("BadWindow", err)
