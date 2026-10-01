@@ -195,34 +195,46 @@ has settled. From API 24 on, until the user is unlocked, Settings' `FallbackHome
 and a HOME intent resolves to it; the home app comes to the front only then, which can be after
 `sys.boot_completed`. And on a host short of CPU, no window had the focus long after the boot, so
 no key reached any app: an instrumented test's first key, which waits for a focused
-window, then fails. With `--wait-for-home`, once Android has booted, the script also waits until:
+window, then fails. With `--wait-for-home`, once Android has booted, the script also waits until
+the home app's screen is in front, has finished starting and has the focus:
 
-- the activity in front (`dumpsys window`'s `mFocusedApp`) is the home app's, and a window of the
-  home app has the focus (`mCurrentFocus`), so keys go to it;
-- from API 24 on, a HOME intent no longer resolves to `FallbackHome`
-  (`cmd package resolve-activity`), and the home app is the one it resolves to. API 22 and 23 have
-  no `cmd` and no `FallbackHome`: there the home app is the activity in front when a HOME intent
-  started its task (`dumpsys activity activities`);
-- all this has held for a few seconds in a row, as the front changes a few times while the home
-  app starts.
+- the activity at the top (`dumpsys activity activities`, which lists them from the top down) is
+  in the home app's task. From API 24 on, that's the task of the activity a HOME intent resolves
+  to (`cmd package resolve-activity`), once that's no longer `FallbackHome`. API 22 and 23 have no
+  `cmd` and no `FallbackHome`: there it's a task a HOME intent started (the `intent=` of its
+  `TaskRecord`);
+- that activity is resumed and idle (`state=RESUMED`, `idle=true`): Android's own mark that it
+  has finished starting, once its main thread has gone idle after the resume;
+- it's the focused activity (`dumpsys window`'s `mFocusedApp`), and its own window has the focus
+  (`mCurrentFocus`), so keys go to it;
+- the same activity and window show at two looks in a row, a second apart, so a look doesn't
+  catch a state that's gone a moment later.
 
-Google TV's home app shows a sign-in screen without a Google account, and on API 22 with a second
-home app installed Android's home chooser is in front: each counts as the home app. The script
-says which package it found.
+A screen the home app opens over itself, in its task, counts once it's on top: Google TV's
+sign-in screen without a Google account, and on API 22 with a second home app installed, Android's
+home chooser (package `android`). The script says which package it found. Google TV's launcher on
+API 30–33 first shows a screen of its own after a boot, in a task of its own, and then brings its
+home task over it ([Differences between API levels](#differences-between-api-levels)). The script
+waits past it, so there `--wait-for-home` takes longer than on other images, minutes on a slow
+host. What no look can tell is a screen the home app decides to open later by
+itself: after that first screen, Google TV's launcher can show its home screen, settled, for a
+while before it opens its sign-in screen over it.
 
 Another screen can keep the focus: on API 23 and 29 the first boot of a new AVD, which is every
 boot in CI, opens "USB drive connected" in front of the home app, and it stays until Back. So when
 a window of another app has kept the focus for 10 s, once the user is unlocked, the script presses
-Back, twice at most. It does so only on an emulator whose boot it waited for (one it started, or
-one that was still booting); on one that had booted before, which someone may be using, it only
-looks, and fails if an app stays in front: press Home first, or leave out the flag. It never
-starts an app. With `--quick`, the restored device has usually settled already, so the wait is
-short.
+Back, twice at most, never on a screen of the home app's own, such as Google TV's first screen,
+where a Back could end what the launcher is doing. It does so only on an emulator whose boot it
+waited for (one it started, or one that was still booting); on one that had booted before, which
+someone may be using, it only looks, and fails if an app stays in front: press Home first, or
+leave out the flag. It never starts an app. With `--quick`, the restored device has usually
+settled already, so the wait is short.
 
 It waits at most `ADT_HOME_TIMEOUT` seconds (default 300; `0`: no limit), counted from when
 Android has booted, on top of `ADT_BOOT_TIMEOUT`. When time's up it fails, naming what was in
-front (the focused activity, the focused window, and what a HOME intent resolves to), and stops
-the emulator it started, as after a boot timeout; one that was already running is left running.
+front (the focused activity, the focused window, what a HOME intent resolves to, and the top
+activity with its task, state and idle mark), and stops the emulator it started, as after a boot
+timeout; one that was already running is left running.
 
 **Home on API 26 and 27.** On the Android TV images of API 26 and 27 (Android 8.0 and 8.1), the
 Home key never leaves an app until the TV setup wizard has set `tv_user_setup_complete`, and
@@ -486,6 +498,7 @@ TV or Google TV; these are the differences in the images that you may run into:
 | 30 | `remote.sh` keys lag the most; the emulator console's key events never arrive. |
 | 36 | `adb shell monkey` adds a virtual touchscreen while it runs; that configuration change recreates the app in front, which drops the keys monkey sends. |
 | Google TV, all | The stock launcher is `com.google.android.apps.tv.launcherx`, with priority 2 like the others. Without a Google account it shows a sign-in screen instead of a home screen: "Add account" on 30–33, "Set up Google TV" on 34 and 36; Home opens it like a home screen. Right after a boot it can come to the front by itself, over an app just opened. |
+| Google TV, 30–33 | After a boot the launcher first shows `.coreservices.bootmode.DispatchActivity`, in a task of its own, while it decides what to show (minutes on a slow host), then brings its home task to the front, over any app opened meanwhile; its home screen then opens the sign-in screen over itself, in that task. On 34 and 36 the launcher decides inside its home screen. |
 | Google TV, 30–34 | `tvlauncher` is installed too, without a HOME filter. |
 
 ## Troubleshooting

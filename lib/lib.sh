@@ -176,27 +176,42 @@ emulator_avd() {
 }
 
 # wait_for_home <serial> <seconds> [<backs>]: waits until a device has settled after its boot, which
-# sys.boot_completed doesn't mean: until its home app's activity is in front, a window of the home
-# app has the focus (keys go only to the focused window; on a device short of CPU, none had it
-# long after the boot), and, from API 24 on, a HOME intent resolves to the home app. Until the
-# user is unlocked it resolves to Settings' FallbackHome, which holds the screen meanwhile. All
-# that for more than HOME_STABLE s in a row, as the front changes a few times while the home app
-# starts. API 22 and 23 have no `cmd` to ask, and no FallbackHome: there the home app is the
-# activity in front when its task was started by a HOME intent. Google TV's home app without an
-# account shows a sign-in screen, and on API 22 with another home app installed, Android's chooser
-# (package android) is in front instead: each counts as the home app. Another screen can keep
-# the focus: a new AVD's first boot shows "USB drive connected" (for its SD card) in front of the
-# home app on API 23 and 29, until Back. So when a window of another app has kept the focus for
-# BACK_AFTER s, once the user is unlocked, it presses Back, up to <backs> times (default 0: it
-# only looks; never on a device someone may be using). Prints the home app's package. After
-# <seconds> (0: no limit) it prints what was in front instead, and fails. ADT_HOME_STABLE exists
-# for the tests (BACK_AFTER follows it). The emulator tier copies its default
-# (tests/emulator/test_on_emulator.py).
-HOME_STABLE="${ADT_HOME_STABLE:-3}"
-BACK_AFTER=$((HOME_STABLE * 3 + 1))
+# sys.boot_completed doesn't mean, and prints its home app's package. Settled is a state the device
+# shows, seen at two looks in a row (the same activity record and the same window), not a time it
+# has lasted: the top activity of `dumpsys activity activities` is in the home app's task, resumed
+# and idle (Android's mark that it has finished starting: its main thread went idle after the
+# resume, or 10 s passed), it's the focused activity (`dumpsys window`'s mFocusedApp), and its own
+# window has the focus (mCurrentFocus; keys go only there, and on a device short of CPU none had
+# it long after the boot). From API 24 on, the home app's task is the one of the activity a HOME
+# intent resolves to, once that's no longer Settings' FallbackHome, which holds the screen until
+# the user is unlocked. API 22 and 23 have neither `cmd` to ask nor FallbackHome: there it's a task
+# a HOME intent started.
+#
+# What that counts: a screen the home app opens over itself, in its task, once it's on top, like
+# Google TV's sign-in screen without an account, and on API 22 with another home app installed,
+# Android's chooser (package android, in the task Home started). What it doesn't: Google TV's
+# launcher (API 30-33) first shows DispatchActivity, in a task of its own, while it decides what
+# to show (minutes on a starved emulator), then brings its home task over it; a home app whose main
+# thread is still busy after its resume, which on Google TV then opens its sign-in screen; that
+# screen while the home app's window still has the focus. What no look can foresee is a screen the
+# home app opens later of its own accord: after DispatchActivity, Google TV's home screen was in
+# front, idle, for seconds before its sign-in screen came on an emulator starved of CPU (unstarved
+# the sign-in screen came first), and on API 33 its launcher restarted half a minute after the
+# boot, as Google Play services was updated, and went through DispatchActivity again.
+#
+# Another app's screen can keep the focus: a new AVD's first boot shows "USB drive connected" (for
+# its SD card) in front of the home app on API 23 and 29, until Back. So when a window of another
+# app than the home app's has kept the focus for BACK_AFTER s, once the user is unlocked, it presses
+# Back, up to <backs> times (default 0: it only looks; never on a device someone may be using).
+# Never on a screen of the home app's own, like DispatchActivity: a Back there could end what the
+# launcher is doing. After <seconds> (0: no limit) it prints what was in front instead, and fails.
+#
+# BACK_AFTER is how long another app's screen must keep the focus to be taken as stuck: one that's
+# only passing by while the device settles has left by then. ADT_BACK_AFTER exists for the tests.
+BACK_AFTER="${ADT_BACK_AFTER:-10}"
 wait_for_home() {
-    local serial="$1" limit="$2" backs="${3:-0}" start=$SECONDS since="" sdk="" resolved home
-    local dump window app package other="" other_since=""
+    local serial="$1" limit="$2" backs="${3:-0}" start=$SECONDS sdk="" resolved look settled=""
+    local other="" other_since="" windows activities key window app homes package top
     while true; do
         [ -n "$sdk" ] || sdk="$(adb_bounded -s "$serial" shell getprop ro.build.version.sdk \
             < /dev/null 2>/dev/null | tr -d '\r' || true)"
@@ -208,38 +223,25 @@ wait_for_home() {
                 2>/dev/null | tr -d '\r' | grep -E '^[[:alnum:]_.]+/[[:alnum:]_.$]+$' | tail -n 1 \
                 || true)"
         fi
-        home="$resolved"
-        # mCurrentFocus=Window{7a8a869 u0 <title>}, where an activity's window has the title
-        # <package>/<class>, or mCurrentFocus=null. mFocusedApp names an ActivityRecord{<hash> u0
-        # <package>/<class> t<task>}, alone or inside an AppWindowToken (before API 29).
-        dump="$(adb_bounded -s "$serial" shell dumpsys window < /dev/null 2>/dev/null | tr -d '\r' \
-            || true)"
-        window="$(sed -n 's/^ *mCurrentFocus=Window{[^ ]* [^ ]* \(.*\)}$/\1/p' <<<"$dump" | head -n 1)"
-        app="$(sed -n 's/^ *mFocusedApp=.*ActivityRecord{[^ ]* [^ ]* \([^ }]*\).*/\1/p' <<<"$dump" \
-            | head -n 1)"
-        # Before API 24: the focused activity, if its task was started by a HOME intent. The dump
-        # lists each task as "* TaskRecord{<hash> #<id> ...", then its intent={...}, and at the end
-        # mFocusedActivity: ActivityRecord{<hash> u0 <package>/<class> t<id>}.
-        if [ -n "$sdk" ] && [ "$sdk" -lt 24 ]; then
-            home="$(adb_bounded -s "$serial" shell dumpsys activity activities < /dev/null \
-                2>/dev/null | tr -d '\r' | awk '
-                    /^ *\* TaskRecord\{/ { task = substr($3, 2) }
-                    /^ *intent=\{/ { home[task] = /android\.intent\.category\.HOME/ }
-                    /^ *mFocusedActivity: / { t = $NF; gsub(/[^0-9]/, "", t); if (home[t]) print $(NF - 1) }' \
-                || true)"
-        fi
-        package="${home%%/*}"
-        if [ -n "$home" ] && [[ "$home" != *FallbackHome ]] && [ "${app%%/*}" = "$package" ] \
-                && [[ "$window" == "$package/"* ]]; then
-            [ -n "$since" ] || since=$SECONDS
-            if time_is_up "$since" "$HOME_STABLE"; then echo "$package"; return 0; fi
+        windows="$(adb_bounded -s "$serial" shell dumpsys window < /dev/null 2>/dev/null \
+            | tr -d '\r' || true)"
+        activities="$(adb_bounded -s "$serial" shell dumpsys activity activities < /dev/null \
+            2>/dev/null | tr -d '\r' || true)"
+        mapfile -t look < <(home_look "${sdk:-0}" "$resolved" <(printf '%s\n' "$windows") \
+            <(printf '%s\n' "$activities"))
+        key="${look[1]:-}" app="${look[2]:-}" window="${look[3]:-}" homes="${look[4]:-}"
+        package="${look[5]:-}" top="${look[6]:-}"
+        if [ -n "$sdk" ] && [ "${look[0]:-}" = 1 ]; then
+            if [ "$key" = "$settled" ]; then echo "$package"; return 0; fi
+            settled="$key"
             other=""
         else
-            since=""
-            # The same window of another app with the focus for BACK_AFTER s, once the user is
-            # unlocked (from API 24 on, a HOME intent no longer resolves to FallbackHome): Back.
-            # Without a focused window, a key would reach nothing.
-            if [ -n "$window" ] && [[ "$window" != "$package/"* ]] && [ -n "$sdk" ] \
+            settled=""
+            # The same window of another app than the home app's with the focus for BACK_AFTER s,
+            # once the user is unlocked (from API 24 on, a HOME intent no longer resolves to
+            # FallbackHome): Back. Without a focused window, a key would reach nothing.
+            if [ -n "$window" ] && { [[ "$window" != */* ]] \
+                    || [[ " $homes " != *" ${window%%/*} "* ]]; } && [ -n "$sdk" ] \
                     && { [ "$sdk" -lt 24 ] || { [ -n "$resolved" ] \
                     && [[ "$resolved" != *FallbackHome ]]; }; }; then
                 if [ "$window" != "$other" ]; then
@@ -254,11 +256,98 @@ wait_for_home() {
             else
                 other=""
             fi
-            if [ "$limit" -gt 0 ] && time_is_up "$start" "$limit"; then
-                echo "activity ${app:-none}, focused window ${window:-none}${resolved:+; a HOME intent resolves to $resolved}"
-                return 1
-            fi
+        fi
+        if [ "$limit" -gt 0 ] && time_is_up "$start" "$limit"; then
+            echo "activity ${app:-none}, focused window ${window:-none}${resolved:+; a HOME intent \
+resolves to $resolved}; the top activity is ${top:-none}"
+            return 1
         fi
         sleep 1
     done
+}
+
+# home_look <sdk> <home> <dumpsys window> <dumpsys activity activities>: one look at a device for
+# wait_for_home, from those dumps (files) and from what a HOME intent resolves to (<home>, from API
+# 24 on). Prints seven lines: 1 if the device shows its home screen as wait_for_home means it (else
+# 0); the focused activity's record and window, which must stay the same; the focused activity; the
+# focused window's title; the home app's packages; the package to name as the home app's; and the
+# top activity, with its task, state and idle mark.
+home_look() {
+    awk -v sdk="$1" -v home="$2" '
+        # The last focus lines: after an ANR, `dumpsys window` starts with a copy of the state at
+        # that time (WINDOW MANAGER LAST ANR), focus included, and the live state comes after it.
+        # mFocusedApp names an ActivityRecord{<hash> u0 <package>/<class> t<task>} (on API 33
+        # ...<class>} t<task>}), alone or inside a token (before API 29), or is null.
+        # mCurrentFocus=Window{<hash> u0 <title>}, or null; the title of an activity window is
+        # <package>/<full class name>.
+        FILENAME == ARGV[1] {
+            if ($0 ~ /^ *mFocusedApp=/) {
+                record = ""; app = ""
+                if (split_record($0)) { record = r_hash; app = r_comp }
+            } else if ($0 ~ /^ *mCurrentFocus=/) {
+                focus = $0; sub(/^ *mCurrentFocus=/, "", focus)
+                title = ""
+                if (focus ~ /^Window\{/) {
+                    title = focus; sub(/^Window\{[^ ]* [^ ]* /, "", title); sub(/\}$/, "", title)
+                }
+            }
+            next
+        }
+        # The activities, from the top down: each a "* Hist #<n>: ActivityRecord{...}" line (from
+        # API 34 on with two spaces after Hist), then lines of its own, with its first "state=" and
+        # "idle=". Before API 24, each task is "* TaskRecord{<hash> #<task> ...", then the
+        # intent={...} that started it.
+        /^ *\* TaskRecord\{/ { task = $3; gsub(/[^0-9]/, "", task) }
+        /^ *intent=\{/ && /android\.intent\.category\.HOME/ { started_by_home[task] = 1 }
+        /^ *\* Hist +#[0-9]+: ActivityRecord\{/ {
+            if (split_record($0)) { n++; hash[n] = r_hash; comp[n] = r_comp; in_task[n] = r_task }
+            next
+        }
+        n && state[n] == "" && /^ *state=/ { state[n] = $1; sub(/^state=/, "", state[n]) }
+        n && idle[n] == "" && match($0, /(^| )idle=(true|false)/) {
+            idle[n] = substr($0, RSTART, RLENGTH); sub(/.*=/, "", idle[n])
+        }
+        # Sets r_hash, r_comp and r_task from the last ActivityRecord{...} of a line.
+        function split_record(line,   f) {
+            if (line !~ /ActivityRecord\{/) return 0
+            sub(/.*ActivityRecord\{/, "", line)
+            split(line, f, " ")
+            r_hash = f[1]; r_comp = f[3]; sub(/\}.*/, "", r_comp); r_task = f[4]
+            gsub(/[^0-9]/, "", r_task)
+            return r_comp ~ /\//
+        }
+        function package_of(c) { sub(/\/.*/, "", c); return c }
+        # <package>/.Class as a window names it: <package>/<package>.Class.
+        function full_name(c,   p, cls) {
+            p = c; sub(/\/.*/, "", p); cls = c; sub(/^[^\/]*\//, "", cls)
+            return p "/" (cls ~ /^\./ ? p cls : cls)
+        }
+        END {
+            # The tasks of the home app: from API 24 on, those of the activity HOME resolves to;
+            # before, those a HOME intent started. Its packages: the one HOME resolves to, or
+            # before API 24 those of the activities in these tasks.
+            for (i = 1; i <= n; i++) {
+                if (sdk >= 24 ? (home != "" && home !~ /FallbackHome$/ && comp[i] == home) \
+                        : (in_task[i] in started_by_home)) is_home[in_task[i]] = 1
+            }
+            if (sdk >= 24) homes = package_of(home)
+            else for (i = 1; i <= n; i++) {
+                p = package_of(comp[i])
+                if ((in_task[i] in is_home) && index(" " homes " ", " " p " ") == 0)
+                    homes = homes (homes == "" ? "" : " ") p
+            }
+            settled = n > 0 && (in_task[1] in is_home) && state[1] == "RESUMED" \
+                && idle[1] == "true" && record == hash[1] && app == comp[1] \
+                && title == full_name(comp[1])
+            print (settled ? 1 : 0)
+            print record " " focus
+            print app
+            print title
+            print homes
+            print (sdk >= 24 ? package_of(home) : package_of(comp[1]))
+            if (n) print comp[1] " in task " in_task[1] ", " \
+                (state[1] == "" ? "no state" : state[1]) ", " \
+                (idle[1] == "true" ? "idle" : "not idle")
+            else print ""
+        }' "$3" "$4"
 }

@@ -26,6 +26,7 @@ import signal
 import subprocess
 import sys
 import time
+import zlib
 from pathlib import Path
 
 HOME = "com.google.android.tvlauncher/.MainActivity"
@@ -83,9 +84,13 @@ DEFAULT_BEHAVIOR = {
                                   # (mCurrentFocus)] that `dumpsys window` shows, one per call, the
                                   # last one repeated; None: null. A "BACK" item: the ones after it
                                   # come only once `input keyevent BACK` was sent (one per BACK).
-                                  # Before API 24, `dumpsys activity activities` shows the same
-                                  # activity focused, in a task that a HOME intent started if it's
-                                  # of the last home_resolves' package
+                                  # `dumpsys activity activities` shows that activity at the top,
+                                  # resumed and idle, in the home app's task if it's of the home
+                                  # app's package (that of the activity HOME resolves to; before
+                                  # API 24, of the last home_resolves, in a task a HOME intent
+                                  # started), else in a task of its own above it. An item can be
+                                  # {"window": ..., "activities": ...} instead: the two dumps as
+                                  # they are, e.g. captured from a device
     "adb_hangs": {},              # {"getprop": N, "avd_name": N, "emu_kill": N}: the first N
                                   # `adb shell getprop sys.boot_completed`, `adb emu avd name` or
                                   # `adb emu kill` calls never return, like adb on a half-booted
@@ -401,9 +406,17 @@ def adb(args):
         sys.stdout.write("priority=0 preferredOrder=0 match=0x108000 specificIndex=-1 "
                          f"isDefault=true\r\n{step('home_resolves')}\r\n")
     elif args == ["shell", "dumpsys", "window"]:
-        dumpsys_window(*front())
-    elif args == ["shell", "dumpsys", "activity", "activities"] and behavior()["api_level"] < 24:
-        dumpsys_activities(front(advance=False)[0])
+        shown = front()
+        if isinstance(shown, dict):
+            sys.stdout.write(shown["window"].replace("\n", "\r\n"))
+        else:
+            dumpsys_window(*shown)
+    elif args == ["shell", "dumpsys", "activity", "activities"]:
+        shown = front(advance=False)
+        if isinstance(shown, dict):
+            sys.stdout.write(shown["activities"].replace("\n", "\r\n"))
+        else:
+            dumpsys_activities(shown[0])
     elif args[:4] == ["shell", "settings", "delete", "system"] and len(args) == 5:
         if serial in emulators:
             info = emulators[serial]
@@ -416,34 +429,79 @@ def adb(args):
 NAMESPACES = {"secure": "settings", "system": "system_settings"}   # -> key in running/<serial>.json
 
 
+def task_of(activity):
+    """The home app's task (7) for an activity of its package, else one of its own (9)."""
+    return 7 if activity.split("/")[0] == home_package() else 9
+
+
+def record(activity):
+    """An activity's record, as both dumps name it: ActivityRecord{<hash> u0 <activity> t<task>},
+    with the task outside the braces on API 33. The hash stays the same for the same activity."""
+    braces = "} " if behavior()["api_level"] == 33 else " "
+    return f"ActivityRecord{{{zlib.crc32(activity.encode()):x} u0 {activity}{braces}t{task_of(activity)}}}"
+
+
+def home_activity():
+    """The home app's activity: the one a HOME intent resolves to (the latest answer to
+    resolve-activity; before API 24, the last of home_resolves)."""
+    items = behavior()["home_resolves"]
+    if behavior()["api_level"] < 24:
+        return items[-1]
+    return items[min(counters().get("home_resolves", 1), len(items)) - 1]
+
+
+def home_package():
+    return home_activity().split("/")[0]
+
+
 def dumpsys_window(activity, window):
     """The lines of `dumpsys window` on focus, among others, in the format of the API level."""
-    record = f"ActivityRecord{{2df0e36e u0 {activity} t7}}" if activity else "null"
+    focused = record(activity) if activity else "null"
     if activity and behavior()["api_level"] < 29:
-        record = f"AppWindowToken{{1c158a9c token=Token{{9f08a0f {record}}}}}"
+        focused = f"AppWindowToken{{1c158a9c token=Token{{9f08a0f {focused}}}}}"
     focus = f"Window{{299ed2cc u0 {window}}}" if window else "null"
-    sys.stdout.write("WINDOW MANAGER WINDOWS (dumpsys window windows)\r\n"
+    sys.stdout.write("WINDOW MANAGER LAST ANR (dumpsys window lastanr)\r\n"
+                     "  <no ANR has occurred since boot>\r\n\r\n"
+                     "WINDOW MANAGER WINDOWS (dumpsys window windows)\r\n"
                      f"  Window #0 Window{{5e1 u0 StatusBar}}:\r\n    mOwnerUid=10012\r\n"
-                     f"  mCurrentFocus={focus}\r\n  mFocusedApp={record}\r\n")
+                     f"  mCurrentFocus={focus}\r\n  mFocusedApp={focused}\r\n")
 
 
 def dumpsys_activities(activity):
-    """`dumpsys activity activities` before API 24: the focused activity, in a task a HOME intent
-    started if it's of the home package (the last of home_resolves), else in one of its own."""
-    home = behavior()["home_resolves"][-1]
-    if activity and activity.split("/")[0] == home.split("/")[0]:
-        intent = "act=android.intent.action.MAIN cat=[android.intent.category.HOME] flg=0x10800000"
-    else:
-        intent = "act=android.settings.SETTINGS flg=0x10000000"
-    focused = f"ActivityRecord{{2df0e36e u0 {activity} t7}}" if activity else "null"
-    sys.stdout.write("ACTIVITY MANAGER ACTIVITIES (dumpsys activity activities)\r\n"
-                     "  Stack #0:\r\n    Task id #7\r\n"
-                     f"    * TaskRecord{{36c46df0 #7 I={activity} U=0 sz=1}}\r\n"
-                     f"      intent={{{intent} cmp={activity}}}\r\n"
-                     f"      * Hist #0: ActivityRecord{{2df0e36e u0 {activity} t7}}\r\n"
-                     f"          Intent {{ {intent} }}\r\n"
-                     f"  mFocusedActivity: {focused}\r\n"
-                     "  mFocusedStack=ActivityStack{266f8dee stackId=0, 1 tasks}\r\n")
+    """`dumpsys activity activities`: the focused activity at the top, resumed and idle, in the
+    home app's task (7) if it's of the home app's package, with the activity HOME resolves to
+    under it, else in a task of its own (9) above the home app's. Before API 24 each task shows
+    the intent that started it: a HOME intent for the home app's. With no focused activity, the
+    home app's alone."""
+    home = home_activity()
+    old = behavior()["api_level"] < 24
+    hist = "* Hist  #" if behavior()["api_level"] >= 34 else "* Hist #"
+    tasks = {}   # task -> activities in it, from the top down
+    if activity:
+        tasks.setdefault(task_of(activity), []).append(activity)
+    if home != activity:
+        tasks.setdefault(7, []).append(home)
+    lines = ["ACTIVITY MANAGER ACTIVITIES (dumpsys activity activities)", "Display #0 (activities "
+             "from top to bottom):", "  Stack #0:"]
+    for task, activities in tasks.items():
+        if old:
+            intent = ("act=android.intent.action.MAIN cat=[android.intent.category.HOME] "
+                      "flg=0x10800000" if task == 7 else "act=android.settings.SETTINGS flg=0x10000000")
+            lines += [f"    * TaskRecord{{36c46df{task} #{task} I={activities[-1]} U=0 sz=1}}",
+                      f"      intent={{{intent} cmp={activities[-1]}}}"]
+        else:
+            lines += [f"    * Task{{36c46df{task} #{task} type={'home' if task == 7 else 'standard'} "
+                      "A=1000:x U=0 visible=true mode=fullscreen translucent=false sz=1}"]
+        for n, shown in enumerate(activities):
+            top = shown == (activity or home) and n == 0
+            lines += [f"      {hist}{len(activities) - 1 - n}: {record(shown)}",
+                      f"          Intent {{ cmp={shown} }}",
+                      f"          state={'RESUMED' if top else 'STOPPED'} stopped={str(not top).lower()} "
+                      "delayedResume=false finishing=false",
+                      "          keysPaused=false inHistory=true visible=true sleeping=false idle=true"]
+    focused = record(activity) if activity else "null"
+    lines += [f"  mFocusedActivity: {focused}" if old else f"  ResumedActivity: {focused}"]
+    sys.stdout.write("\r\n".join(lines) + "\r\n")
 
 
 def device_state(serial):

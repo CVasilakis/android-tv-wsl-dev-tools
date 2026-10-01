@@ -461,10 +461,12 @@ class AlreadyRunning(EmulatorTestCase):
 
 class WaitsForHome(EmulatorTestCase):
     """--wait-for-home: after the boot, the script also waits until the device has settled: the
-    home app's activity in front, a window of it focused, and from API 24 on a HOME intent no longer
-    resolving to FallbackHome, for a few seconds in a row (ADT_HOME_STABLE, 3 by default; 0 here,
-    so another screen gets Back after 1 s instead of 10); for at most ADT_HOME_TIMEOUT seconds.
-    The fake device shows what `front` and `home_resolves` list, one item per look."""
+    home app's activity at the top, resumed and idle, focused, with its own window focused, and
+    from API 24 on a HOME intent no longer resolving to FallbackHome, at two looks in a row; for at
+    most ADT_HOME_TIMEOUT seconds. Another app's screen that keeps the focus gets Back after
+    ADT_BACK_AFTER seconds (10 by default; 1 here). The fake device shows what `front` and
+    `home_resolves` list, one item per look; test_lib.py's WaitForHome checks the decision on
+    dumps the emulators produced."""
 
     SETTINGS = "com.android.tv.settings/.MainSettings"
     SETTINGS_WINDOW = "com.android.tv.settings/com.android.tv.settings.MainSettings"
@@ -483,7 +485,7 @@ class WaitsForHome(EmulatorTestCase):
         self.sandbox.add_avd("tv_api25")
 
     def start(self, *args, env=None):
-        return super().start(*args, env={"ADT_HOME_STABLE": "0", **(env or {})})
+        return super().start(*args, env={"ADT_BACK_AFTER": "1", **(env or {})})
 
     def looks(self):
         return [a for a in self.sandbox.argvs("adb") if a[-2:] == ["dumpsys", "window"]]
@@ -513,14 +515,11 @@ class WaitsForHome(EmulatorTestCase):
         self.assertIn("(com.google.android.tvlauncher) is in front", result.err,
                       "took FallbackHome for the home app")
 
-    def test_waits_until_the_home_app_has_stayed_in_front(self):
+    def test_waits_until_the_home_app_is_in_front_at_two_looks_in_a_row(self):
         flapping = [[HOME, HOME_WINDOW], self.NO_FOCUS] * 2
         self.sandbox.set_behavior(front=flapping + [[HOME, HOME_WINDOW]])
-        self.assertSucceeded(self.start("--wait-for-home", env={"ADT_HOME_STABLE": None}))
-        looks = [call for call in self.sandbox.calls("adb") if call["argv"][-2:] == ["dumpsys", "window"]]
-        self.assertGreater(len(looks), len(flapping) + 1, "returned while it still changed")
-        self.assertGreaterEqual(looks[-1]["time"] - looks[len(flapping)]["time"], 2,
-                                "didn't wait for it to stay in front")
+        self.assertSucceeded(self.start("--wait-for-home"))
+        self.assertEqual(len(self.looks()), len(flapping) + 2, "returned while it still changed")
 
     def test_presses_back_when_another_screen_keeps_the_focus(self):
         # A new AVD's first boot shows "USB drive connected" over the home app on API 23 and 29.
@@ -599,8 +598,8 @@ class WaitsForHome(EmulatorTestCase):
         self.sandbox.set_behavior(api_level=23, front=[[self.SETTINGS, self.SETTINGS_WINDOW]])
         result = self.start("--wait-for-home", env=self.FAST)
         self.assertFailed(result, "home app wasn't in front")
-        self.assertIn(f"In front: activity {self.SETTINGS}, focused window {self.SETTINGS_WINDOW}.",
-                      result.output)
+        self.assertIn(f"In front: activity {self.SETTINGS}, focused window {self.SETTINGS_WINDOW}; "
+                      f"the top activity is {self.SETTINGS} in task 9, RESUMED, idle.", result.output)
 
     def test_before_api_24_presses_back_too(self):
         self.sandbox.set_behavior(api_level=23, front=[self.USB, "BACK", [HOME, HOME_WINDOW]])

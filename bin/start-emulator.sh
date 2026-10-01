@@ -43,14 +43,16 @@
 # and HOME resolves to it; the home app comes to the front only then, sometimes after
 # sys.boot_completed; and on a host short of CPU no window had the focus long after it, so no key
 # reached any app (an instrumented test's first key waits for a focused window, and fails). With
-# --wait-for-home the script then also waits until the home app is in front, with the focus, for
-# a few seconds in a row (wait_for_home in lib.sh says exactly what it checks), for at most
-# $ADT_HOME_TIMEOUT seconds (default 300; 0: no limit), counted from when Android has booted. When
-# time's up it fails, naming what was in front, and stops the emulator if it started it, as after
-# a boot timeout. When another app's screen keeps the focus (a new AVD's first boot shows "USB
-# drive connected" on API 23 and 29), it presses Back, twice at most, but only on an emulator whose
-# boot it waited for: one that had booted before may be in use, so there it only looks, and fails
-# if an app stays in front. With --quick the restored device has usually settled already.
+# --wait-for-home the script then also waits until the home app's screen is in front, has finished
+# starting and has the focus, at two looks in a row (wait_for_home in lib.sh says exactly what it
+# checks; on Google TV that comes after a screen the launcher shows first, minutes on a slow host),
+# for at most $ADT_HOME_TIMEOUT seconds (default 300; 0: no limit), counted from when Android has
+# booted. When time's up it fails, naming what was in front, and stops the emulator if it started
+# it, as after a boot timeout. When another app's screen keeps the focus (a new AVD's first boot
+# shows "USB drive connected" on API 23 and 29), it presses Back, twice at most, never on a screen
+# of the home app's own, and only on an emulator whose boot it waited for: one that had booted
+# before may be in use, so there it only looks, and fails if an app stays in front. With --quick
+# the restored device has usually settled already.
 #
 # Home on Android TV 8.0 and 8.1: on the API 26 and 27 Android TV images, the Home key never
 # leaves an app until tv_user_setup_complete is set, so after the boot the script sets it (see
@@ -94,11 +96,11 @@ serial="$(start-emulator.sh)" captures it. Without $DISPLAY it adds -no-window.
   --quick         boot from the Quick Boot snapshot saved when the emulator was last stopped
                   (faster); if adb can't reach the restored emulator for 30 s, reconnect adb once,
                   then give up
-  --wait-for-home once Android has booted, also wait until the device has settled: its home app
-                  in front, holding the focus, for a few seconds in a row; if another screen
-                  keeps the focus, press Back (twice at most), except on an emulator that had
-                  booted before this call. If that takes over $ADT_HOME_TIMEOUT s, fail, and stop
-                  the emulator if this script started it
+  --wait-for-home once Android has booted, also wait until the device has settled: its home
+                  app's screen in front, done starting, holding the focus, at two looks in a
+                  row; if another app's screen keeps the focus, press Back (twice at most),
+                  except on an emulator that had booted before this call. If that takes over
+                  $ADT_HOME_TIMEOUT s, fail, and stop the emulator if this script started it
   avd-name        the AVD to boot. Default: $ADT_AVD, else tv_api25 if it exists, else the
                   only Android TV AVD
   emulator flags  passed on to the emulator, e.g. -wipe-data, -no-window,
