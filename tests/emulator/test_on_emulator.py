@@ -382,6 +382,19 @@ class StopOnTheRealEmulator(unittest.TestCase):
         again = start(self.avd)   # the lock file it left behind doesn't stop a new start
         self.assertEqual(again.returncode, 0, again.stderr)
 
+    def test_stop_kills_a_read_only_emulator_that_does_not_answer(self):
+        # -read-only writes no lock file, and a frozen console can't name the process: the
+        # emulator's discovery file names it, found by the AVD's name.
+        started = start(self.avd, "-read-only")
+        self.assertEqual(started.returncode, 0, started.stderr)
+        [pid] = emulator_pids("-avd", self.avd, "-read-only")
+        self.addCleanup(lambda: exited(pid) or os.kill(pid, signal.SIGKILL))   # if left frozen
+        os.kill(pid, signal.SIGSTOP)
+        result = stop(self.avd, stop_timeout=5)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("killed (SIGKILL)", result.stderr)
+        self.assertTrue(exited(pid), "returned before the emulator had exited")
+
     def test_stop_waits_for_a_read_only_emulator(self):
         # -read-only writes no lock file: the emulator's console names its process instead.
         started = start(self.avd, "-read-only")

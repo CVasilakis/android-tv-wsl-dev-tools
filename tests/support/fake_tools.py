@@ -12,7 +12,7 @@ State directory ($FAKE_STATE):
                           (time: time.time() when it was made)
   behavior.json           knobs set by the test, see DEFAULT_BEHAVIOR
   running/<serial>.json   a running fake emulator: {"avd", "pid", "polls", "offline", "hidden",
-                          "stop_at", "stuck", "discoverable", "settings" (secure),
+                          "stop_at", "stuck", "discoverable", "console_hung", "settings" (secure),
                           "system_settings"}
   device/<serial>.json    what's on a device, emulator or physical: {"files": {path: text}
                           (adb push), "key_events": [...] (injected by monkey)}
@@ -58,6 +58,13 @@ DEFAULT_BEHAVIOR = {
                                   # discoverypath` with the path of its discovery file,
                                   # pid_<pid>.ini; False: like a console without that command,
                                   # it answers with its help and "KO:  bad sub-command"
+    "emulator_discovery_file": True,  # a started emulator writes its discovery file,
+                                  # $XDG_RUNTIME_DIR/avd/running/pid_<pid>.ini, and deletes it when
+                                  # it exits, unless it's killed with SIGKILL; False: none, or one
+                                  # where the scripts don't look
+    "emulator_console_hangs": False,  # a started emulator's console never answers any `adb emu`
+                                  # call, like a hung emulator's (e.g. one stopped with SIGSTOP);
+                                  # adb still lists it
     "emulator_noise": True,       # emulator -list-avds prints a log line before the names
     "keyevent_failures": 0,       # the first N `adb shell input keyevent` calls fail
     "device_settings": {},        # secure settings a newly booted emulator starts with, e.g.
@@ -514,6 +521,8 @@ def monkey(serial, emulators, args):
 
 
 def adb_emu(serial, info, args):
+    if info.get("console_hung"):
+        time.sleep(3600)
     if args == ["avd", "name"]:
         hang_if("avd_name")
         sys.stdout.write(f"{info['avd']}\r\nOK\r\n")
@@ -521,7 +530,7 @@ def adb_emu(serial, info, args):
         sys.stdout.write(f"{avd_folder(info['avd'])}\r\nOK\r\n")
     elif args == ["avd", "discoverypath"]:
         if info.get("discoverable", True):
-            sys.stdout.write(f"{STATE / 'discovery'}/pid_{info['pid']}.ini\r\nOK\r\n")
+            sys.stdout.write(f"{discovery_folder()}/pid_{info['pid']}.ini\r\nOK\r\n")
         else:
             sys.stdout.write("allows you to control (e.g. start/stop) the execution of the virtual "
                              "device\r\n\r\navailable sub-commands:\r\n    name             "
@@ -571,11 +580,18 @@ def emulator(args):
     boot(name)
 
 
+def discovery_folder():
+    """Where emulators advertise themselves, as the real one picks it ($XDG_RUNTIME_DIR, which the
+    sandbox always sets, so the host's /run/user/<uid> is never touched)."""
+    return Path(os.environ.get("XDG_RUNTIME_DIR") or STATE / "run") / "avd" / "running"
+
+
 def boot(name):
     """Registers as a running emulator on the first free port, then runs until killed.
     Like the real one, it writes its PID into hardware-qemu.ini.lock in the AVD's folder
-    (NUL-padded) and deletes that file when it exits, unless it's killed with SIGKILL, or writes
-    none (emulator_lock_file). Several can run for one AVD, as real -read-only ones can."""
+    (NUL-padded), and its discovery file (pid_<PID>.ini in discovery_folder()), and deletes them
+    when it exits, unless it's killed with SIGKILL; or it writes neither (emulator_lock_file,
+    emulator_discovery_file). Several can run for one AVD, as real -read-only ones can."""
     taken = set(running())
     port = FIRST_PORT
     while f"emulator-{port}" in taken:
@@ -586,12 +602,23 @@ def boot(name):
     lock = avd_folder(name) / "hardware-qemu.ini.lock" if behavior()["emulator_lock_file"] else None
     if lock:
         lock.write_bytes(str(os.getpid()).encode().ljust(8, b"\0"))
+    discovery = None
+    if behavior()["emulator_discovery_file"]:
+        discovery = discovery_folder() / f"pid_{os.getpid()}.ini"
+        discovery.parent.mkdir(parents=True, exist_ok=True)
+        # The real file's keys, in its order, with fake values where the scripts don't read them.
+        discovery.write_text(f"grpc.port=8{serial[-3:]}\n"
+                             f'cmdline="{sys.argv[0]}" "-avd" "{name}"\n'
+                             f"avd.dir={avd_folder(name)}\nemulator.version=37.1.11.0\n"
+                             f"avd.name={name}\nport.adb={int(serial[9:]) + 1}\n"
+                             f"port.serial={serial[9:]}\navd.id={name}\n")
     write_running(serial, {"avd": name, "pid": os.getpid(), "polls": 0,
                            "settings": dict(behavior()["device_settings"]),
                            "system_settings": dict(behavior()["device_system_settings"]),
                            "offline": behavior()["adb_offline"],
                            "hidden": behavior()["emulator_hidden"], "stuck": stuck,
-                           "discoverable": behavior()["emulator_discoverable"]})
+                           "discoverable": behavior()["emulator_discoverable"],
+                           "console_hung": behavior()["emulator_console_hangs"]})
     print(f"INFO         | Booted {name} as {serial} (fake)", flush=True)
     path = RUNNING / f"{serial}.json"
     deadline = time.time() + 120   # never outlive a test run, even if cleanup is skipped
@@ -608,6 +635,8 @@ def boot(name):
     finally:
         if lock:
             lock.unlink(missing_ok=True)
+        if discovery:
+            discovery.unlink(missing_ok=True)
 
 
 # --- avdmanager -----------------------------------------------------------------------------
