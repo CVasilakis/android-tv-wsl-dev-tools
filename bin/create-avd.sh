@@ -190,7 +190,7 @@ if ! echo no | ANDROID_AVD_HOME="$AVD_HOME" "$AVDMANAGER" create avd \
     --tag "$TAG" \
     --abi x86 \
     --device tv_1080p \
-    --sdcard 512M; then                   # storage for `adb push`-ed test wallpapers/images
+    --sdcard 512M; then                   # API 22's /sdcard, for `adb push`-ed test wallpapers/images
     if [ ! -f "$IMAGE_DIR/package.xml" ]; then
         die "avdmanager failed: the system image isn't installed in $SDK. Install it with:
   $(install_hint "$IMAGE")"
