@@ -19,27 +19,32 @@
 # script waits for the emulator's own process, with a time limit, and kills it if it has to.
 #
 # Which process: the emulator's console names the file it advertises itself in,
-# pid_<PID>.ini (`adb emu avd discoverypath`), so that instance's PID. Without an answer (no
-# serial, or a console that doesn't know the command), the PID comes from hardware-qemu.ini.lock
+# pid_<PID>.ini (`adb emu avd discoverypath`), so that instance's PID. Without an answer (a hung
+# console, or one that doesn't know the command), the script reads those files itself
+# (DISCOVERY_DIR): each holds its emulator's console port, the number in its serial, and its AVD's
+# name, so the serial's file names its PID and AVD. Else the PID comes from hardware-qemu.ini.lock
 # in the AVD's folder (the folder `adb emu avd path` names), which the emulator writes when it
 # starts and deletes when it exits. A -read-only emulator writes none, and several of them can run
-# for one AVD (a normal instance can't run next to them). The script waits for the PID only after
-# checking that the process's command line holds this AVD's name, so a stale lock file, whose PID
-# a new process may have taken, can't make it kill the wrong process. Searching processes by name
-# (pgrep -f, pkill -f) could match others, including the shell that runs the search, so it isn't
-# used. When no PID is found, the script can only wait until adb no longer lists the emulator,
-# which can be before its process has exited, and says so. That's also how it recognizes an
-# emulator that was exiting already (e.g. sent SIGTERM with a test run that was killed): its
-# console answers nothing, and adb lists it for a moment after its exit, the last moment as
-# offline. A zombie (an exited process its parent hasn't reaped yet) has exited.
+# for one AVD (a normal instance can't run next to them). Named by its AVD alone, such an emulator
+# is found through the discovery files of that AVD; when they name several instances, the script
+# stops none and asks for a serial. It waits for a PID only after checking that the process's
+# command line holds the AVD's name, so a stale lock or discovery file (a killed emulator leaves
+# both behind), whose PID a new process may have taken, can't make it kill the wrong process.
+# Searching processes by name (pgrep -f, pkill -f) could match others, including the shell that runs
+# the search, so it isn't used. When no PID is found, the script can only wait until adb no longer
+# lists the emulator, which can be before its process has exited, and says so. That's also how it
+# recognizes an emulator that was exiting already (e.g. sent SIGTERM with a test run that was
+# killed): its console answers nothing, and adb lists it for a moment after its exit, the last
+# moment as offline. A zombie (an exited process its parent hasn't reaped yet) has exited.
 #
 # Time limit: the emulator gets $ADT_STOP_TIMEOUT seconds (default 60) to exit after
 # `adb emu kill`, and is then killed (SIGKILL), which loses its Quick Boot snapshot. When its
 # console doesn't answer `adb emu kill` at all (a hung emulator), or adb doesn't list it (e.g. it's
 # stuck early in its boot), it's sent SIGTERM instead, which lets it shut down, and gets as long
 # again before SIGKILL; without its PID, it gets as long to leave adb's list by itself. The script
-# says which of these it did. Its process is found through the AVD's name, which a hung console
-# doesn't tell: name such an emulator by its AVD, not its serial.
+# says which of these it did. A hung console doesn't tell the AVD's name either: named by its
+# serial, such an emulator's process is found only through its discovery file, so without one,
+# name its AVD.
 # Each limit lasts at least its number of seconds, and at most one more (time_is_up in lib.sh).
 #
 # Stopping doesn't save recent changes: `adb emu kill` doesn't shut Android down, so a setting or
@@ -105,19 +110,47 @@ is_avd_process() {
     return 1
 }
 
-# emulator_pid <serial> <avd-folder> <avd-name>: the PID of that AVD's running emulator, as its
-# console names it, else from its lock file (see the header); the serial and the folder may be
-# empty. Fails if neither names it, or its process isn't that AVD's emulator.
+# The folder where each running emulator advertises itself in a file pid_<PID>.ini, which holds
+# its console port (port.serial=, the serial's number), its AVD's name (avd.name=) and its command
+# line. The emulator picks it the same way.
+DISCOVERY_DIR="${XDG_RUNTIME_DIR:-/run/user/$UID}/avd/running"
+
+# discovered <key> <value>: "<PID> <avd-name> <serial>" for each discovery file holding
+# <key>=<value> whose process is that AVD's emulator (a killed emulator leaves its file behind).
+discovered() {
+    local file pid name port
+    for file in "$DISCOVERY_DIR"/pid_*.ini; do
+        pid="${file##*/pid_}"
+        pid="${pid%.ini}"
+        [[ "$pid" =~ ^[0-9]+$ ]] || continue
+        grep -qxF -- "$1=$2" "$file" 2>/dev/null || continue
+        name="$(sed -n 's/^avd\.name=//p' "$file" 2>/dev/null | head -n 1)" || continue
+        port="$(sed -n 's/^port\.serial=//p' "$file" 2>/dev/null | head -n 1)" || continue
+        if [ -n "$name" ] && is_avd_process "$pid" "$name"; then
+            echo "$pid $name emulator-$port"
+        fi
+    done
+}
+
+# emulator_pid <serial> <avd-folder> <avd-name>: "<PID> <avd-name>" of that emulator (see the
+# header): as its console names it, else from the discovery file of its serial, else from the
+# AVD's lock file, else, without a serial, from the discovery files of the AVD's name, which can
+# name several instances (one line each). A line from a discovery file has a third field, the
+# serial. Any of the three arguments may be empty. Fails if none is found.
 emulator_pid() {
-    local pid=""
-    if [ -n "$1" ]; then
+    local pid="" found=""
+    if [ -n "$1" ] && [ -n "$3" ]; then
         pid="$(adb_bounded -s "$1" emu avd discoverypath 2>/dev/null | tr -d '\r' \
             | sed -n 's|.*/pid_\([0-9][0-9]*\)\.ini$|\1|p' | head -n 1)" || true
+        if [ -n "$pid" ] && is_avd_process "$pid" "$3"; then echo "$pid $3"; return 0; fi
     fi
-    if [ -z "$pid" ]; then
-        pid="$(tr -dc '0-9' 2>/dev/null < "$2/hardware-qemu.ini.lock")" || return 1
+    if [ -n "$1" ]; then found="$(discovered port.serial "${1#emulator-}")"; fi
+    if [ -z "$found" ] && [ -n "$3" ]; then
+        pid="$(tr -dc '0-9' 2>/dev/null < "$2/hardware-qemu.ini.lock")" || true
+        if [ -n "$pid" ] && is_avd_process "$pid" "$3"; then echo "$pid $3"; return 0; fi
+        if [ -z "$1" ]; then found="$(discovered avd.name "$3")"; fi
     fi
-    [ -n "$pid" ] && is_avd_process "$pid" "$3" && echo "$pid"
+    [ -n "$found" ] && echo "$found"
 }
 
 # Whether a process still runs, from its state: its command line is empty for a process that's
@@ -149,13 +182,22 @@ wait_until_gone() {
 # stop <serial> <avd-name>: stops one emulator; either may be empty, not both. Prints what
 # happened; fails if it's still running.
 stop() {
-    local serial="$1" name="$2" dir="" pid="" label problem="" how=""
-    label="'${name:-$serial}'${name:+${serial:+ ($serial)}}"
+    local serial="$1" name="$2" dir="" pid="" label problem="" how="" instances=() line serials=""
     if [ -n "$serial" ]; then
         dir="$(adb_bounded -s "$serial" emu avd path 2>/dev/null | head -n 1 | tr -d '\r' || true)"
     fi
     if [ ! -d "$dir" ] && [ -n "$name" ]; then dir="$(avd_dir "$name" || true)"; fi
-    if [ -n "$name" ]; then pid="$(emulator_pid "$serial" "$dir" "$name" || true)"; fi
+    mapfile -t instances < <(emulator_pid "$serial" "$dir" "$name" || true)
+    if [ ${#instances[@]} -gt 1 ]; then
+        # Several -read-only instances of the AVD, none of whose consoles said its name.
+        for line in "${instances[@]}"; do serials+="${serials:+, }${line##* }"; done
+        echo "'$name' runs as several emulators whose consoles don't answer ($serials):" \
+             "name the one to stop by its serial." >&2
+        return 1
+    fi
+    # A discovery file also names the AVD of an emulator whose console doesn't.
+    if [ ${#instances[@]} -eq 1 ]; then read -r pid name line <<< "${instances[0]}"; fi
+    label="'${name:-$serial}'${name:+${serial:+ ($serial)}}"
     if [ -z "$serial" ] && [ -z "$pid" ]; then
         echo "$label isn't running." >&2
         return 0
@@ -184,8 +226,8 @@ stop() {
     fi
     if [ -n "$problem" ] && [ -z "$how" ]; then
         if [ -z "$pid" ]; then
-            # Without the AVD's name (its console didn't say it), its lock file can't be found;
-            # a -read-only emulator whose console doesn't name its PID has none to find.
+            # No discovery file names it (e.g. it's in another folder than DISCOVERY_DIR), and
+            # without the AVD's name its lock file can't be found; a -read-only emulator has none.
             echo "$label $problem, and its process wasn't found to kill it. It's still running." >&2
             if [ -z "$name" ]; then
                 echo "Name its AVD instead, so its process can be found:" \

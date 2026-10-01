@@ -136,6 +136,26 @@ class NotRunning(StopTestCase):
         self.assertIn("'tv_api25' isn't running.", result.err)
         self.assertIsNone(other.poll(), "a process that isn't the emulator was stopped")
 
+    def test_a_stale_discovery_file_is_left_alone(self):
+        # An emulator killed with SIGKILL leaves its discovery file behind too, and its PID may
+        # since belong to another process. The other process is left alone whether the file is
+        # found by the AVD's name or by the serial of a running emulator whose console hangs.
+        self.sandbox.set_behavior(emulator_lock_file=False, emulator_discovery_file=False,
+                                  emulator_console_hangs=True)
+        serial = self.sandbox.start_emulator("tv_api30")
+        other = self.a_process()
+        stale = self.sandbox.discovery_file(other.pid)
+        stale.parent.mkdir(parents=True, exist_ok=True)
+        stale.write_text(f"avd.name=tv_api25\nport.serial={serial[9:]}\n")
+        env = {"ADT_ADB_TIMEOUT": "1", "ADT_STOP_TIMEOUT": "1"}
+        result = self.sandbox.run("stop-emulator.sh", "tv_api25", env=env)
+        self.assertSucceeded(result)
+        self.assertIn("'tv_api25' isn't running.", result.err)
+        result = self.sandbox.run("stop-emulator.sh", serial, env=env)
+        self.assertFailed(result, "its process wasn't found to kill it. It's still running.",
+                          code=1)
+        self.assertIsNone(other.poll(), "a process that isn't the emulator was stopped")
+
     def test_a_stale_lock_file_of_a_process_that_is_gone(self):
         gone = subprocess.Popen(["true"])
         gone.wait()
@@ -184,9 +204,10 @@ class AlreadyExiting(StopTestCase):
 
     def test_by_avd_name_while_it_exits(self):
         # Its console still says its name, but no longer answers adb emu kill; a -read-only
-        # emulator whose console can't name its PID leaves adb as the only thing to wait on.
+        # emulator whose console can't name its PID, and whose discovery file isn't found, leaves
+        # adb as the only thing to wait on.
         self.sandbox.set_behavior(emulator_already_exiting=True, emulator_lock_file=False,
-                                  emulator_discoverable=False)
+                                  emulator_discoverable=False, emulator_discovery_file=False)
         serial = self.sandbox.start_emulator("tv_api25")
         pid = self.sandbox.emulator_pid(serial)
         result = self.sandbox.run("stop-emulator.sh", "tv_api25")
@@ -232,8 +253,10 @@ class WaitsForTheProcess(StopTestCase):
         self.assertEqual(self.sandbox.running(), {first: "tv_api25"})
 
     def test_says_so_when_it_cannot_confirm_the_exit(self):
-        # No lock file, and a console that can't name the PID: adb is all that's left to wait on.
-        self.sandbox.set_behavior(emulator_lock_file=False, emulator_discoverable=False)
+        # No lock file, no discovery file, and a console that can't name the PID: adb is all
+        # that's left to wait on.
+        self.sandbox.set_behavior(emulator_lock_file=False, emulator_discoverable=False,
+                                  emulator_discovery_file=False)
         serial = self.sandbox.start_emulator("tv_api25")
         result = self.sandbox.run("stop-emulator.sh", "tv_api25")
         self.assertSucceeded(result)
@@ -298,7 +321,9 @@ class WaitsForTheProcess(StopTestCase):
         self.assertFalse(self.sandbox.alive(pid))
 
     def test_a_hung_console_by_serial_asks_for_the_avd_name(self):
-        self.sandbox.set_behavior(adb_hangs={"avd_name": 99, "emu_kill": 99})
+        # Without a discovery file, only the AVD's name leads to its process (the lock file).
+        self.sandbox.set_behavior(adb_hangs={"avd_name": 99, "emu_kill": 99},
+                                  emulator_discovery_file=False)
         serial = self.sandbox.start_emulator("tv_api25")
         result = self.sandbox.run("stop-emulator.sh", serial,
                                   env={"ADT_ADB_TIMEOUT": "1", "ADT_STOP_TIMEOUT": "1"})
@@ -307,10 +332,59 @@ class WaitsForTheProcess(StopTestCase):
         self.assertIn("Name its AVD instead", result.err)
         self.assertEqual(self.sandbox.running(), {serial: "tv_api25"})
 
+    def test_a_hung_read_only_emulator(self):
+        # No lock file, and a console that answers nothing: its discovery file names its PID,
+        # by its AVD's name and by its serial alike.
+        for target in ("tv_api25", "emulator-5554", None):   # None: the only running emulator
+            with self.subTest(target=target):
+                self.sandbox.set_behavior(emulator_lock_file=False, emulator_console_hangs=True)
+                serial = self.sandbox.start_emulator("tv_api25")
+                pid = self.sandbox.emulator_pid(serial)
+                result = self.sandbox.run("stop-emulator.sh", *[target] if target else [],
+                                          env={"ADT_ADB_TIMEOUT": "1", "ADT_STOP_TIMEOUT": "20"})
+                self.assertSucceeded(result)
+                self.assertFalse(self.sandbox.alive(pid))
+                self.assertIn("so it was stopped with SIGTERM.", result.err)
+                self.assertFalse(self.sandbox.discovery_file(pid).exists())
+
+    def test_a_hung_read_only_emulator_by_serial_says_its_avd(self):
+        self.sandbox.set_behavior(emulator_lock_file=False, emulator_console_hangs=True)
+        serial = self.sandbox.start_emulator("tv_api25")
+        result = self.sandbox.run("stop-emulator.sh", serial,
+                                  env={"ADT_ADB_TIMEOUT": "1", "ADT_STOP_TIMEOUT": "20"})
+        self.assertSucceeded(result)
+        self.assertIn(f"'tv_api25' ({serial}) didn't answer adb emu kill, so it was stopped with "
+                      "SIGTERM.", result.err)
+
+    def test_stops_only_the_hung_read_only_instance_named_by_serial(self):
+        self.sandbox.set_behavior(emulator_lock_file=False, emulator_console_hangs=True)
+        hung = self.sandbox.start_emulator("tv_api25")
+        self.sandbox.set_behavior(emulator_console_hangs=False)
+        other = self.sandbox.start_emulator("tv_api25")
+        result = self.sandbox.run("stop-emulator.sh", hung,
+                                  env={"ADT_ADB_TIMEOUT": "1", "ADT_STOP_TIMEOUT": "20"})
+        self.assertSucceeded(result)
+        self.assertEqual(self.sandbox.running(), {other: "tv_api25"})
+        self.assertEqual(self.kills(), [hung])
+
+    def test_does_not_guess_between_hung_read_only_instances_by_avd_name(self):
+        # The AVD's name alone matches each of them: stopping one picked at random, or all of
+        # them, isn't what was asked.
+        self.sandbox.set_behavior(emulator_lock_file=False, emulator_console_hangs=True)
+        first = self.sandbox.start_emulator("tv_api25")
+        second = self.sandbox.start_emulator("tv_api25")
+        result = self.sandbox.run("stop-emulator.sh", "tv_api25",
+                                  env={"ADT_ADB_TIMEOUT": "1", "ADT_STOP_TIMEOUT": "1"})
+        self.assertFailed(result, f"'tv_api25' runs as several emulators whose consoles don't "
+                          f"answer ({first}, {second}): name the one to stop by its serial.",
+                          code=1)
+        self.assertEqual(self.sandbox.running(), {first: "tv_api25", second: "tv_api25"})
+
     def test_fails_when_the_emulator_is_still_running(self):
-        # Without its lock file or its console naming it, the stuck emulator's process can't be
-        # found to kill it.
-        self.sandbox.set_behavior(emulator_stuck=True, emulator_discoverable=False)
+        # Without its lock file, its discovery file or its console naming it, the stuck
+        # emulator's process can't be found to kill it.
+        self.sandbox.set_behavior(emulator_stuck=True, emulator_discoverable=False,
+                                  emulator_discovery_file=False)
         serial = self.sandbox.start_emulator("tv_api25")
         self.lock(self.tv).unlink()
         result = self.sandbox.run("stop-emulator.sh", env={"ADT_STOP_TIMEOUT": "1"})
@@ -319,10 +393,12 @@ class WaitsForTheProcess(StopTestCase):
         self.assertEqual(self.sandbox.running(), {serial: "tv_api25"})
 
     def test_all_reports_a_failure_but_stops_the_others(self):
-        self.sandbox.set_behavior(emulator_stuck=True, emulator_discoverable=False)
+        self.sandbox.set_behavior(emulator_stuck=True, emulator_discoverable=False,
+                                  emulator_discovery_file=False)
         stuck = self.sandbox.start_emulator("tv_api25")
         self.lock(self.tv).unlink()
-        self.sandbox.set_behavior(emulator_stuck=False, emulator_discoverable=True)
+        self.sandbox.set_behavior(emulator_stuck=False, emulator_discoverable=True,
+                                  emulator_discovery_file=True)
         other = self.sandbox.start_emulator("tv_api30")
         result = self.sandbox.run("stop-emulator.sh", "--all", env={"ADT_STOP_TIMEOUT": "1"})
         self.assertEqual(result.code, 1, result.output)

@@ -24,7 +24,7 @@ too. The emulator tier isn't run there; run it locally before a release.
 | Tier | Folder | Needs | Checks |
 |---|---|---|---|
 | hermetic | [`hermetic/`](hermetic) | Python 3; optional: Xvfb, shellcheck | Each script's behavior against fake tools and a fake machine, and how the emulator tier reads Android's input dump. Run it after every script change. |
-| emulator | [`emulator/`](emulator) | Your SDK and AVD (`ADT_AVD` picks one) | What fakes can't show: booting really completes, and with `--wait-for-home` returns with the home app in front and focused, `remote.sh`'s keys arrive in Android as the right keys, its Home key takes the device from an app to its home app, `--long-press` holds the key for the device's long-press timeout and leaves the settings as they were, and `stop-emulator.sh` returns only once the AVD can start again, also for a `-read-only` emulator, which writes no lock file, and doesn't fail on one that's exiting already (sent SIGTERM). |
+| emulator | [`emulator/`](emulator) | Your SDK and AVD (`ADT_AVD` picks one) | What fakes can't show: booting really completes, and with `--wait-for-home` returns with the home app in front and focused, `remote.sh`'s keys arrive in Android as the right keys, its Home key takes the device from an app to its home app, `--long-press` holds the key for the device's long-press timeout and leaves the settings as they were, and `stop-emulator.sh` returns only once the AVD can start again, also for a `-read-only` emulator, which writes no lock file, even a frozen one (SIGSTOP) named by its AVD, and doesn't fail on one that's exiting already (sent SIGTERM). |
 
 Some hermetic tests skip, with the reason printed, when an optional tool is missing:
 - **Xvfb** (`sudo apt-get install -y xvfb`) for the `wslg-toolbar.py`
@@ -121,8 +121,8 @@ ADT_AVD=tv_api31 tests/run.py --emulator -k test_remote_keys; kill $(jobs -p); b
 Each test gets a `Sandbox` (`self.sandbox`), a temporary folder with:
 - a copy of `bin/` and `lib/`, and a separate project folder the scripts run in, so a real
   `local.properties` can't leak in;
-- its own `$HOME`, `$TMPDIR` and a `$PATH` with only basic utilities plus fakes, so the host's
-  SDK, AVDs, emulators, kvm group and WSL don't change the results;
+- its own `$HOME`, `$TMPDIR`, `$XDG_RUNTIME_DIR` and a `$PATH` with only basic utilities plus
+  fakes, so the host's SDK, AVDs, emulators, kvm group and WSL don't change the results;
 - a fake KVM device and `/proc/version`, passed to the scripts through `ADT_KVM_DEVICE` and
   `ADT_PROC_VERSION` (defined in `lib.sh` for this purpose only).
 
@@ -131,7 +131,9 @@ the `\r` adb adds), exit codes and side effects. For example, the fake emulator 
 first free port, writes its PID into its AVD's `hardware-qemu.ini.lock` as the real one does (or
 writes none, as a real one started with `-read-only` does: `emulator_lock_file=False`), answers
 `adb emu avd discoverypath` with its `pid_<PID>.ini` like the real console (or doesn't know the
-command: `emulator_discoverable=False`), and stays alive until `adb emu kill`. All fakes share
+command: `emulator_discoverable=False`), writes that file in `$XDG_RUNTIME_DIR/avd/running/`
+(`emulator_discovery_file`), and stays alive until `adb emu kill`; with
+`emulator_console_hangs=True` its console answers nothing, like a frozen emulator's. All fakes share
 state in the sandbox, so a test can arrange a situation and then check the result:
 
 ```python

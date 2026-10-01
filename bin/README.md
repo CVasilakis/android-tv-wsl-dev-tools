@@ -310,25 +310,34 @@ most a second longer. The process is found through its PID:
   `pid_<PID>.ini` (`adb emu avd discoverypath`, e.g.
   `/run/user/1000/avd/running/pid_12345.ini`), which it deletes when it exits. This names the very
   instance the serial belongs to.
-- Without that answer (no serial, or a console that doesn't know the command), the PID is the
-  one the emulator writes into `hardware-qemu.ini.lock` in the AVD's folder and deletes when it
-  exits. An emulator started with `-read-only` writes no lock file, and several of them can run
-  for one AVD, so only the console can tell their processes apart. (A normal instance can't run
-  next to them: the emulator refuses to start with "Another emulator instance is running".)
+- Without that answer (a console that's hung, or doesn't know the command), the script reads
+  those files itself, in `$XDG_RUNTIME_DIR/avd/running/` (else `/run/user/<uid>/avd/running/`,
+  where the emulator writes them then too). Each holds the emulator's console port (`port.serial=`,
+  the number in its serial) and its AVD's name (`avd.name=`), so the serial's file names its
+  instance, and its AVD, which a hung console doesn't tell.
+- Else the PID is the one the emulator writes into `hardware-qemu.ini.lock` in the AVD's folder
+  and deletes when it exits. An emulator started with `-read-only` writes no lock file, and
+  several of them can run for one AVD. (A normal instance can't run next to them: the emulator
+  refuses to start with "Another emulator instance is running".)
+- Else, named by its AVD alone, the discovery files of that AVD. If they name several
+  `-read-only` instances, whose consoles all don't answer, the script stops none of them: it fails
+  and lists their serials, so you can name one.
 
-Either PID counts only if that process's command line names the AVD, so a lock file left behind
-by a killed emulator can't make the script stop another process. The script finds the AVD's
-folder through the AVD's name, which a hung console doesn't tell: to stop such an emulator, name
-its AVD rather than its serial (adb may then list it for a moment after the script returns,
-until adb notices it's gone).
+A PID counts only if that process's command line names the AVD, so a lock file or discovery
+file left behind by a killed emulator can't make the script stop another process. A hung
+emulator whose discovery file isn't found (e.g. it was started with another `$XDG_RUNTIME_DIR`)
+can only be found through its lock file, in its AVD's folder: to stop it, name its AVD rather
+than its serial. Stopped by its AVD's name, a hung emulator may stay in adb's list for a moment
+after the script returns, until adb notices it's gone.
 
-An emulator that's exiting, or has exited, when the script gets to it isn't a failure to stop
-it. Its console answers nothing from the moment it starts shutting down, so the script can't
-learn its AVD's name (with `--all` or a serial) or its PID from it; adb lists it until a moment
-after its process has exited (seen after a SIGTERM: listed as a device for 2 s while it shut
-down, then as offline with qemu already a zombie, then gone). The script then waits for adb to
-stop listing it. A zombie, an exited process its parent hasn't reaped yet, has exited: its
-command line is empty, so its PID never counts as the AVD's.
+An emulator that's exiting, or has exited, when the script gets to it isn't a failure to stop it.
+Its console answers nothing from the moment it starts shutting down, so the script can't learn its
+AVD's name (with `--all` or a serial) or its PID from it; adb lists it until a moment after its
+process has exited (seen after a SIGTERM: listed as a device for 2 s while it shut down, then as
+offline with qemu already a zombie, then gone). While its discovery file still names its process,
+the script waits for that; otherwise it waits for adb to stop listing it. A zombie, an exited
+process its parent hasn't reaped yet, has exited: its command line is empty, so its PID never counts
+as the AVD's.
 
 Don't wait for an emulator by searching for its process by name: `pgrep -f`/`pkill -f` match
 their pattern against every command line, including the shell that runs them when the command

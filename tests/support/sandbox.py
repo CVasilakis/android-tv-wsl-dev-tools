@@ -1,11 +1,11 @@
 """A throwaway machine for one test: the scripts run for real, but everything around them is fake.
 
 Each Sandbox has its own copy of the tools (bin/ and lib/), a separate project folder the scripts
-run in (so local.properties and friends can't leak in from a real checkout), its own $HOME, a
-$PATH holding only basic system utilities plus the fakes from fake_tools.py, a fake KVM device and
-/proc/version, and a state folder the fakes share. Nothing outside the sandbox's temporary folder
-is read or written, so results don't depend on the host (its SDK, AVDs, emulators, kvm group or
-WSL).
+run in (so local.properties and friends can't leak in from a real checkout), its own $HOME and
+$XDG_RUNTIME_DIR (where emulators' discovery files are), a $PATH holding only basic system utilities
+plus the fakes from fake_tools.py, a fake KVM device and /proc/version, and a state folder the fakes
+share. Nothing outside the sandbox's temporary folder is read or written, so results don't depend on
+the host (its SDK, AVDs, emulators, kvm group or WSL).
 """
 import json
 import os
@@ -59,11 +59,14 @@ class Sandbox:
         self.state = root / "state"
         self.bin = root / "bin"
         self.tmp = root / "tmp"
+        self.runtime = root / "run"                    # $XDG_RUNTIME_DIR: emulators' discovery
+                                                       # files, never the host's /run/user/<uid>
         self.kvm = root / "dev-kvm"
         self.proc_version = root / "proc-version"
         self.sdk = None                                # the last SDK made by install_sdk()
         self._processes = []
-        for folder in (self.project, self.home, self.state / "running", self.bin, self.tmp):
+        for folder in (self.project, self.home, self.state / "running", self.bin, self.tmp,
+                       self.runtime):
             folder.mkdir(parents=True)
         for folder in ("bin", "lib"):
             shutil.copytree(TOOLS / folder, self.tools / folder,
@@ -143,6 +146,7 @@ class Sandbox:
     def env(self, **overrides):
         # DISPLAY: a desktop session by default; DISPLAY=None simulates a CI runner or SSH.
         env = {"HOME": str(self.home), "PATH": str(self.bin), "TMPDIR": str(self.tmp),
+               "XDG_RUNTIME_DIR": str(self.runtime),
                "USER": "tester", "DISPLAY": ":0", "LANG": "C", "FAKE_STATE": str(self.state),
                "ADT_KVM_DEVICE": str(self.kvm),
                "ADT_PROC_VERSION": str(self.proc_version)}
@@ -224,6 +228,10 @@ class Sandbox:
     def emulator_pid(self, serial):
         """The process ID of a fake emulator, running or not."""
         return json.loads((self.state / "running" / f"{serial}.json").read_text())["pid"]
+
+    def discovery_file(self, pid):
+        """The discovery file a fake emulator with that PID writes (or would write)."""
+        return self.runtime / "avd" / "running" / f"pid_{pid}.ini"
 
     def kill_emulator(self, serial, reap=False):
         """Kills a fake emulator's process (SIGKILL), as when the test run that started it is
