@@ -63,7 +63,7 @@ and then sets these in the new AVD's `config.ini` (by default
 | Setting | Value | Why |
 |---|---|---|
 | device | `tv_1080p` | 1920×1080 at 320 dpi = 960×540 dp, the resolution TV UIs are designed for |
-| `--sdcard` | 512M | storage for test wallpapers/images (`adb push img.jpg /sdcard/Pictures/`) |
+| `--sdcard` | 512M | API 22's `/sdcard`, for test wallpapers/images (`adb push img.jpg /sdcard/Pictures/`). From API 23 on, `/sdcard` is internal storage and the SD card a removable volume, which on API 23 and 29 opens a screen on the first boot ([Differences between API levels](#differences-between-api-levels)) |
 | `hw.keyboard` | yes | the PC keyboard acts as the remote in the emulator window |
 | `hw.dPad` | yes | the device reports D-pad navigation, like a real TV |
 | `hw.ramSize` | 2048 | enough for the TV images while leaving memory to Gradle and other emulators |
@@ -464,11 +464,11 @@ TV or Google TV; these are the differences in the images that you may run into:
 
 | API | Difference |
 |---|---|
-| 22 | `--quick` is slower than a cold boot. The device has no `uname`. The stock launcher's HOME filter has no priority, so with another home app installed, Home opens the chooser; while the chooser is in front, `adb shell am start -W` of an app open behind it never returns (without `-W` it's fine). |
+| 22 | `--quick` is slower than a cold boot. The device has no `uname`. `/sdcard` is the AVD's SD card (`/storage/sdcard`), read-only without one; from API 23 on it's internal storage, and the SD card is a removable volume (`/storage/<id>`). The stock launcher's HOME filter has no priority, so with another home app installed, Home opens the chooser; while the chooser is in front, `adb shell am start -W` of an app open behind it never returns (without `-W` it's fine). |
 | 22–23 | No `cmd` on the device (`cmd package resolve-activity`, …); it exists from API 24 on. `adb shell am start -W …` names the activity an intent opened, on its `Activity:` line (but it opens it). `dumpsys activity activities` shows the intent that started each task (`intent={…}`) and the focused activity (`mFocusedActivity`); `start-emulator.sh --wait-for-home` finds the home app that way. On API 22 an app started from the home chooser joins the chooser's stack (`stackId=0`), so the stack doesn't tell the home app. |
 | 22–25 | The stock launcher is `com.google.android.leanbacklauncher`. |
 | 22–29 | `adb shell input keyevent --longpress` doesn't hold the key, so it's a short press; `remote.sh --long-press` holds it on every level ([Long presses](#long-presses)). |
-| 23, 29 | The first boot of a new AVD opens a "USB drive connected" screen (the AVD's SD card, `com.android.tv.settings/.device.storage.NewStorageActivity`) in front of the launcher, until Back; later boots don't. `start-emulator.sh --wait-for-home` presses Back for it. |
+| 23, 29 | The first boot of a new AVD with an SD card, as `create-avd.sh` makes them, opens a "USB drive connected" screen (`com.android.tv.settings/.device.storage.NewStorageActivity`) in front of the launcher, until Back; later boots don't. It's Android TV's Settings announcing the SD card as a new USB drive; an AVD without an SD card image doesn't show it. `start-emulator.sh --wait-for-home` presses Back for it. |
 | 23 on | The stock launcher's HOME filter has priority 2, so `set-home-activity` and the home chooser can't pick another home app: it only takes over while the stock one is disabled (`adb shell pm disable-user --user 0 <package>`). |
 | 24 on | Until the user is unlocked after a boot, a HOME intent resolves to Settings' `com.android.tv.settings/.system.FallbackHome` (also for `cmd package resolve-activity`), which holds the screen until the home app has started; both can last past `sys.boot_completed` being 1, when `start-emulator.sh` returns (without [`--wait-for-home`](#start-emulatorsh)). |
 | 26 on | The stock launcher is `com.google.android.tvlauncher`. On 26–29 `leanbacklauncher` is installed too, without a HOME filter. |
