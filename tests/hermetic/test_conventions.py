@@ -1,11 +1,13 @@
 """Rules every script in bin/ follows. New scripts are picked up automatically."""
 import os
 import py_compile
+import re
 import shutil
 import subprocess
 import tempfile
 import unittest
 
+from emulator import test_on_emulator as tier
 from support.sandbox import BIN, LIB, TOOLS
 
 RUNNABLE = sorted(p for p in BIN.iterdir() if p.suffix in (".sh", ".py"))
@@ -60,6 +62,30 @@ class Conventions(unittest.TestCase):
                     with self.subTest(f"{script.name}:{number}"):
                         self.assertRegex(code, r"=\$SECONDS$",
                                          "check time limits with time_is_up")
+
+    def test_the_emulator_tier_copies_the_scripts_current_time_limits(self):
+        # The tier's limits for start-emulator.sh and stop-emulator.sh are built from these values
+        # of the scripts. With a value grown in a script only, Python could stop the script
+        # halfway and leave its emulator running.
+        lib, start, stop = (path.read_text() for path in
+                            (LIB, BIN / "start-emulator.sh", BIN / "stop-emulator.sh"))
+        stop_emulator = re.search(r"^stop_emulator\(\) \{\n.*?^\}", start, re.M | re.S)
+        scripts = {
+            "ADB_TIMEOUT": (lib, r'^ADB_TIMEOUT="\$\{ADT_ADB_TIMEOUT:-(\d+)\}"'),
+            "ADB_KILL_AFTER": (lib, r'timeout -k (\d+) "\$ADB_TIMEOUT"'),
+            "HOME_STABLE": (lib, r'^HOME_STABLE="\$\{ADT_HOME_STABLE:-(\d+)\}"'),
+            "SAVE_DELAY": (start, r'^SAVE_DELAY="\$\{ADT_SAVE_DELAY:-(\d+)\}"'),
+            "TERM_WAIT": (stop_emulator and stop_emulator.group(0), r'"\$waited" -lt (\d+) \]'),
+            "KILL_WAIT": (stop, r"^KILL_WAIT=(\d+)"),
+        }
+        for name, (text, pattern) in scripts.items():
+            with self.subTest(name):
+                found = re.search(pattern, text or "", re.M)
+                self.assertIsNotNone(found, f"the scripts no longer match {pattern!r}: "
+                                            "update this test and the tier's copy")
+                self.assertEqual(getattr(tier, name), int(found.group(1)),
+                                 f"tests/emulator/test_on_emulator.py's {name} differs from the "
+                                 "script's")
 
     def test_shell_syntax(self):
         for script in SHELL:

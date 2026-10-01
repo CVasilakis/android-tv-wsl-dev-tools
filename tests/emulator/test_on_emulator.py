@@ -37,23 +37,29 @@ LONG_PRESS_TIMEOUT = 180   # for remote.sh --long-press: up to 9 adb calls, monk
 # Python's limits for the scripts, from the scripts' own: when Python stops a script on the way,
 # its emulator can be left running (start-emulator.sh starts it with nohup), so a script must
 # always reach its own limits first, and clean up and say why. Each adb call they make gets
-# ADB_CALL s (adb_bounded in lib.sh: 15 s, then SIGKILL 5 s later), and each of their limits lasts
-# up to 1 s longer (time_is_up in lib.sh). ADB_CALLS is more than either script makes on the way
-# with up to three emulators running.
-ADB_CALL = 15 + 5
+# ADB_CALL s (adb_bounded in lib.sh: ADB_TIMEOUT s, then SIGKILL ADB_KILL_AFTER s later), and each
+# of their limits lasts up to 1 s longer (time_is_up in lib.sh). ADB_CALLS is more than either
+# script makes on the way with up to three emulators running. The scripts' values are copied here;
+# hermetic/test_conventions.py checks that the copies match.
+ADB_TIMEOUT = 15
+ADB_KILL_AFTER = 5
+ADB_CALL = ADB_TIMEOUT + ADB_KILL_AFTER
 ADB_CALLS = 10
+HOME_STABLE = 3  # lib.sh's, for the home app to stay in front
+SAVE_DELAY = 30  # start-emulator.sh's, on API 26 and 27, for Android to save a setting
+TERM_WAIT = 30   # start-emulator.sh's, for an emulator it stops to exit after SIGTERM
+KILL_WAIT = 30   # stop-emulator.sh's, for a killed emulator to exit, and again for adb to unlist it
 BOOT_TIMEOUT = int(os.environ.get("ADT_BOOT_TIMEOUT") or 900)   # passed on to start-emulator.sh
 HOME_TIMEOUT = int(os.environ.get("ADT_HOME_TIMEOUT") or 300)   # and to its --wait-for-home
 STOP_TIMEOUT = int(os.environ.get("ADT_STOP_TIMEOUT") or 60)    # passed on to stop-emulator.sh
-# lib.sh's wait_for_home: its limit, then the few seconds the home app must stay in front
-# (HOME_STABLE), or a last look of up to four adb calls.
-HOME_LIMIT = HOME_TIMEOUT + 1 + 3 + 1 + 4 * ADB_CALL if HOME_TIMEOUT else None
-# start-emulator.sh: the boot limit; on API 26 and 27, waiting 30 s for Android to save a setting;
+# lib.sh's wait_for_home: its limit, then the few seconds the home app must stay in front, or a
+# last look of up to four adb calls.
+HOME_LIMIT = HOME_TIMEOUT + 1 + HOME_STABLE + 1 + 4 * ADB_CALL if HOME_TIMEOUT else None
+# start-emulator.sh: the boot limit; on API 26 and 27, the wait for Android to save a setting;
 # with --wait-for-home, that wait; then stopping an emulator that didn't boot or settle (SIGTERM,
-# up to 30 s, then SIGKILL). No limit when a limit is 0 (the script's own "no limit").
-START_LIMIT = (BOOT_TIMEOUT + 1 + 30 + HOME_LIMIT + 31 + ADB_CALLS * ADB_CALL
+# TERM_WAIT s, then SIGKILL). No limit when a limit is 0 (the script's own "no limit").
+START_LIMIT = (BOOT_TIMEOUT + 1 + SAVE_DELAY + HOME_LIMIT + TERM_WAIT + 1 + ADB_CALLS * ADB_CALL
                if BOOT_TIMEOUT and HOME_LIMIT else None)
-KILL_WAIT = 30   # stop-emulator.sh's, for a killed emulator to exit, and again for adb to unlist it
 
 # Keyboard input to remote.sh -> Android KeyEvent keyCode that must arrive on the device.
 KEYS = [("\x1b[A", 19), ("\x1b[B", 20), ("\x1b[D", 21), ("\x1b[C", 22), ("\n", 23),
