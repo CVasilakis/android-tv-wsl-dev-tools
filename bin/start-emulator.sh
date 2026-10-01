@@ -300,7 +300,7 @@ $(tail -n 15 "$LOG")"
 
 # Stops the emulator started above and waits until it's gone, so that a retry doesn't find it
 # still running and report it as ready. SIGTERM lets it shut down cleanly; SIGKILL only if it
-# doesn't within 30 s.
+# doesn't within 30 s, which the emulator tier copies (tests/emulator/test_on_emulator.py).
 stop_emulator() {
     local waited=0
     kill "$EMULATOR_PID" 2>/dev/null || return 0
@@ -401,7 +401,8 @@ fi
 # doesn't make the boot fail. Android saves a changed setting a moment later, and `adb emu kill`
 # right after this script would lose it (a later boot through this script sets it again, but one
 # started another way wouldn't), so after setting it the script waits, and says why.
-# ADT_SAVE_DELAY exists for the tests.
+# ADT_SAVE_DELAY exists for the tests. The emulator tier copies its default
+# (tests/emulator/test_on_emulator.py).
 SAVE_DELAY="${ADT_SAVE_DELAY:-30}"
 AVD_IMAGE=""
 if dir="$(avd_dir "$AVD_NAME")"; then AVD_IMAGE="$(avd_image "$dir")"; fi

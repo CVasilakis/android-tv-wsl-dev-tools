@@ -92,7 +92,9 @@ The tier's time limits hold for an emulator starved of CPU, where `adb shell inp
 look at the input dump and an app's start each take many times longer than on an idle host. A
 wait ends as soon as what it waits for is there, so a long limit only makes a failure slower. Its
 limits for `start-emulator.sh` and `stop-emulator.sh` are longer than the scripts' own, computed
-from them (`ADT_BOOT_TIMEOUT`, `ADT_HOME_TIMEOUT` and `ADT_STOP_TIMEOUT`, which it passes on): a script always gets to
+from them (`ADT_BOOT_TIMEOUT`, `ADT_HOME_TIMEOUT` and `ADT_STOP_TIMEOUT`, which it passes on,
+and copies of the scripts' other waits, which [`test_conventions.py`](hermetic/test_conventions.py)
+checks against the scripts): a script always gets to
 its own limit, stops what it started and says why, whereas Python stopping `start-emulator.sh`
 would leave its emulator booting. An emulator the tier boots is stopped at the end even when its
 boot failed. To try the tier on a starved emulator, boot it on one host CPU shared with busy loops;

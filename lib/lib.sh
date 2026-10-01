@@ -151,6 +151,7 @@ list_avds() {
 # that's half booted or starved of CPU (a small CI runner), `adb shell` or `adb emu` can hang
 # without ever answering, and a loop waiting on it would never reach its own time limit. A call
 # that runs out of time fails like one that got no answer. ADT_ADB_TIMEOUT exists for the tests.
+# The emulator tier copies its default and the 5 s (tests/emulator/test_on_emulator.py).
 ADB_TIMEOUT="${ADT_ADB_TIMEOUT:-15}"
 adb_bounded() {
     timeout -k 5 "$ADB_TIMEOUT" "$ADB" "$@"
@@ -189,7 +190,8 @@ emulator_avd() {
 # BACK_AFTER s, once the user is unlocked, it presses Back, up to <backs> times (default 0: it
 # only looks; never on a device someone may be using). Prints the home app's package. After
 # <seconds> (0: no limit) it prints what was in front instead, and fails. ADT_HOME_STABLE exists
-# for the tests (BACK_AFTER follows it).
+# for the tests (BACK_AFTER follows it). The emulator tier copies its default
+# (tests/emulator/test_on_emulator.py).
 HOME_STABLE="${ADT_HOME_STABLE:-3}"
 BACK_AFTER=$((HOME_STABLE * 3 + 1))
 wait_for_home() {

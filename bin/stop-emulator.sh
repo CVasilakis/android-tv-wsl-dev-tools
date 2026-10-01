@@ -94,7 +94,8 @@ if ! [[ "$STOP_TIMEOUT" =~ ^[0-9]+$ ]]; then
     die "ADT_STOP_TIMEOUT must be a number of seconds, not '$STOP_TIMEOUT'."
 fi
 KILL_WAIT=30                              # seconds for a killed emulator to exit, and for adb
-                                          # to notice
+                                          # to notice (tests/emulator/test_on_emulator.py
+                                          # copies it)
 
 # is_avd_process <pid> <avd-name>: whether that process runs and is the emulator of that AVD,
 # started as `-avd <name>` or `@<name>` (the emulator passes its arguments on to qemu). A zombie,
