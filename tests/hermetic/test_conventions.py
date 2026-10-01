@@ -73,7 +73,6 @@ class Conventions(unittest.TestCase):
         scripts = {
             "ADB_TIMEOUT": (lib, r'^ADB_TIMEOUT="\$\{ADT_ADB_TIMEOUT:-(\d+)\}"'),
             "ADB_KILL_AFTER": (lib, r'timeout -k (\d+) "\$ADB_TIMEOUT"'),
-            "HOME_STABLE": (lib, r'^HOME_STABLE="\$\{ADT_HOME_STABLE:-(\d+)\}"'),
             "SAVE_DELAY": (start, r'^SAVE_DELAY="\$\{ADT_SAVE_DELAY:-(\d+)\}"'),
             "TERM_WAIT": (stop_emulator and stop_emulator.group(0), r'"\$waited" -lt (\d+) \]'),
             "KILL_WAIT": (stop, r"^KILL_WAIT=(\d+)"),

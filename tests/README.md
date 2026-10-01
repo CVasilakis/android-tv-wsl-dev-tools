@@ -158,9 +158,9 @@ script was called (finding `lib.sh`, suggested commands) is tested every way.
 
 Arrange failures and odd situations with `sandbox.set_behavior(...)` (see `DEFAULT_BEHAVIOR` in
 `fake_tools.py`; e.g. `front` and `home_resolves` for what the device shows in front over time, one item per look, for
-`--wait-for-home` (a `"BACK"` item in `front`: what comes after it waits for a Back key), with
-`ADT_HOME_STABLE=0` so the home app needn't stay in front 3 s, and another screen gets Back after
-1 s rather than 10; `adb_offline` for an emulator adb can't reach, with `ADT_OFFLINE_TIMEOUT=1`
+`--wait-for-home` (a `"BACK"` item in `front`: what comes after it waits for a Back key; an item
+can also be the two dumps a look reads, as captured from a device), with `ADT_BACK_AFTER=1` so
+another screen gets Back after 1 s rather than 10; `adb_offline` for an emulator adb can't reach, with `ADT_OFFLINE_TIMEOUT=1`
 in the script's environment so `start-emulator.sh --quick` doesn't wait 30 s, or
 `emulator_stuck` for one that won't exit, with `ADT_STOP_TIMEOUT=1` for `stop-emulator.sh`;
 `adb_lists_exited` for adb's lag in unlisting an emulator whose process has exited, with

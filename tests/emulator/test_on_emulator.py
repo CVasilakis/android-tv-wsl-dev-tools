@@ -45,16 +45,15 @@ ADB_TIMEOUT = 15
 ADB_KILL_AFTER = 5
 ADB_CALL = ADB_TIMEOUT + ADB_KILL_AFTER
 ADB_CALLS = 10
-HOME_STABLE = 3  # lib.sh's, for the home app to stay in front
 SAVE_DELAY = 30  # start-emulator.sh's, on API 26 and 27, for Android to save a setting
 TERM_WAIT = 30   # start-emulator.sh's, for an emulator it stops to exit after SIGTERM
 KILL_WAIT = 30   # stop-emulator.sh's, for a killed emulator to exit, and again for adb to unlist it
 BOOT_TIMEOUT = int(os.environ.get("ADT_BOOT_TIMEOUT") or 900)   # passed on to start-emulator.sh
 HOME_TIMEOUT = int(os.environ.get("ADT_HOME_TIMEOUT") or 300)   # and to its --wait-for-home
 STOP_TIMEOUT = int(os.environ.get("ADT_STOP_TIMEOUT") or 60)    # passed on to stop-emulator.sh
-# lib.sh's wait_for_home: its limit, then the few seconds the home app must stay in front, or a
-# last look of up to four adb calls.
-HOME_LIMIT = HOME_TIMEOUT + 1 + HOME_STABLE + 1 + 4 * ADB_CALL if HOME_TIMEOUT else None
+# lib.sh's wait_for_home: its limit, then its pause between two looks and a last look of up to
+# five adb calls (the API level, what HOME resolves to, two dumps, a Back).
+HOME_LIMIT = HOME_TIMEOUT + 1 + 1 + 5 * ADB_CALL if HOME_TIMEOUT else None
 # start-emulator.sh: the boot limit; on API 26 and 27, the wait for Android to save a setting;
 # with --wait-for-home, that wait; then stopping an emulator that didn't boot or settle (SIGTERM,
 # TERM_WAIT s, then SIGKILL). No limit when a limit is 0 (the script's own "no limit").
@@ -88,11 +87,13 @@ def focus(dump):
     it's drawn (on a starved device, the home app's still had none after 30 s). Each like
     com.android.tv.settings/com.android.tv.settings.MainSettings, or None (no window has focus,
     or it isn't an activity's, like an ANR dialog). Then the dump's lines on focus, to show in a
-    failure."""
-    window = re.search(r"mCurrentFocus=Window\{\S+ \S+ ([\w.]+/[\w.$]+)\}", dump)
-    app = re.search(r"mFocusedApp=.*?ActivityRecord\{\S+ \S+ ([\w.]+/[\w.$]+)", dump)
-    shown = "\n".join(m.group(0) for name in ("mCurrentFocus", "mFocusedApp")
-                      if (m := re.search(rf"{name}=.*", dump)))
+    failure. The last lines: after an ANR the dump starts with a copy of the state at that time
+    (WINDOW MANAGER LAST ANR), focus included."""
+    window, app = (([None] + re.findall(rf"{name}=.*", dump))[-1] for name in ("mCurrentFocus",
+                                                                              "mFocusedApp"))
+    shown = "\n".join(line for line in (window, app) if line)
+    window = window and re.search(r"mCurrentFocus=Window\{\S+ \S+ ([\w.]+/[\w.$]+)\}", window)
+    app = app and re.search(r"mFocusedApp=.*?ActivityRecord\{\S+ \S+ ([\w.]+/[\w.$]+)", app)
     return (window and named_component(window.group(1)), app and named_component(app.group(1)),
             shown or dump[-500:])
 
@@ -134,8 +135,8 @@ def start_script(*args):
 
 def wait_for_home(serial):
     """lib.sh's wait_for_home, which start-emulator.sh --wait-for-home runs: waits until the home
-    app is in front, with the focus, for a few seconds in a row. Returns its package, or None and
-    what was in front instead."""
+    app's screen is at the top, done starting, with the focus, at two looks in a row. Returns its
+    package, or None and what was in front instead."""
     result = subprocess.run(["bash", "-c", f'source {LIB}\nwait_for_home "$1" "$2"', "bash", serial,
                              str(HOME_TIMEOUT)], capture_output=True, text=True, timeout=HOME_LIMIT)
     return (result.stdout.strip(), None) if result.returncode == 0 else (None, result.stdout)
