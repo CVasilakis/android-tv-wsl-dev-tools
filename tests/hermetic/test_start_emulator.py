@@ -333,13 +333,10 @@ class BootProgress(EmulatorTestCase):
 class MarksTheTvSetupComplete(EmulatorTestCase):
     """Android TV 8.0 and 8.1 (API 26, 27) ignore the Home key until tv_user_setup_complete is
     set, which their emulator images never do: after the boot, the script sets it, then waits
-    ADT_SAVE_DELAY seconds (30 by default), saying why, so Android saves it before a kill."""
+    until Android has saved it to disk (read as root) and commits that (sync), so a kill can't
+    lose it, for at most ADT_SAVE_TIMEOUT seconds; then, or if it can't look, it only warns."""
 
     FLAG = "tv_user_setup_complete"
-
-    def start(self, *args, env=None):
-        # No wait, except where a test asks for one.
-        return super().start(*args, env={"ADT_SAVE_DELAY": "0", **(env or {})})
 
     def add_tv_avd(self, level, tag="android-tv"):
         name = f"{'gtv' if tag == 'google-tv' else 'tv'}_api{level}"
@@ -348,6 +345,9 @@ class MarksTheTvSetupComplete(EmulatorTestCase):
 
     def settings_puts(self):
         return [a for a in self.sandbox.argvs("adb") if "settings" in a and "put" in a]
+
+    def saved_looks(self):
+        return [a for a in self.sandbox.argvs("adb") if any("settings_secure.xml" in x for x in a)]
 
     def test_sets_it_on_android_tv_8_0_and_8_1(self):
         for level in (26, 27):
@@ -358,9 +358,44 @@ class MarksTheTvSetupComplete(EmulatorTestCase):
                 serial = result.out.strip()
                 self.assertEqual(self.sandbox.device_settings(serial).get(self.FLAG), "1")
                 self.assertIn("so the Home key works", result.err)
-                self.assertIn("so Android saves it", result.err)
+                self.assertIn("Waiting until Android has saved it", result.err)
+                self.assertNotIn("Warning", result.err)
                 self.assertEqual(result.out, f"{serial}\n", "stdout holds only the serial")
                 self.sandbox.stop_emulators()
+
+    def test_waits_until_android_has_saved_it(self):
+        # Android writes it a moment after the change: the script looks until it's on disk.
+        self.sandbox.set_behavior(settings_unsaved_looks=3)
+        result = self.start(self.add_tv_avd(26))
+        self.assertSucceeded(result)
+        self.assertEqual(len(self.saved_looks()), 4)
+        self.assertNotIn("Warning", result.err)
+        calls = self.sandbox.argvs("adb")
+        self.assertLess(calls.index(self.settings_puts()[0]), calls.index(self.saved_looks()[0]),
+                        "it looks only after setting it")
+
+    def test_warns_when_android_does_not_save_it_in_time(self):
+        self.sandbox.set_behavior(settings_unsaved_looks="forever")
+        started = time.monotonic()
+        result = self.start(self.add_tv_avd(27), env={"ADT_SAVE_TIMEOUT": "1"})
+        self.assertSucceeded(result)
+        self.assertGreaterEqual(time.monotonic() - started, 1)
+        self.assertIn("couldn't see Android save tv_user_setup_complete (it wasn't saved within 1 s)",
+                      result.err)
+        self.assertEqual(result.out, "emulator-5554\n")
+
+    def test_warns_at_once_when_it_cannot_look(self):
+        self.sandbox.set_behavior(su_error="/system/bin/sh: su: not found")
+        result = self.start(self.add_tv_avd(26))
+        self.assertSucceeded(result)
+        self.assertEqual(len(self.saved_looks()), 1)
+        self.assertIn("couldn't see Android save tv_user_setup_complete "
+                      "(/system/bin/sh: su: not found)", result.err)
+        self.assertEqual(result.out, "emulator-5554\n")
+
+    def test_rejects_a_save_timeout_that_is_not_a_number(self):
+        result = self.start(self.add_tv_avd(26), env={"ADT_SAVE_TIMEOUT": "soon"})
+        self.assertFailed(result, "ADT_SAVE_TIMEOUT must be a number of seconds, not 'soon'", code=1)
 
     def test_leaves_the_other_images_alone(self):
         for level, tag in ((25, "android-tv"), (28, "android-tv"), (36, "android-tv"),
@@ -374,21 +409,16 @@ class MarksTheTvSetupComplete(EmulatorTestCase):
                 self.assertNotIn("Waiting", result.err)
                 self.sandbox.stop_emulators()
         self.assertEqual(self.settings_puts(), [])
+        self.assertEqual(self.saved_looks(), [])
 
     def test_leaves_it_alone_when_it_is_already_set(self):
         self.sandbox.set_behavior(device_settings={self.FLAG: "1"})
         result = self.start(self.add_tv_avd(27))
         self.assertSucceeded(result)
         self.assertEqual(self.settings_puts(), [])
+        self.assertEqual(self.saved_looks(), [])
         self.assertNotIn("Home key", result.err)
         self.assertNotIn("Waiting", result.err)
-
-    def test_waits_for_android_to_save_it(self):
-        started = time.monotonic()
-        result = self.start(self.add_tv_avd(26), env={"ADT_SAVE_DELAY": "3"})
-        self.assertSucceeded(result)
-        self.assertGreaterEqual(time.monotonic() - started, 3)
-        self.assertIn("Waiting 3 s so Android saves it before the emulator can be stopped", result.err)
 
     def test_sets_it_on_an_emulator_started_elsewhere(self):
         avd = self.add_tv_avd(26)
@@ -396,6 +426,7 @@ class MarksTheTvSetupComplete(EmulatorTestCase):
         result = self.start(avd)
         self.assertSucceeded(result)
         self.assertEqual(self.sandbox.device_settings(serial).get(self.FLAG), "1")
+        self.assertEqual(len(self.saved_looks()), 1)
 
     def test_only_warns_when_it_cannot_set_it(self):
         self.sandbox.set_behavior(settings_put_error="Error: permission denied")
@@ -403,6 +434,7 @@ class MarksTheTvSetupComplete(EmulatorTestCase):
         self.assertSucceeded(result)
         self.assertIn("couldn't set tv_user_setup_complete", result.err)
         self.assertNotIn("Waiting", result.err)
+        self.assertEqual(self.saved_looks(), [])
         self.assertEqual(result.out, "emulator-5554\n")
 
 

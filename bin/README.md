@@ -9,7 +9,7 @@ their path, e.g. `../android-tv-wsl-dev-tools/bin/start-emulator.sh`.
 |---|---|
 | [`create-avd.sh`](create-avd.sh) | Creates an Android TV emulator with the right hardware settings (`tv_api25`, or `--api <level>`, or Google TV with `--google-tv`; another screen with `--size`/`--density`). |
 | [`start-emulator.sh`](start-emulator.sh) | Boots it (cold boot, or Quick Boot with `--quick`), waits until Android is ready (and with `--wait-for-home` until its home app has settled in front), applies the WSLg toolbar fix. |
-| [`stop-emulator.sh`](stop-emulator.sh) | Stops it and returns once it has exited, with a time limit (one emulator, or `--all`). |
+| [`stop-emulator.sh`](stop-emulator.sh) | Has Android save its recent changes, stops it and returns once it has exited, with a time limit (one emulator, or `--all`). |
 | [`remote.sh`](remote.sh) | TV remote in the terminal (D-pad, OK, Back, Home, Menu, …); holds a key as a long press on any API level (`--long-press`). |
 | [`wslg-toolbar.py`](wslg-toolbar.py) | Works around the emulator toolbar's input problems under WSLg. |
 
@@ -174,7 +174,7 @@ start-emulator.sh --wait-for-home          # also wait until the home app has se
 start-emulator.sh -wipe-data               # factory reset (also re-enables a disabled stock launcher)
 start-emulator.sh my_tv -gpu host          # another AVD, with hardware rendering
 EMULATOR_TOOLBAR=show start-emulator.sh    # keep a clickable side toolbar (see below)
-stop-emulator.sh                           # stop it (saves a Quick Boot snapshot for --quick)
+stop-emulator.sh                           # save recent changes, stop it (and a Quick Boot snapshot for --quick)
 ```
 
 It runs `emulator -avd <name> -gpu swiftshader_indirect -no-snapshot-load -no-boot-anim -no-audio`
@@ -240,16 +240,28 @@ timeout; one that was already running is left running.
 Home key never leaves an app until the TV setup wizard has set `tv_user_setup_complete`, and
 these images never run that wizard (logcat: "Not starting activity because user setup is in
 progress"). So once the emulator has booted, the script sets it, and says so, unless it's
-already set; then it waits 30 s, saying why, so that Android has saved it before the emulator can
-be stopped (see below). The setting stays in the AVD's data, so that wait happens once per AVD.
-Other images are left as they are; on those, Home works without it. By hand:
+already set. Then it waits until Android has saved it, so that stopping the emulator right away
+doesn't lose it (see below): it reads Android's settings file as root (these images are debug
+builds, with `su`) until the file holds the setting and Android's backup of the old file is gone,
+then runs `sync`. That takes under a second; if it hasn't happened within 30 s, or the script
+can't look, it warns and goes on. The setting stays in the AVD's data, so this happens once per
+AVD. Other images are left as they are; on those, Home works without it. By hand:
 `adb shell settings put secure tv_user_setup_complete 1`.
 
-**Stopping doesn't save recent changes.** `adb emu kill`, which
-[`stop-emulator.sh`](#stop-emulatorsh) uses too, stops the emulator without shutting Android down, and Android saves some changes only a moment after they're made: a setting
-(`settings put`) within seconds, an app's enabled state (`pm enable`, `pm disable-user`) later.
-Stopped right after the command, the next cold boot starts as if it had never run. `adb reboot`
-doesn't save them either. After a change that should stay, wait 30 s before stopping the emulator.
+**Stopping and recent changes.** `adb emu kill` stops the emulator without shutting Android
+down, and Android saves a change only a while after it's made, so a change made just before is
+lost: the next cold boot starts as if the command had never run. Measured on these emulators:
+
+| What | When it's safe from a kill |
+|---|---|
+| An app's enabled state (`pm enable`, `pm disable-user`) | Android writes it 10 s after the first unsaved change (10.35 s measured; on an emulator starved of CPU, 10 s after the command returned) |
+| A setting (`settings put`) | Android writes it about 0.2 s later (0.34 s at most on a starved emulator) |
+| Both on API 22 | written at once |
+| Then, every file | up to 5 s more: Android keeps the old file as a backup until the new one is complete, and until the filesystem's journal has recorded that (every 5 s), a boot reads the backup |
+
+So a change is safe 15 s after it at the latest. **Wait 30 s before stopping the emulator after
+a change that should stay**: twice that. `adb reboot` and `adb shell reboot -p` don't save it
+either. [`stop-emulator.sh`](#stop-emulatorsh) needs no wait: it has Android save first.
 
 **Output.** stdout holds the emulator's serial (e.g. `emulator-5554`) and nothing else; every
 message goes to stderr. So scripts capture it without parsing messages:
@@ -301,6 +313,19 @@ same AVD can be started again right away. It exits 0 also when the emulator wasn
 it can be called just in case; it never stops a physical device, and a name that's neither a
 running emulator nor an AVD is an error, so a typo doesn't pass as "not running". Messages go to
 stderr; stdout stays empty.
+
+**Saving first.** Before it stops the emulator, it has Android save the changes it hasn't saved
+yet ([why](#start-emulatorsh), "Stopping and recent changes"), then commits them to the disk
+image with `sync`:
+
+| API level | How it has Android save | Time |
+|---|---|---|
+| 22 to 31 | `adb shell dumpsys package write` writes the app states at once ("Settings written."); a 1 s pause lets a setting changed just before be written | about 1 s |
+| 33 and newer | that command no longer writes (it prints the whole package dump), so it waits for Android's own write, which Android scheduled at the change and logs in the events log (`commit_sys_config_file: [package-user-0,…]`), at most `ADT_SAVE_WAIT` seconds (default 12) | up to 12 s, the full 12 s when nothing was pending |
+
+Each adb call has a time limit, and an emulator that doesn't answer as a booted device is
+stopped anyway, unsaved; the script says what it did. A `-read-only` emulator keeps no change,
+so there it skips the save.
 
 `adb emu kill` alone returns at once, before the emulator has exited, and
 `adb wait-for-disconnect` waits for that without a time limit. Neither can stop an emulator whose

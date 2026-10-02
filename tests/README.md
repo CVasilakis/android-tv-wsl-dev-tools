@@ -163,6 +163,10 @@ can also be the two dumps a look reads, as captured from a device), with `ADT_BA
 another screen gets Back after 1 s rather than 10; `adb_offline` for an emulator adb can't reach, with `ADT_OFFLINE_TIMEOUT=1`
 in the script's environment so `start-emulator.sh --quick` doesn't wait 30 s, or
 `emulator_stuck` for one that won't exit, with `ADT_STOP_TIMEOUT=1` for `stop-emulator.sh`;
+`settings_unsaved_looks` (`"forever"`) for Android saving `tv_user_setup_complete` late (never), with
+`ADT_SAVE_TIMEOUT=1`, or `su_error` for an image `start-emulator.sh` can't look into;
+`api_level` 33 or more with `pending_package_write` for Android's own write that `stop-emulator.sh`
+waits for, with `ADT_SAVE_WAIT` in seconds, or `sync_error`;
 `adb_lists_exited` for adb's lag in unlisting an emulator whose process has exited, with
 `sandbox.kill_emulator(serial)`, which leaves a zombie, or `emulator_already_exiting` for one
 that's shutting down when `adb emu kill` comes), `connect_device()`, `wsl()` and file permissions on `sandbox.kvm`. Check the

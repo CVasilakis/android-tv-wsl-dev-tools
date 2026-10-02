@@ -47,9 +47,15 @@
 # name its AVD.
 # Each limit lasts at least its number of seconds, and at most one more (time_is_up in lib.sh).
 #
-# Stopping doesn't save recent changes: `adb emu kill` doesn't shut Android down, so a setting or
-# an app's enabled state changed just before is lost (bin/README.md, "Stopping doesn't save
-# recent changes"). This script doesn't change that.
+# Saving first: `adb emu kill` doesn't shut Android down, and Android saves a changed setting or
+# app state (pm disable-user) only a moment later, so a change made just before would be lost:
+# the next cold boot starts without it (bin/README.md, "Stopping and recent changes"). So before
+# `adb emu kill`, the script has Android save what it hasn't yet, and commits it to the disk image
+# (save_changes says how, per API level). Up to API 31 that takes about a second; from API 33 on
+# Android can't be asked to, so the script waits for its own write, up to $ADT_SAVE_WAIT seconds
+# (default 12). Best effort: each adb call has a time limit, and an emulator that doesn't answer is
+# stopped anyway, unsaved; the script says which. A -read-only emulator keeps nothing, so there it
+# skips this.
 set -euo pipefail
 
 usage() {
@@ -57,7 +63,10 @@ usage() {
 Usage: stop-emulator.sh [--all] [avd-name|serial]
 
 Stops a running emulator and returns once its process has exited, so the AVD can be started
-again right away. If it doesn't exit in time, it's killed. Never touches physical devices.
+again right away. First it has Android save changes it hasn't saved yet (a setting, an app
+disabled or enabled), which a stop would otherwise lose: about a second, up to 12 s from API 33
+on; skipped on a -read-only emulator or one that doesn't answer. If it doesn't exit in time, it's
+killed. Never touches physical devices.
 
   avd-name|serial  the emulator to stop, e.g. tv_api25 or emulator-5554. Default:
                    $ANDROID_SERIAL, else the only running emulator
@@ -67,6 +76,8 @@ again right away. If it doesn't exit in time, it's killed. Never touches physica
 Environment:
   ADT_STOP_TIMEOUT  seconds to wait for the emulator to exit after `adb emu kill` before
                     killing it, which loses its Quick Boot snapshot (default: 60)
+  ADT_SAVE_WAIT     from API 33 on, seconds to wait for Android to save app states changed
+                    in the last 10 s, before stopping (default: 12)
 
 Exits 0 once the emulator has exited, and also if it wasn't running; 1 if it couldn't be
 stopped.
@@ -96,6 +107,67 @@ fi
 KILL_WAIT=30                              # seconds for a killed emulator to exit, and for adb
                                           # to notice (tests/emulator/test_on_emulator.py
                                           # copies it)
+SAVE_WAIT="${ADT_SAVE_WAIT:-12}"          # seconds, from API 33 on (see save_changes; the
+                                          # emulator tier copies it)
+if ! [[ "$SAVE_WAIT" =~ ^[0-9]+$ ]]; then
+    die "ADT_SAVE_WAIT must be a number of seconds, not '$SAVE_WAIT'."
+fi
+
+# save_changes <serial> <pid> <label>: has Android save what it hasn't yet, before `adb emu kill`
+# stops it without shutting it down (the header says why). Best effort: each adb call has its
+# time limit (adb_bounded), and an emulator that doesn't answer is stopped unsaved. Says what it
+# did.
+#  - Android writes an app's enabled state (pm enable, pm disable-user) 10 s after the first
+#    unsaved change, a setting about 0.2 s after it (API 22: both at once). Up to API 31,
+#    `dumpsys package write` writes the app states at once and answers "Settings written.";
+#    then a pause of 1 s lets a setting changed just before be written (0.34 s at most, measured
+#    on an emulator starved of CPU). From API 33 on that command writes nothing (it prints the
+#    whole package dump), so the script waits for Android's own write: Android scheduled it at the
+#    change, before this script started, so it comes within 10 s; it logs it in the events log
+#    (commit_sys_config_file, package-user-0). The wait ends at that event, or after SAVE_WAIT s
+#    (10 s and a margin; 9.9 s after the change was the latest seen) when nothing was pending.
+#  - Then `sync`: Android keeps the old file as a backup until the new one is complete, and until
+#    the filesystem's journal has recorded that (up to 5 s later), a boot reads the backup.
+#  - A -read-only emulator keeps no change anyway, so there it does nothing.
+save_changes() {
+    local serial="$1" pid="$2" label="$3" answer before last started
+    if [ -n "$pid" ] && tr '\0' '\n' 2>/dev/null < "/proc/$pid/cmdline" | grep -qx -- -read-only; then
+        echo "$label is -read-only, so it keeps no changes: nothing to save." >&2
+        return 0
+    fi
+    if [ "$(adb_bounded -s "$serial" shell getprop sys.boot_completed < /dev/null 2>/dev/null \
+            | tr -d '\r')" != 1 ]; then
+        echo "$label didn't answer as a booted device, so changes Android hasn't saved yet are lost." >&2
+        return 0
+    fi
+    answer="$(adb_bounded -s "$serial" shell dumpsys package write < /dev/null 2>/dev/null \
+        | head -n 1 | tr -d '\r')" || true
+    if [ "$answer" = "Settings written." ]; then
+        sleep 1
+    else
+        echo "Waiting up to $SAVE_WAIT s for Android to save app states changed in the last 10 s..." >&2
+        before="$(last_package_write "$serial")"
+        started=$SECONDS
+        while true; do
+            last="$(last_package_write "$serial")"
+            if [ -n "$last" ] && [ "$last" != "$before" ]; then break; fi
+            if time_is_up "$started" "$SAVE_WAIT"; then break; fi
+            sleep 0.5
+        done
+    fi
+    if adb_bounded -s "$serial" shell sync < /dev/null > /dev/null 2>&1; then
+        echo "Saved what Android hadn't saved yet on $label." >&2
+    else
+        echo "Couldn't commit $label's last changes to its disk (sync failed); they may be lost." >&2
+    fi
+}
+
+# The last commit_sys_config_file event of package-user-0 in the events log (from API 28 on: Android
+# has written the app states), or nothing.
+last_package_write() {
+    adb_bounded -s "$1" shell logcat -b events -d -v epoch -s commit_sys_config_file < /dev/null \
+        2>/dev/null | tr -d '\r' | grep -F '[package-user-0,' | tail -n 1 || true
+}
 
 # is_avd_process <pid> <avd-name>: whether that process runs and is the emulator of that AVD,
 # started as `-avd <name>` or `@<name>` (the emulator passes its arguments on to qemu). A zombie,
@@ -204,6 +276,11 @@ stop() {
         return 0
     fi
 
+    # Only an emulator adb can reach: one listed as offline is exiting already, or still booting.
+    if [ -n "$serial" ] && [ "$(adb_bounded devices 2>/dev/null \
+            | awk -v s="$serial" '$1 == s { print $2 }')" = device ]; then
+        save_changes "$serial" "$pid" "$label"
+    fi
     if [ -n "$serial" ] && adb_bounded -s "$serial" emu kill > /dev/null 2>&1; then
         if ! wait_until_gone "$STOP_TIMEOUT" "$pid" "$serial"; then
             problem="didn't exit within $STOP_TIMEOUT s of adb emu kill"

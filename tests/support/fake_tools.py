@@ -74,6 +74,16 @@ DEFAULT_BEHAVIOR = {
                                   # system settings a newly booted emulator starts with (the TV
                                   # images' values)
     "settings_put_error": None,   # `adb shell settings put` prints this and exits 1
+    "settings_unsaved_looks": 0,  # start-emulator.sh's look (as root) at whether Android has saved
+                                  # tv_user_setup_complete=1 to disk sees it unsaved this many
+                                  # times, then saved once it's set; "forever": never saved
+    "su_error": None,             # that look prints this instead (e.g. an image without su)
+    "pending_package_write": None,  # from API 33 on (api_level), stop-emulator.sh waits for
+                                  # Android's own write of the app states: seconds after the
+                                  # first `adb shell logcat -b events` call until a
+                                  # commit_sys_config_file event for package-user-0 shows; None:
+                                  # nothing pending, only an older such event shows
+    "sync_error": None,           # `adb shell sync` prints this and exits 1
     "monkey_output": None,        # `adb shell monkey` prints this and injects nothing (it failed)
     "api_level": 25,              # every device's `getprop ro.build.version.sdk`; below 24 there's
                                   # no `cmd` (adb shell prints "cmd: not found" and exits 0)
@@ -417,6 +427,22 @@ def adb(args):
             sys.stdout.write(shown["activities"].replace("\n", "\r\n"))
         else:
             dumpsys_activities(shown[0])
+    elif args == ["shell", "dumpsys", "package", "write"]:
+        # Up to API 31 Android writes the app states and says so; from 33 on it prints the dump.
+        if behavior()["api_level"] < 33:
+            sys.stdout.write("Settings written.\r\n")
+        else:
+            sys.stdout.write("Database versions:\r\n  Internal:\r\n    sdkVersion=36\r\n"
+                             * 200)
+    elif args == ["shell", "sync"]:
+        if behavior()["sync_error"]:
+            fail(behavior()["sync_error"])
+    elif args == ["shell", "logcat", "-b", "events", "-d", "-v", "epoch", "-s",
+                  "commit_sys_config_file"]:
+        package_write_events()
+    elif len(args) == 2 and args[0] == "shell" and args[1].startswith("su 0 ") \
+            and "settings_secure.xml" in args[1]:
+        saved_look(serial, emulators, args[1])
     elif args[:4] == ["shell", "settings", "delete", "system"] and len(args) == 5:
         if serial in emulators:
             info = emulators[serial]
@@ -427,6 +453,37 @@ def adb(args):
 
 
 NAMESPACES = {"secure": "settings", "system": "system_settings"}   # -> key in running/<serial>.json
+
+
+def package_write_events():
+    """The events log's commit_sys_config_file events: one of package-user-0 from long ago, and a
+    new one pending_package_write seconds after the first call, if set."""
+    sys.stdout.write("      1790000000.000   500   600 I commit_sys_config_file: [package-user-0,3]\r\n"
+                     "      1790000001.000   500   600 I commit_sys_config_file: [settings-2-0,2]\r\n")
+    delay = behavior()["pending_package_write"]
+    if delay is None:
+        return
+    first = STATE / "first_events_look"
+    if not first.exists():
+        first.write_text(str(time.time()))
+    written = float(first.read_text()) + delay
+    if time.time() >= written:
+        sys.stdout.write(f"      {written:.3f}   500   600 I commit_sys_config_file: [package-user-0,4]\r\n")
+
+
+def saved_look(serial, emulators, command):
+    """start-emulator.sh's look, as root, at settings_secure.xml: "saved" (after a sync, which the
+    command must end with) once tv_user_setup_complete=1 is set and settings_unsaved_looks looks
+    have seen it unsaved; nothing before (grep -q finds nothing); su_error instead, if set."""
+    knobs = behavior()
+    if knobs["su_error"]:
+        sys.stdout.write(f"{knobs['su_error']}\r\n")
+        return
+    unsaved = knobs["settings_unsaved_looks"]
+    looked_unsaved = unsaved == "forever" or take("unsaved_looks", unsaved)
+    flag = emulators[serial]["settings"].get("tv_user_setup_complete") if serial in emulators else None
+    if flag == "1" and not looked_unsaved and command.endswith("&& sync && echo saved'"):
+        sys.stdout.write("saved\r\n")
 
 
 def task_of(activity):
