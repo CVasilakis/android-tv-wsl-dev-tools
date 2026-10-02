@@ -230,11 +230,12 @@ someone may be using, it only looks, and fails if an app stays in front: press H
 leave out the flag. It never starts an app. With `--quick`, the restored device has usually
 settled already, so the wait is short.
 
-It waits at most `ADT_HOME_TIMEOUT` seconds (default 300; `0`: no limit), counted from when
-Android has booted, on top of `ADT_BOOT_TIMEOUT`. When time's up it fails, naming what was in
-front (the focused activity, the focused window, what a HOME intent resolves to, and the top
-activity with its task, state and idle mark), and stops the emulator it started, as after a boot
-timeout; one that was already running is left running.
+It waits at most `ADT_HOME_TIMEOUT` seconds (default 600; `0`: no limit), counted from when
+Android has booted, on top of `ADT_BOOT_TIMEOUT`: room for Google TV's first screen, which holds
+the focus for minutes on a slow host, and for a host slower still. When time's up it fails,
+naming what was in front (the focused activity, the focused window, what a HOME intent resolves
+to, and the top activity with its task, state and idle mark), and stops the emulator it started,
+as after a boot timeout; one that was already running is left running.
 
 **Home on API 26 and 27.** On the Android TV images of API 26 and 27 (Android 8.0 and 8.1), the
 Home key never leaves an app until the TV setup wizard has set `tv_user_setup_complete`, and

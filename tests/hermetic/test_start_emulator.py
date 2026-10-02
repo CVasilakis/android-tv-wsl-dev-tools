@@ -612,6 +612,13 @@ class WaitsForHome(EmulatorTestCase):
         self.assertEqual(self.backs(), [])
         self.assertEqual(self.sandbox.running(), {serial: "tv_api25"})
 
+    def test_waits_up_to_600_s_by_default(self):
+        self.sandbox.set_behavior(front=[[HOME, HOME_WINDOW]])
+        result = self.start("--wait-for-home")
+        self.assertSucceeded(result)
+        self.assertIn("Waiting for the home app to be in front, with the focus (up to 600 s)...",
+                      result.err)
+
     def test_zero_means_no_limit(self):
         self.sandbox.set_behavior(front=[self.NO_FOCUS] * 3 + [[HOME, HOME_WINDOW]])
         self.assertSucceeded(self.start("--wait-for-home", env={"ADT_HOME_TIMEOUT": "0"}))

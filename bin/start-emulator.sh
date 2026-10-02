@@ -46,13 +46,15 @@
 # --wait-for-home the script then also waits until the home app's screen is in front, has finished
 # starting and has the focus, at two looks in a row (wait_for_home in lib.sh says exactly what it
 # checks; on Google TV that comes after a screen the launcher shows first, minutes on a slow host),
-# for at most $ADT_HOME_TIMEOUT seconds (default 300; 0: no limit), counted from when Android has
-# booted. When time's up it fails, naming what was in front, and stops the emulator if it started
-# it, as after a boot timeout. When another app's screen keeps the focus (a new AVD's first boot
-# shows "USB drive connected" on API 23 and 29), it presses Back, twice at most, never on a screen
-# of the home app's own, and only on an emulator whose boot it waited for: one that had booted
-# before may be in use, so there it only looks, and fails if an app stays in front. With --quick
-# the restored device has usually settled already.
+# for at most $ADT_HOME_TIMEOUT seconds (default 600; 0: no limit), counted from when Android has
+# booted: on an emulator starved of CPU, Google TV's first screen held the focus for minutes and
+# the whole wait took over a third of this limit, which leaves room for a host slower still. When
+# time's up it fails, naming what was in front, and stops the emulator if it started it, as after a
+# boot timeout. When another app's screen keeps the focus (a new AVD's first boot shows "USB drive
+# connected" on API 23 and 29), it presses Back, twice at most, never on a screen of the home app's
+# own, and only on an emulator whose boot it waited for: one that had booted before may be in use,
+# so there it only looks, and fails if an app stays in front. With --quick the restored device has
+# usually settled already.
 #
 # Home on Android TV 8.0 and 8.1: on the API 26 and 27 Android TV images, the Home key never
 # leaves an app until tv_user_setup_complete is set, so after the boot the script sets it, and
@@ -113,7 +115,7 @@ Environment:
   ADT_BOOT_TIMEOUT  seconds to wait for Android to boot before stopping the emulator and
                     failing (default: 900; 0: no limit)
   ADT_HOME_TIMEOUT  with --wait-for-home: seconds to wait for the home app after the boot
-                    (default: 300; 0: no limit)
+                    (default: 600; 0: no limit)
   EMULATOR_TOOLBAR  WSL only: hide (default) or show the emulator's side toolbar
                     (see bin/README.md)
 
@@ -152,7 +154,7 @@ for arg in "$@"; do
 done
 set -- ${ARGS[@]+"${ARGS[@]}"}
 
-HOME_TIMEOUT="${ADT_HOME_TIMEOUT:-300}"   # seconds, 0 = no limit (see the header)
+HOME_TIMEOUT="${ADT_HOME_TIMEOUT:-600}"   # seconds, 0 = no limit (see the header)
 if [ -n "$WAIT_FOR_HOME" ] && ! [[ "$HOME_TIMEOUT" =~ ^[0-9]+$ ]]; then
     die "ADT_HOME_TIMEOUT must be a number of seconds (0: no limit), not '$HOME_TIMEOUT'."
 fi

@@ -50,7 +50,7 @@ TERM_WAIT = 30   # start-emulator.sh's, for an emulator it stops to exit after S
 KILL_WAIT = 30   # stop-emulator.sh's, for a killed emulator to exit, and again for adb to unlist it
 STOP_SAVE_WAIT = 12  # stop-emulator.sh's SAVE_WAIT, from API 33 on, for Android to save app states
 BOOT_TIMEOUT = int(os.environ.get("ADT_BOOT_TIMEOUT") or 900)   # passed on to start-emulator.sh
-HOME_TIMEOUT = int(os.environ.get("ADT_HOME_TIMEOUT") or 300)   # and to its --wait-for-home
+HOME_TIMEOUT = int(os.environ.get("ADT_HOME_TIMEOUT") or 600)   # and to its --wait-for-home
 STOP_TIMEOUT = int(os.environ.get("ADT_STOP_TIMEOUT") or 60)    # passed on to stop-emulator.sh
 # lib.sh's wait_for_home: its limit, then its pause between two looks and a last look of up to
 # five adb calls (the API level, what HOME resolves to, two dumps, a Back).
@@ -469,7 +469,8 @@ class StopOnTheRealEmulator(unittest.TestCase):
         [pid] = emulator_pids("-avd", self.avd, "-read-only")
         result = stop(self.avd)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stderr, f"Stopped '{self.avd}' ({serial}).\n")
+        self.assertEqual(result.stderr, f"'{self.avd}' ({serial}) is -read-only, so it keeps no "
+                                        f"changes: nothing to save.\nStopped '{self.avd}' ({serial}).\n")
         self.assertTrue(exited(pid), "returned before the emulator had exited")
 
     def test_stop_an_emulator_that_is_exiting_already(self):
