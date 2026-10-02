@@ -45,19 +45,23 @@ ADB_TIMEOUT = 15
 ADB_KILL_AFTER = 5
 ADB_CALL = ADB_TIMEOUT + ADB_KILL_AFTER
 ADB_CALLS = 10
-SAVE_DELAY = 30  # start-emulator.sh's, on API 26 and 27, for Android to save a setting
+SAVE_TIMEOUT = 30  # start-emulator.sh's, on API 26 and 27, for Android to save a setting
 TERM_WAIT = 30   # start-emulator.sh's, for an emulator it stops to exit after SIGTERM
 KILL_WAIT = 30   # stop-emulator.sh's, for a killed emulator to exit, and again for adb to unlist it
+STOP_SAVE_WAIT = 12  # stop-emulator.sh's SAVE_WAIT, from API 33 on, for Android to save app states
 BOOT_TIMEOUT = int(os.environ.get("ADT_BOOT_TIMEOUT") or 900)   # passed on to start-emulator.sh
 HOME_TIMEOUT = int(os.environ.get("ADT_HOME_TIMEOUT") or 300)   # and to its --wait-for-home
 STOP_TIMEOUT = int(os.environ.get("ADT_STOP_TIMEOUT") or 60)    # passed on to stop-emulator.sh
 # lib.sh's wait_for_home: its limit, then its pause between two looks and a last look of up to
 # five adb calls (the API level, what HOME resolves to, two dumps, a Back).
 HOME_LIMIT = HOME_TIMEOUT + 1 + 1 + 5 * ADB_CALL if HOME_TIMEOUT else None
+# start-emulator.sh's wait for Android to save a setting, on API 26 and 27: its limit, then its
+# pause between two looks and a last look (one adb call).
+SAVE_LIMIT = SAVE_TIMEOUT + 1 + 1 + ADB_CALL
 # start-emulator.sh: the boot limit; on API 26 and 27, the wait for Android to save a setting;
 # with --wait-for-home, that wait; then stopping an emulator that didn't boot or settle (SIGTERM,
 # TERM_WAIT s, then SIGKILL). No limit when a limit is 0 (the script's own "no limit").
-START_LIMIT = (BOOT_TIMEOUT + 1 + SAVE_DELAY + HOME_LIMIT + TERM_WAIT + 1 + ADB_CALLS * ADB_CALL
+START_LIMIT = (BOOT_TIMEOUT + 1 + SAVE_LIMIT + HOME_LIMIT + TERM_WAIT + 1 + ADB_CALLS * ADB_CALL
                if BOOT_TIMEOUT and HOME_LIMIT else None)
 
 # Keyboard input to remote.sh -> Android KeyEvent keyCode that must arrive on the device.
@@ -149,10 +153,12 @@ def start(avd, *flags):
 
 def stop(target, stop_timeout=STOP_TIMEOUT):
     """Runs stop-emulator.sh, which returns once the emulator has exited, with Python's limit
-    longer than its longest run: stop_timeout s for the emulator to exit (after adb emu kill, or
-    SIGTERM), KILL_WAIT for it to exit after SIGKILL, KILL_WAIT again for adb to unlist it, and
-    its adb calls."""
-    limit = stop_timeout + 2 * KILL_WAIT + 3 + ADB_CALLS * ADB_CALL
+    longer than its longest run: the save before the stop (from API 33 on, STOP_SAVE_WAIT s,
+    its pause between two looks and a last look; up to API 31, a pause of 1 s), stop_timeout s for
+    the emulator to exit (after adb emu kill, or SIGTERM), KILL_WAIT for it to exit after SIGKILL,
+    KILL_WAIT again for adb to unlist it, and its adb calls."""
+    save = STOP_SAVE_WAIT + 1 + 1 + ADB_CALL
+    limit = save + stop_timeout + 2 * KILL_WAIT + 3 + ADB_CALLS * ADB_CALL
     return subprocess.run([str(BIN / "stop-emulator.sh"), target], capture_output=True, text=True,
                           timeout=limit, env={**os.environ, "ADT_STOP_TIMEOUT": str(stop_timeout)})
 

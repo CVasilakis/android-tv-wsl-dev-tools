@@ -106,10 +106,11 @@ class Sandbox:
                                            + (f"image.sysdir.1 = {image}\n" if image else ""))
         return folder
 
-    def start_emulator(self, avd):
-        """Starts a fake emulator directly (as if already running); returns its serial."""
+    def start_emulator(self, avd, *args):
+        """Starts a fake emulator directly (as if already running), with the emulator flags
+        `args` on its command line (e.g. -read-only); returns its serial."""
         before = set(self.running())
-        process = subprocess.Popen([str(self.sdk / SDK_TOOLS["emulator"]), "-avd", avd],
+        process = subprocess.Popen([str(self.sdk / SDK_TOOLS["emulator"]), "-avd", avd, *args],
                                    env=self.env(FAKE_NO_LOG="1"), stdout=subprocess.DEVNULL,
                                    stderr=subprocess.DEVNULL)
         self._processes.append(process)

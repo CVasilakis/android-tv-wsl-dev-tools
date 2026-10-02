@@ -106,6 +106,88 @@ class WhichEmulator(StopTestCase):
                 self.assertIn("Usage: stop-emulator.sh", result.err)
 
 
+class SavesFirst(StopTestCase):
+    """Before `adb emu kill`, which doesn't shut Android down, the script has Android save what it
+    hasn't yet: up to API 31 `dumpsys package write`, from API 33 on (where that command writes
+    nothing) a wait for Android's own write of the app states, then `sync` for the filesystem's
+    journal. Best effort, never on a -read-only emulator."""
+
+    def shell_calls(self, serial):
+        """The adb shell commands sent to serial before its `adb emu kill`, in order."""
+        calls = []
+        for argv in self.sandbox.argvs("adb"):
+            if argv[:2] == ["-s", serial] and argv[2:] == ["emu", "kill"]:
+                return calls
+            if argv[:2] == ["-s", serial] and argv[2:3] == ["shell"]:
+                calls.append(" ".join(argv[3:]))
+        self.fail(f"{serial} got no adb emu kill")
+
+    def test_up_to_api_31_writes_at_once_then_syncs(self):
+        self.sandbox.set_behavior(api_level=31)
+        serial = self.sandbox.start_emulator("tv_api30")
+        result = self.sandbox.run("stop-emulator.sh", "tv_api30")
+        self.assertSucceeded(result)
+        self.assertEqual(self.shell_calls(serial),
+                         ["getprop sys.boot_completed", "dumpsys package write", "sync"])
+        self.assertIn(f"Saved what Android hadn't saved yet on 'tv_api30' ({serial}).", result.err)
+        self.assertNotIn("Waiting", result.err)
+        self.assertEqual(self.sandbox.running(), {})
+
+    def test_from_api_33_waits_for_androids_own_write(self):
+        self.sandbox.set_behavior(api_level=36, pending_package_write=2)
+        serial = self.sandbox.start_emulator("tv_api30")
+        started = time.monotonic()
+        result = self.sandbox.run("stop-emulator.sh", "tv_api30", env={"ADT_SAVE_WAIT": "10"})
+        took = time.monotonic() - started
+        self.assertSucceeded(result)
+        self.assertIn("Waiting up to 10 s for Android to save app states changed in the last 10 s",
+                      result.err)
+        self.assertGreaterEqual(took, 2)
+        self.assertLess(took, 8, "the write ends the wait")
+        calls = self.shell_calls(serial)
+        self.assertEqual(calls[-1], "sync")
+        self.assertIn("logcat -b events -d -v epoch -s commit_sys_config_file", calls)
+        self.assertIn("Saved what Android hadn't saved yet", result.err)
+
+    def test_from_api_33_waits_save_wait_when_nothing_is_pending(self):
+        self.sandbox.set_behavior(api_level=34)
+        serial = self.sandbox.start_emulator("tv_api30")
+        started = time.monotonic()
+        result = self.sandbox.run("stop-emulator.sh", "tv_api30", env={"ADT_SAVE_WAIT": "2"})
+        self.assertSucceeded(result)
+        self.assertGreaterEqual(time.monotonic() - started, 2)
+        self.assertEqual(self.shell_calls(serial)[-1], "sync")
+        self.assertEqual(self.sandbox.running(), {})
+
+    def test_nothing_to_save_on_a_read_only_emulator(self):
+        serial = self.sandbox.start_emulator("tv_api30", "-read-only")
+        result = self.sandbox.run("stop-emulator.sh", serial)
+        self.assertSucceeded(result)
+        self.assertEqual(self.shell_calls(serial), [])
+        self.assertIn("is -read-only, so it keeps no changes: nothing to save", result.err)
+
+    def test_an_emulator_that_does_not_answer_is_stopped_unsaved(self):
+        self.sandbox.set_behavior(adb_hangs={"getprop": 1})
+        serial = self.sandbox.start_emulator("tv_api30")
+        result = self.sandbox.run("stop-emulator.sh", "tv_api30", env={"ADT_ADB_TIMEOUT": "1"})
+        self.assertSucceeded(result)
+        self.assertEqual(self.shell_calls(serial), ["getprop sys.boot_completed"])
+        self.assertIn("didn't answer as a booted device, so changes Android hasn't saved yet are "
+                      "lost", result.err)
+        self.assertEqual(self.sandbox.running(), {})
+
+    def test_says_so_when_sync_fails(self):
+        self.sandbox.set_behavior(sync_error="sync: permission denied")
+        self.sandbox.start_emulator("tv_api30")
+        result = self.sandbox.run("stop-emulator.sh", "tv_api30")
+        self.assertSucceeded(result)
+        self.assertIn("(sync failed); they may be lost", result.err)
+
+    def test_rejects_a_save_wait_that_is_not_a_number(self):
+        result = self.sandbox.run("stop-emulator.sh", env={"ADT_SAVE_WAIT": "soon"})
+        self.assertFailed(result, "ADT_SAVE_WAIT must be a number of seconds, not 'soon'", code=1)
+
+
 class NotRunning(StopTestCase):
     """Nothing to stop is success, so the script can be called just in case."""
 
@@ -233,23 +315,25 @@ class WaitsForTheProcess(StopTestCase):
     def test_a_read_only_emulator_without_a_lock_file(self):
         # Started with -read-only, the emulator writes no lock file: its console names its PID.
         self.sandbox.set_behavior(emulator_lock_file=False, emulator_exit_delay=1)
-        serial = self.sandbox.start_emulator("tv_api25")
+        serial = self.sandbox.start_emulator("tv_api25", "-read-only")
         pid = self.sandbox.emulator_pid(serial)
         result = self.sandbox.run("stop-emulator.sh", "tv_api25")
         self.assertSucceeded(result)
         self.assertFalse(self.sandbox.alive(pid), "returned while the emulator still ran")
-        self.assertEqual(result.err, f"Stopped 'tv_api25' ({serial}).\n")
+        self.assertEqual(result.err, f"'tv_api25' ({serial}) is -read-only, so it keeps no changes: "
+                                     f"nothing to save.\nStopped 'tv_api25' ({serial}).\n")
 
     def test_waits_for_the_instance_it_stops_when_an_avd_runs_twice(self):
         # Several -read-only instances of one AVD can run: only the one stopped is waited for.
         self.sandbox.set_behavior(emulator_lock_file=False, emulator_exit_delay=1)
-        first = self.sandbox.start_emulator("tv_api25")
-        second = self.sandbox.start_emulator("tv_api25")
+        first = self.sandbox.start_emulator("tv_api25", "-read-only")
+        second = self.sandbox.start_emulator("tv_api25", "-read-only")
         pid = self.sandbox.emulator_pid(second)
         result = self.sandbox.run("stop-emulator.sh", second)
         self.assertSucceeded(result)
         self.assertFalse(self.sandbox.alive(pid), "returned while the emulator still ran")
-        self.assertEqual(result.err, f"Stopped 'tv_api25' ({second}).\n")
+        self.assertEqual(result.err, f"'tv_api25' ({second}) is -read-only, so it keeps no changes: "
+                                     f"nothing to save.\nStopped 'tv_api25' ({second}).\n")
         self.assertEqual(self.sandbox.running(), {first: "tv_api25"})
 
     def test_says_so_when_it_cannot_confirm_the_exit(self):

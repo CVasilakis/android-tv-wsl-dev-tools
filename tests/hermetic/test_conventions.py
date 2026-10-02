@@ -73,9 +73,10 @@ class Conventions(unittest.TestCase):
         scripts = {
             "ADB_TIMEOUT": (lib, r'^ADB_TIMEOUT="\$\{ADT_ADB_TIMEOUT:-(\d+)\}"'),
             "ADB_KILL_AFTER": (lib, r'timeout -k (\d+) "\$ADB_TIMEOUT"'),
-            "SAVE_DELAY": (start, r'^SAVE_DELAY="\$\{ADT_SAVE_DELAY:-(\d+)\}"'),
+            "SAVE_TIMEOUT": (start, r'^SAVE_TIMEOUT="\$\{ADT_SAVE_TIMEOUT:-(\d+)\}"'),
             "TERM_WAIT": (stop_emulator and stop_emulator.group(0), r'"\$waited" -lt (\d+) \]'),
             "KILL_WAIT": (stop, r"^KILL_WAIT=(\d+)"),
+            "STOP_SAVE_WAIT": (stop, r'^SAVE_WAIT="\$\{ADT_SAVE_WAIT:-(\d+)\}"'),
         }
         for name, (text, pattern) in scripts.items():
             with self.subTest(name):
