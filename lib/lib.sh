@@ -204,11 +204,22 @@ emulator_avd() {
 # app than the home app's has kept the focus for BACK_AFTER s, once the user is unlocked, it presses
 # Back, up to <backs> times (default 0: it only looks; never on a device someone may be using).
 # Never on a screen of the home app's own, like DispatchActivity: a Back there could end what the
-# launcher is doing. After <seconds> (0: no limit) it prints what was in front instead, and fails.
+# launcher is doing. After <seconds> (0: no limit) it prints what was in front instead, and fails
+# (status 1).
+#
+# The long limit is for the device on its way to its home screen: the home app's own screens
+# (DispatchActivity for minutes on a slow host), FallbackHome, no focused window. Another app's
+# screen is never on that way, so once the same window of another app has kept the focus for
+# OTHER_APP_TIMEOUT s (after the Backs, if any), it prints what was in front and fails at once
+# (status 2), rather than wait out <seconds> for a home app that can't come (an app left open on
+# a device someone uses, a dialog that stays).
 #
 # BACK_AFTER is how long another app's screen must keep the focus to be taken as stuck: one that's
 # only passing by while the device settles has left by then. ADT_BACK_AFTER exists for the tests.
+# OTHER_APP_TIMEOUT (ADT_OTHER_APP_TIMEOUT; 0: none, only <seconds>) is far longer than any such
+# passing screen (start-emulator.sh validates it).
 BACK_AFTER="${ADT_BACK_AFTER:-10}"
+OTHER_APP_TIMEOUT="${ADT_OTHER_APP_TIMEOUT:-60}"
 wait_for_home() {
     local serial="$1" limit="$2" backs="${3:-0}" start=$SECONDS sdk="" resolved look settled=""
     local other="" other_since="" windows activities key window app homes package top
@@ -252,6 +263,11 @@ wait_for_home() {
                         2>&1 || true
                     backs=$((backs - 1))
                     other=""
+                elif [ "$OTHER_APP_TIMEOUT" -gt 0 ] \
+                        && time_is_up "$other_since" "$OTHER_APP_TIMEOUT"; then
+                    echo "activity ${app:-none}, focused window $window${resolved:+; a HOME intent \
+resolves to $resolved}; the top activity is ${top:-none}"
+                    return 2
                 fi
             else
                 other=""

@@ -53,8 +53,10 @@
 # boot timeout. When another app's screen keeps the focus (a new AVD's first boot shows "USB drive
 # connected" on API 23 and 29), it presses Back, twice at most, never on a screen of the home app's
 # own, and only on an emulator whose boot it waited for: one that had booted before may be in use,
-# so there it only looks, and fails if an app stays in front. With --quick the restored device has
-# usually settled already.
+# so there it only looks. The long limit is for the device on its way to its home screen; another
+# app's screen never is, so once the same one has kept the focus for $ADT_OTHER_APP_TIMEOUT seconds
+# (default 60; 0: no such limit), after the Backs if any, it fails at once, naming it, rather than
+# wait out $ADT_HOME_TIMEOUT. With --quick the restored device has usually settled already.
 #
 # Home on Android TV 8.0 and 8.1: on the API 26 and 27 Android TV images, the Home key never
 # leaves an app until tv_user_setup_complete is set, so after the boot the script sets it, and
@@ -103,7 +105,8 @@ serial="$(start-emulator.sh)" captures it. Without $DISPLAY it adds -no-window.
                   app's screen in front, done starting, holding the focus, at two looks in a
                   row; if another app's screen keeps the focus, press Back (twice at most),
                   except on an emulator that had booted before this call. If that takes over
-                  $ADT_HOME_TIMEOUT s, fail, and stop the emulator if this script started it
+                  $ADT_HOME_TIMEOUT s, or another app's screen keeps the focus for
+                  $ADT_OTHER_APP_TIMEOUT s, fail, and stop the emulator if this script started it
   avd-name        the AVD to boot. Default: $ADT_AVD, else tv_api25 if it exists, else the
                   only Android TV AVD
   emulator flags  passed on to the emulator, e.g. -wipe-data, -no-window,
@@ -116,6 +119,9 @@ Environment:
                     failing (default: 900; 0: no limit)
   ADT_HOME_TIMEOUT  with --wait-for-home: seconds to wait for the home app after the boot
                     (default: 600; 0: no limit)
+  ADT_OTHER_APP_TIMEOUT
+                    with --wait-for-home: seconds a screen of another app may keep the
+                    focus before the wait fails (default: 60; 0: only ADT_HOME_TIMEOUT)
   EMULATOR_TOOLBAR  WSL only: hide (default) or show the emulator's side toolbar
                     (see bin/README.md)
 
@@ -157,6 +163,10 @@ set -- ${ARGS[@]+"${ARGS[@]}"}
 HOME_TIMEOUT="${ADT_HOME_TIMEOUT:-600}"   # seconds, 0 = no limit (see the header)
 if [ -n "$WAIT_FOR_HOME" ] && ! [[ "$HOME_TIMEOUT" =~ ^[0-9]+$ ]]; then
     die "ADT_HOME_TIMEOUT must be a number of seconds (0: no limit), not '$HOME_TIMEOUT'."
+fi
+# lib.sh's OTHER_APP_TIMEOUT, for wait_for_home (see the header): validated here, where it's used.
+if [ -n "$WAIT_FOR_HOME" ] && ! [[ "$OTHER_APP_TIMEOUT" =~ ^[0-9]+$ ]]; then
+    die "ADT_OTHER_APP_TIMEOUT must be a number of seconds (0: no such limit), not '$OTHER_APP_TIMEOUT'."
 fi
 
 # The first argument is the AVD name, unless it's already an emulator flag (e.g. just -wipe-data).
@@ -472,18 +482,40 @@ if [ -n "$WAIT_FOR_HOME" ]; then
     echo "Waiting for the home app to be in front, with the focus$limit..." >&2
     BACKS=0
     if [ -n "$STARTED_HERE" ] || [ -n "${WAITED:-}" ]; then BACKS=2; fi
-    if FRONT="$(wait_for_home "$SERIAL" "$HOME_TIMEOUT" "$BACKS")"; then
+    HOME_STATUS=0
+    FRONT="$(wait_for_home "$SERIAL" "$HOME_TIMEOUT" "$BACKS")" || HOME_STATUS=$?
+    if [ "$HOME_STATUS" -eq 0 ]; then
         echo "The home app ($FRONT) is in front." >&2
-    elif [ -z "$STARTED_HERE" ]; then
-        die "'$AVD_NAME' ($SERIAL) booted, but its home app wasn't in front with the focus within $HOME_TIMEOUT s.
-In front: $FRONT.
-It wasn't started by this script, so it's left running. On a slow host, set ADT_HOME_TIMEOUT to
-wait longer (0: no limit)."
     else
+        # 2: another app's screen kept the focus for OTHER_APP_TIMEOUT s (wait_for_home, lib.sh).
+        if [ "$HOME_STATUS" -eq 2 ]; then
+            why="a screen of another app than its home app has kept the focus for $OTHER_APP_TIMEOUT s"
+            why+="$(if [ "$BACKS" -gt 0 ]; then echo ", also after Back"; fi), so the home app can't come to"
+            why+=" the front"
+        else
+            why="its home app wasn't in front with the focus within $HOME_TIMEOUT s"
+        fi
+        if [ -z "$STARTED_HERE" ]; then
+            if [ "$HOME_STATUS" -eq 2 ]; then
+                hint="Nothing was pressed on it: close that screen on the device (Back, or Home:
+adb -s $SERIAL shell input keyevent HOME), then try again."
+            else
+                hint="On a slow host, set ADT_HOME_TIMEOUT to wait longer (0: no limit)."
+            fi
+            die "'$AVD_NAME' ($SERIAL) booted, but $why.
+In front: $FRONT.
+It wasn't started by this script, so it's left running.
+$hint"
+        fi
+        if [ "$HOME_STATUS" -eq 2 ]; then
+            hint="To see that screen, boot it without --wait-for-home."
+        else
+            hint="On a slow host, set ADT_HOME_TIMEOUT to wait longer (0: no limit)."
+        fi
         stop_emulator
-        die "'$AVD_NAME' booted, but its home app wasn't in front with the focus within $HOME_TIMEOUT s,
+        die "'$AVD_NAME' booted, but $why,
 so it was stopped. In front: $FRONT.
-On a slow host, set ADT_HOME_TIMEOUT to wait longer (0: no limit)."
+$hint"
     fi
 fi
 

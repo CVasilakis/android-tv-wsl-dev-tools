@@ -172,7 +172,8 @@ Arrange failures and odd situations with `sandbox.set_behavior(...)` (see `DEFAU
 `fake_tools.py`; e.g. `front` and `home_resolves` for what the device shows in front over time, one item per look, for
 `--wait-for-home` (a `"BACK"` item in `front`: what comes after it waits for a Back key; an item
 can also be the two dumps a look reads, as captured from a device), with `ADT_BACK_AFTER=1` so
-another screen gets Back after 1 s rather than 10; `adb_offline` for an emulator adb can't reach, with `ADT_OFFLINE_TIMEOUT=1`
+another screen gets Back after 1 s rather than 10, and `ADT_OTHER_APP_TIMEOUT` of a few seconds
+so another app's screen fails the wait sooner than after 60 s; `adb_offline` for an emulator adb can't reach, with `ADT_OFFLINE_TIMEOUT=1`
 in the script's environment so `start-emulator.sh --quick` doesn't wait 30 s, or
 `emulator_stuck` for one that won't exit, with `ADT_STOP_TIMEOUT=1` for `stop-emulator.sh`;
 `settings_unsaved_looks` (`"forever"`) for Android saving `tv_user_setup_complete` late (never), with
