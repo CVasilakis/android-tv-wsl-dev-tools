@@ -12,9 +12,21 @@ CLOCK_SLACK_MS = 20
 LOOKS_TO_DECIDE = 5   # looks one look() may take to tell what's new (see RecentInput)
 
 
+# `dumpsys input` appends, after the dispatcher's state, a copy of that state at the last input
+# ANR, with a RecentQueue, a PendingEvent, an InboundQueue and Connections of its own.
+LAST_ANR = "Input Dispatcher State at time of last ANR"
+
+
+def live_state(dump):
+    """`dumpsys input` up to the copy of the dispatcher's state at the last ANR, if any: what the
+    dispatcher shows now."""
+    return dump.split(LAST_ANR, 1)[0]
+
+
 def recent_queue(dump):
     """(age in ms, event without its age) of the recent queue's events, oldest first; None if the
     dump has none (on a slow device dumpsys gives up on a service after 10 s)."""
+    dump = live_state(dump)
     if "RecentQueue" not in dump:
         return None
     queue = dump.split("RecentQueue", 1)[1].split("PendingEvent", 1)[0].splitlines()[1:]
@@ -27,14 +39,39 @@ def recent_queue(dump):
     return events
 
 
-def input_is_quiet(dump, quiet_ms):
-    """Whether no event is waiting to be handled, and the newest one handled is quiet_ms old. A
-    key waits, as the pending event or in the inbound queue, while a window it's going to starts
-    (up to 5 s): it enters the recent queue only then, with the age it had all along."""
-    queue = recent_queue(dump)
-    if queue is None or "PendingEvent: <none>" not in dump or "InboundQueue: <empty>" not in dump:
+def dispatcher_busy(dump, window):
+    """What the input dispatcher still has on the way, or None once nothing is: no event waits to
+    be handled (a key waits, as the pending event or in the inbound queue, while a window it's
+    going to starts, up to 5 s, and enters the recent queue only then, with the age it had all
+    along), no window has an event to receive or is still handling one (it may open a window),
+    and the dispatcher has given the focus to `window` (the hash of the window that has it in
+    `dumpsys window`): a focus change reaches it later, and enters the recent queue then. Reads
+    only the live state, not the copy at the last ANR after it."""
+    dump = live_state(dump)
+    if recent_queue(dump) is None:
+        return ("`dumpsys input` showed no recent queue (on a starved device dumpsys gives up "
+                "after 10 s)")
+    if "PendingEvent: <none>" not in dump or "InboundQueue: <empty>" not in dump:
+        return "an event waits to be handled (PendingEvent, InboundQueue)"
+    if any(queue != "<empty>" for queue in re.findall(r"(?:Outbound|Wait)Queue: (.*)", dump)):
+        return "a window has an event to receive or is handling one (OutboundQueue, WaitQueue)"
+    # Up to API 27 "FocusedWindow: name='Window{<hash> u0 <title>}'"; from 28 on "FocusedWindows:"
+    # and a line per display, from 31 on "name='<hash> <title>'".
+    focused = re.search(r"^ *FocusedWindows?:(.*(?:\n {4,}\S.*)*)", dump, re.MULTILINE)
+    if not (window and focused and re.search(rf"\b{re.escape(window)}\b", focused.group(1))):
+        return (f"the dispatcher hasn't given the focus to window {window} yet: "
+                f"{focused.group(0).strip() if focused else 'no FocusedWindow'}")
+    return None
+
+
+def same_events(before, after):
+    """Whether two looks at the recent queue (recent_queue()) show the same events: no event came
+    in between."""
+    if before is None or after is None or len(before) != len(after):
         return False
-    return all(age >= quiet_ms for age, _ in queue)
+    gaps = [new_age - old_age for (old_age, old), (new_age, new) in zip(before, after)
+            if old == new]
+    return len(gaps) == len(after) and (not gaps or max(gaps) - min(gaps) <= 1.5)
 
 
 class RecentInput:

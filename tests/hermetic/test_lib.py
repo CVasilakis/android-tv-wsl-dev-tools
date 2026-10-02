@@ -1,7 +1,9 @@
 """lib.sh: finding the SDK, its tools and AVDs on any setup, time limits, and waiting for the home
 screen."""
 import textwrap
+import unittest
 
+from emulator.test_on_emulator import front_look
 from support.sandbox import ScriptTestCase
 
 
@@ -498,3 +500,51 @@ class WaitForHome(ScriptTestCase):
         self.assertSucceeded(self.wait(backs=2, env={"ADT_BACK_AFTER": "2"}))
         [back] = self.backs()
         self.assertGreaterEqual(back["time"] - self.looks()[0]["time"], 2)
+
+
+SETTINGS = "com.android.tv.settings/.MainSettings"
+
+
+class HomeLookForAnotherActivity(unittest.TestCase):
+    """The emulator tier's front_look: home_look for another activity than the home app's, given
+    API 24's rules on every API level, to wait until Settings, or whatever activity has the focus,
+    has settled in front."""
+
+    def look(self, dumps, activity=""):
+        return front_look(dumps["window"], dumps["activities"], activity)
+
+    def test_settings_settled_in_front(self):
+        settled, key, app, _ = self.look(SETTINGS_AFTER_ANR, SETTINGS)
+        self.assertTrue(settled)
+        self.assertEqual(app, SETTINGS)
+        self.assertEqual(key, "5ef996 Window{af46328 u0 com.android.tv.settings/"
+                              "com.android.tv.settings.MainSettings}")
+
+    def test_not_settings_while_another_app_is_over_it(self):
+        settled, _, app, shown = self.look(CHOOSER, SETTINGS)
+        self.assertFalse(settled)
+        self.assertEqual(app, f"{LAUNCHERX}/.profile.chooser.ProfileChooserActivity")
+        self.assertIn(f"top activity {LAUNCHERX}/.profile.chooser.ProfileChooserActivity in task "
+                      "88, RESUMED, idle", shown)
+
+    def test_the_focused_activity_once_it_has_finished_starting(self):
+        self.assertFalse(self.look(HOME_RESUMING)[0])
+        self.assertTrue(self.look(idle(HOME_RESUMING))[0])
+
+    def test_not_while_another_activity_comes_over_the_focused_one(self):
+        # The sign-in screen is on top; the home screen still has the focus.
+        self.assertFalse(self.look(CHOOSER_COMING)[0])
+
+    def test_not_while_a_window_that_is_no_activitys_has_the_focus(self):
+        dialog = {**CHOOSER, "window": CHOOSER["window"].replace(
+            f"Window{{436542c u0 {LAUNCHERX}/{LAUNCHERX}.profile.chooser.ProfileChooserActivity}}",
+            "Window{2c1b5e0 u0 Application Not Responding: com.android.tv.settings}")}
+        self.assertTrue(self.look(CHOOSER)[0])
+        self.assertFalse(self.look(dialog)[0])
+
+    def test_before_api_24_too(self):
+        self.assertFalse(self.look(API22_LAUNCHER_STARTING)[0])
+        settled, _, app, _ = self.look(idle(API22_LAUNCHER_STARTING))
+        self.assertTrue(settled)
+        self.assertEqual(app, f"{LEANBACK}/.MainActivity")
+        self.assertTrue(self.look(API22_CHOOSER)[0])

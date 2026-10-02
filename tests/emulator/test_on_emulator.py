@@ -10,14 +10,14 @@ import os
 import re
 import signal
 import subprocess
+import tempfile
 import time
 import unittest
 
-from support.input_dump import RecentInput, input_is_quiet, recent_queue
+from support.input_dump import RecentInput, dispatcher_busy, recent_queue, same_events
 from support.sandbox import BIN, LIB
 
 ENABLED = os.environ.get("ADT_EMULATOR_TESTS") == "1"
-QUIET_MS = 1000
 
 # How long a test waits for something on the device, in seconds. The waits end as soon as it's
 # there, so these limits only decide how long a failure takes, and must hold for an emulator
@@ -27,11 +27,11 @@ QUIET_MS = 1000
 # holds a key for up to 5 s while a window it's going to starts (5 s x ro.hw_timeout_multiplier,
 # which no tested image sets, so 1).
 KEY_TIMEOUT = 60     # from typing a key until a look sees it: remote.sh's adb call, the hold, a look
-QUIET_TIMEOUT = 30   # for the input dispatcher to settle: a held key, QUIET_MS, then a look
-FOCUS_TIMEOUT = 30   # for an app's window to come to the front (am start, the Home key)
-SETTLE_TIMEOUT = 120   # for Settings to stay in front, opened again while other apps come over it
-STABLE_LOOKS = 3       # looks in a row, STABLE_INTERVAL s apart, that show an app stays in front
-STABLE_INTERVAL = 2
+FOCUS_TIMEOUT = 30   # for an app's activity to come to the front (am start, the Home key)
+# For the screen in front to settle (an app's start, its window's focus, which on a starved device
+# came over 30 s after Home, and its main thread going idle, or Android's 10 s idle timeout), with
+# Settings opened again while other apps come over it, and for the input dispatcher to settle.
+SETTLE_TIMEOUT = 120
 LONG_PRESS_TIMEOUT = 180   # for remote.sh --long-press: up to 9 adb calls, monkey's among them
 
 # Python's limits for the scripts, from the scripts' own: when Python stops a script on the way,
@@ -100,6 +100,30 @@ def focus(dump):
     app = app and re.search(r"mFocusedApp=.*?ActivityRecord\{\S+ \S+ ([\w.]+/[\w.$]+)", app)
     return (window and named_component(window.group(1)), app and named_component(app.group(1)),
             shown or dump[-500:])
+
+
+def front_look(windows, activities, activity=""):
+    """lib.sh's home_look, what wait_for_home decides by, for another activity than the home
+    app's: whether `activity` (as `cmd package resolve-activity --brief` names it; default: the
+    focused activity) is at the top, in its task, resumed and idle (done starting), the focused
+    activity, and its own window has the focus, from a `dumpsys window` and a `dumpsys activity
+    activities`. home_look is given API level 24, at which it takes the task of the activity it's
+    given for the home app's, on every API level. Returns (settled, key: the focused activity's
+    record and window, which must stay the same, the focused activity, what to show in a
+    failure)."""
+    with tempfile.TemporaryDirectory() as folder:
+        files = [os.path.join(folder, name) for name in ("window", "activities")]
+        for name, dump in zip(files, (windows, activities)):
+            with open(name, "w") as f:
+                f.write(dump.replace("\r", ""))   # adb adds \r before API 24
+        look = subprocess.run(
+            ["bash", "-c", f'source {LIB}\nhome_look 24 "${{1:-$(home_look 24 "" "$2" "$3" '
+             '| sed -n 3p)}" "$2" "$3"', "bash", activity, *files],
+            capture_output=True, text=True, timeout=60).stdout.split("\n")
+    settled, key, app, window, _, _, top = (look + [""] * 7)[:7]
+    return (settled == "1", key, app,
+            f"focused activity {app or 'none'}, focused window {window or 'none'}, top activity "
+            f"{top or 'none'}")
 
 
 def lib(snippet):
@@ -204,19 +228,38 @@ class OnTheRealEmulator(unittest.TestCase):
         return subprocess.run([self.adb, "-s", self.serial, "shell", *args], capture_output=True,
                               text=True, timeout=60).stdout
 
-    def wait_until_input_is_quiet(self):
-        """Waits until the input dispatcher has no event waiting, and its newest event, of any
-        kind, is QUIET_MS old: no key from before, and no focus change of a window a test before
-        opened, can then be taken for one that comes after, or push it out of the recent queue
-        (see RecentInput). A key held for a starting window would enter the queue only later."""
-        deadline = time.monotonic() + QUIET_TIMEOUT
-        while not input_is_quiet(dump := self.adb_shell("dumpsys", "input"), QUIET_MS):
+    def look_at_the_front(self, activity=""):
+        """front_look() on the device now."""
+        return front_look(self.adb_shell("dumpsys", "window"),
+                          self.adb_shell("dumpsys", "activity", "activities"), activity)
+
+    def wait_until_input_is_settled(self):
+        """Waits until nothing is on its way to the input dispatcher's recent queue, at two looks
+        in a row with no new event in between: the screen in front has settled (front_look(): the
+        focused activity at the top, done starting, with its own window focused, so no focus
+        change is coming, as after the Home of a test before, or a dialog that closes by itself),
+        and the dispatcher has nothing on the way (dispatcher_busy(): no key waiting for a window,
+        none being handled, the focus given to that window). Only then can no event from before,
+        a held key or a focus change, enter the queue later and be taken for one that comes after,
+        or push it out (see RecentInput). What no look can foresee is a screen an app opens later
+        of its own accord (see wait_for_home in lib.sh)."""
+        deadline = time.monotonic() + SETTLE_TIMEOUT
+        before = None   # the look before, if settled: the screen's key and the recent queue
+        while True:
+            settled, key, _, shown = self.look_at_the_front()
+            dump = self.adb_shell("dumpsys", "input")
+            window = re.search(r"Window\{(\w+) ", key)
+            busy = (dispatcher_busy(dump, window and window.group(1)) if settled
+                    else f"the screen in front hasn't settled: {shown}")
+            if busy is None:
+                if before and before[0] == key and same_events(before[1], recent_queue(dump)):
+                    return
+                before = (key, recent_queue(dump))
+            else:
+                before = None
             if time.monotonic() > deadline:
-                if recent_queue(dump) is None:
-                    self.fail(f"`dumpsys input` showed no recent queue for {QUIET_TIMEOUT} s (on a "
-                              f"starved device dumpsys gives up after 10 s):\n{dump[-500:]}")
-                self.fail(f"input events kept coming for {QUIET_TIMEOUT} s, or one kept waiting "
-                          "(PendingEvent, InboundQueue)")
+                self.fail(f"input didn't settle within {SETTLE_TIMEOUT} s: "
+                          f"{busy or 'events kept coming'}\n{shown}")
             time.sleep(0.2)
 
     def test_start_returns_once_android_has_booted(self):
@@ -246,13 +289,41 @@ class OnTheRealEmulator(unittest.TestCase):
         return focus(self.adb_shell("dumpsys", "window"))
 
     def resolved(self, *intent):
-        """The activity an intent opens, from `cmd package resolve-activity`: the one of highest
-        priority, or the chooser (android/com.android.internal.app.ResolverActivity) when there's
-        no single one. None on API 22 and 23, which have no `cmd`."""
+        """The activity an intent opens, as `cmd package resolve-activity --brief` names it
+        (com.android.tv.settings/.MainSettings): the one of highest priority, or the chooser
+        (android/com.android.internal.app.ResolverActivity) when there's no single one. None on
+        API 22 and 23, which have no `cmd`."""
         if int(self.adb_shell("getprop", "ro.build.version.sdk")) < 24:
             return None
-        return named_component(self.adb_shell("cmd", "package", "resolve-activity", "--brief",
-                                              *intent))
+        output = self.adb_shell("cmd", "package", "resolve-activity", "--brief", *intent)
+        found = re.findall(r"^[\w.]+/[\w.$]+$", output.replace("\r", ""), re.MULTILINE)
+        return found[-1] if found else None
+
+    def open_settings(self, home):
+        """Opens Settings, and returns once it's settled in front (front_look(): at the top, done
+        starting, with its own window focused) at two looks in a row: its own activity where `cmd`
+        can name it, else whatever the focused activity is, if it isn't the home app's. Opens it
+        again while another app is in front: the home app (or Google TV's sign-in screen) can
+        still come to the front by itself after a boot, as if Home had worked. Without -W: on API
+        22, with the chooser in front, `am start -W` of an app open behind it never returns."""
+        settings = self.resolved("-a", "android.settings.SETTINGS")
+        self.adb_shell("am", "start", "-a", "android.settings.SETTINGS")
+        deadline = time.monotonic() + SETTLE_TIMEOUT
+        settled_as = None   # the look before's key, if Settings was settled then
+        while True:
+            time.sleep(1)   # between two looks, as in wait_for_home
+            settled, key, app, shown = self.look_at_the_front(settings or "")
+            if settled and package(app) != home:
+                if key == settled_as:
+                    return
+                settled_as = key
+                continue
+            settled_as = None
+            if time.monotonic() > deadline:
+                self.fail(f"Settings ({settings or 'any app'}) didn't settle in front of the home "
+                          f"app ({home}) within {SETTLE_TIMEOUT} s: {shown}")
+            if (app != settings) if settings else package(app) in (None, home):
+                self.adb_shell("am", "start", "-a", "android.settings.SETTINGS")
 
     def test_remote_home_key_leaves_an_app(self):
         # start-emulator.sh first: on API 26 and 27 it's what makes Home work (see its header),
@@ -269,27 +340,7 @@ class OnTheRealEmulator(unittest.TestCase):
                        "-c", "android.intent.category.HOME")
         home, shown = wait_for_home(self.serial)
         self.assertTrue(home, f"the home app didn't settle in front within {HOME_TIMEOUT} s: {shown}")
-        settings = self.resolved("-a", "android.settings.SETTINGS")
-        # Settings must be in front, and stay there, before Home: the home app (or Google TV's
-        # sign-in screen) could still come to the front by itself, as if Home had worked. So
-        # Settings is opened again until it's in front at STABLE_LOOKS looks in a row: its own
-        # activity where `cmd` can name it, else any app but the home app. Without -W: on API 22,
-        # with the chooser in front, `am start -W` of an app open behind it never returns.
-        self.adb_shell("am", "start", "-a", "android.settings.SETTINGS")
-        in_front, looks = None, 0
-        deadline = time.monotonic() + SETTLE_TIMEOUT
-        while looks < STABLE_LOOKS:
-            time.sleep(STABLE_INTERVAL)
-            focused, _, shown = self.front()
-            if focused and package(focused) != home and settings in (None, focused):
-                looks = looks + 1 if focused == in_front else 1
-            else:
-                looks = 0
-                if time.monotonic() > deadline:
-                    self.fail(f"Settings ({settings or 'any app'}) didn't stay in front of the home "
-                              f"app ({home}) within {SETTLE_TIMEOUT} s:\n{shown}")
-                self.adb_shell("am", "start", "-a", "android.settings.SETTINGS")
-            in_front = focused
+        self.open_settings(home)
         result = subprocess.run([str(BIN / "remote.sh"), self.serial], input="hq",
                                 capture_output=True, text=True, timeout=60)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -304,7 +355,7 @@ class OnTheRealEmulator(unittest.TestCase):
         # One key at a time, typed into one remote.sh as a person would, looking at the recent
         # queue until the key is there before typing the next: see RecentInput.
         details = int(self.adb_shell("getprop", "ro.build.version.sdk")) < 29
-        self.wait_until_input_is_quiet()
+        self.wait_until_input_is_settled()
         received = RecentInput(self.adb_shell)
         remote = subprocess.Popen([str(BIN / "remote.sh"), self.serial], stdin=subprocess.PIPE,
                                   stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
@@ -332,7 +383,7 @@ class OnTheRealEmulator(unittest.TestCase):
         timeout = int(timeout) if timeout.isdigit() else 500
         rotation = [self.adb_shell("settings", "get", "system", name).strip()
                     for name in ("accelerometer_rotation", "user_rotation")]
-        self.wait_until_input_is_quiet()
+        self.wait_until_input_is_settled()
         received = RecentInput(self.adb_shell)
         remote = subprocess.Popen([str(BIN / "remote.sh"), "--long-press", "DPAD_UP", self.serial],
                                   stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)

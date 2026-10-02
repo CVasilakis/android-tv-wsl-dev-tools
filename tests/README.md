@@ -64,10 +64,16 @@ the front with a HOME intent (an emulator that was already running may show anot
 for it with `wait_for_home` from `lib.sh`, what `start-emulator.sh --wait-for-home` runs, which
 also names its package. On Google TV without an account that's the launcher showing its sign-in
 screen, and on API 22 with a second home app installed it's the chooser (package `android`). Then
-the test opens Settings again until it's in front at three looks in a row, seconds apart, sends
-Home, and waits until the activity in front (`mFocusedApp`: on a starved device its window can
-still lack focus 30 s later) is of that package, not merely until something other than Settings
-is. A failure shows `dumpsys window`'s focus lines.
+the test opens Settings, again whenever another app is in front, until Settings has settled there
+as `wait_for_home` means it for the home app: `home_look` from `lib.sh`, given Settings' activity
+(before API 24, which has no `cmd` to name it, the focused activity, if it isn't the home app's),
+finds it at the top, done starting, with its own window focused, at two looks in a row. Then it
+sends Home, and waits until the activity in front (`mFocusedApp`: on a starved device its window
+can still lack focus 30 s later) is of that package, not merely until something other than
+Settings is. A failure shows what was in front. What no look can foresee is the home app coming
+over Settings later by itself (as Google TV's launcher does after a boot, [`wait_for_home`'s
+comment](../lib/lib.sh)): the test then passes without having shown that Home works, but doesn't
+fail.
 
 On API 29 and newer, Android's input dump doesn't show key codes, so there the tier checks only
 that each key press arrived, and how far apart a long press's events are; which Android key it
@@ -81,8 +87,14 @@ read around each look, tell which events are new (`RecentInput` in
 [`support/input_dump.py`](support/input_dump.py) says how). A look fails the test rather than
 miscount: when 10 or more events came since the look before, so some may be missing, and when
 events come too evenly for the clock to tell how many came. Before its first look, a test waits
-until no event has come for a second and none is waiting: a key Android holds for a window that's
-starting enters the queue only once the window is there, with the age it had all along. Only keys
+until nothing is on its way to the queue, at two looks in a row with no new event between them:
+the screen in front has settled (the same `home_look` check, for the focused activity), so no
+focus change is coming, as after the Home of the test before or with a dialog that closes by
+itself; and the input dispatcher has no key waiting (a key Android holds for a window that's
+starting enters the queue only once the window is there, with the age it had all along), none
+that a window has yet to receive or is still handling, and has given the focus to the window
+`dumpsys window` names. It reads only the dispatcher's live state: after an input ANR,
+`dumpsys input` adds a copy of the state at that time, with queues of its own. Only keys
 that happened after the first look count, since on a slow device a key sent before can still
 arrive later, with its old time (`input keyevent` can send the release seconds after the press).
 [`hermetic/test_input_dump.py`](hermetic/test_input_dump.py) checks this reading against made-up

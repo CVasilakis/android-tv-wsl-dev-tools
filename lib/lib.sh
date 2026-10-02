@@ -271,7 +271,9 @@ resolves to $resolved}; the top activity is ${top:-none}"
 # 24 on). Prints seven lines: 1 if the device shows its home screen as wait_for_home means it (else
 # 0); the focused activity's record and window, which must stay the same; the focused activity; the
 # focused window's title; the home app's packages; the package to name as the home app's; and the
-# top activity, with its task, state and idle mark.
+# top activity, with its task, state and idle mark. The emulator tier also asks it about another
+# activity (Settings, or the focused one) as <home>, with <sdk> 24 on every API level
+# (front_look in tests/emulator/test_on_emulator.py).
 home_look() {
     awk -v sdk="$1" -v home="$2" '
         # The last focus lines: after an ANR, `dumpsys window` starts with a copy of the state at
