@@ -325,6 +325,15 @@ image with `sync`:
 | 22 to 31 | `adb shell dumpsys package write` writes the app states at once ("Settings written."); a 1 s pause lets a setting changed just before be written | about 1 s |
 | 33 and newer | that command no longer writes (it prints the whole package dump), so it waits for Android's own write, which Android scheduled at the change and logs in the events log (`commit_sys_config_file: [package-user-0,…]`), at most `ADT_SAVE_WAIT` seconds (default 12) | up to 12 s, the full 12 s when nothing was pending |
 
+It says "Saved" only once Android has confirmed a write ("Settings written.", or a new event).
+From API 33 on nothing shows a write Android has yet to make, and no shell command makes it write
+at once, so when no event comes within `ADT_SAVE_WAIT` the script can't tell whether nothing was
+pending or Android is late: it writes 10 s after a change, but on a starved Google TV emulator it
+wrote nothing for minutes while it compiled an update of Google Play services. Then it says so,
+and since when a change could be unsaved (its last logged write), rather than "Saved". To keep
+such a change, wait until `adb logcat -b events -s commit_sys_config_file` shows a new
+`package-user-0` line before stopping.
+
 Each adb call has a time limit, and an emulator that doesn't answer as a booted device is
 stopped anyway, unsaved; the script says what it did. A `-read-only` emulator keeps no change,
 so there it skips the save.

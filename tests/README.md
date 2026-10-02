@@ -178,7 +178,8 @@ in the script's environment so `start-emulator.sh --quick` doesn't wait 30 s, or
 `settings_unsaved_looks` (`"forever"`) for Android saving `tv_user_setup_complete` late (never), with
 `ADT_SAVE_TIMEOUT=1`, or `su_error` for an image `start-emulator.sh` can't look into;
 `api_level` 33 or more with `pending_package_write` for Android's own write that `stop-emulator.sh`
-waits for, with `ADT_SAVE_WAIT` in seconds, or `sync_error`;
+waits for, with `ADT_SAVE_WAIT` in seconds (`earlier_package_write=False`: no write of the app
+states logged before), or `sync_error`;
 `adb_lists_exited` for adb's lag in unlisting an emulator whose process has exited, with
 `sandbox.kill_emulator(serial)`, which leaves a zombie, or `emulator_already_exiting` for one
 that's shutting down when `adb emu kill` comes), `connect_device()`, `wsl()` and file permissions on `sandbox.kvm`. Check the
