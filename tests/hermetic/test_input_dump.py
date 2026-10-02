@@ -2,9 +2,11 @@
 import math
 import unittest
 
-from support.input_dump import LOOKS_TO_DECIDE, RecentInput, input_is_quiet
+from support.input_dump import (LOOKS_TO_DECIDE, RecentInput, dispatcher_busy, recent_queue,
+                                same_events)
 
 KEY = "KeyEvent"   # how API 29 and newer print a key event
+WINDOW = "838141c"   # the hash of the window that has the focus
 
 
 class Dispatcher:
@@ -32,17 +34,23 @@ class Dispatcher:
         self.looks.append((at - before, at, at + after))
 
     def dump(self, at):
+        """The dispatcher's state as API 31 and newer print it, trimmed, with the focus on WINDOW."""
         def age(t):   # ns2ms: whole ms, truncated towards 0
             return f"{math.trunc(at - t)}ms"
         handled = [e for e in self.events if e[0] <= at]
         pending = [e for e in self.events if e[1] <= at < e[0]]
-        lines = [f"  RecentQueue: length={len(handled[-10:])}"]
+        lines = ["Input Dispatcher State:", "  FocusedWindows:",
+                 f"    displayId=0, name='{WINDOW} com.example.tv/com.example.tv.MainActivity'",
+                 f"  RecentQueue: length={len(handled[-10:])}"]
         lines += [f"    {text}, age={age(t)}" for _, t, text in handled[-10:]]
         if pending:
             lines += ["  PendingEvent:", f"    {pending[0][2]}, age={age(pending[0][1])}"]
         else:
             lines += ["  PendingEvent: <none>"]
-        lines += ["  InboundQueue: <empty>", "  ReplacedKeys: <empty>"]
+        lines += ["  InboundQueue: <empty>", "  ReplacedKeys: <empty>", "  Connections:",
+                  f"    204: channelName='{WINDOW} com.example.tv/com.example.tv.MainActivity "
+                  "(server)', status=NORMAL, monitor=false, responsive=true",
+                  "      OutboundQueue: <empty>", "      WaitQueue: <empty>"]
         return "INPUT MANAGER (dumpsys input)\n" + "\n".join(lines) + "\n"
 
     def adb_shell(self, command):
@@ -251,31 +259,98 @@ class RecentInputTest(unittest.TestCase):
         self.assertEqual(self.device.watch().key_downs(), [19, 23])
 
 
-class InputIsQuiet(unittest.TestCase):
+class DispatcherBusy(unittest.TestCase):
+    """What the emulator tier waits for before its first look: nothing on the way to the recent
+    queue, whatever the newest event's age."""
+
     def setUp(self):
         self.device = Dispatcher()
         self.device.handle("FocusEvent(hasFocus=true)", 1_000)
         self.device.keys(5_000)
 
-    def test_quiet_once_the_newest_event_is_old_enough(self):
-        self.assertFalse(input_is_quiet(self.device.dump(5_999), 1000))
-        self.assertTrue(input_is_quiet(self.device.dump(6_000), 1000))
+    def test_settled_once_nothing_is_on_the_way_however_recent_the_newest_event(self):
+        self.assertIsNone(dispatcher_busy(self.device.dump(5_005), WINDOW))
 
-    def test_not_quiet_while_a_key_waits_for_a_window(self):
+    def test_busy_while_a_key_waits_for_a_window(self):
         self.device.handle(KEY, 8_000, since=6_000)
-        self.assertFalse(input_is_quiet(self.device.dump(7_500), 1000))
         self.assertIn("PendingEvent:\n    KeyEvent, age=1500ms", self.device.dump(7_500))
+        self.assertIn("an event waits", dispatcher_busy(self.device.dump(7_500), WINDOW))
 
-    def test_not_quiet_when_dumpsys_gives_up_before_the_recent_queue(self):
-        self.assertFalse(input_is_quiet("*** SERVICE 'input' DUMP TIMEOUT (10000ms) EXPIRED ***",
-                                        1000))
+    def test_busy_when_dumpsys_gives_up_before_the_recent_queue(self):
+        self.assertIn("no recent queue", dispatcher_busy(
+            "*** SERVICE 'input' DUMP TIMEOUT (10000ms) EXPIRED ***", WINDOW))
 
-    def test_not_quiet_while_events_wait_in_the_inbound_queue(self):
+    def test_busy_while_events_wait_in_the_inbound_queue(self):
         dump = self.device.dump(9_000).replace(
             "InboundQueue: <empty>", "InboundQueue: length=1\n    KeyEvent, age=2000ms")
-        self.assertFalse(input_is_quiet(dump, 1000))
+        self.assertIn("an event waits", dispatcher_busy(dump, WINDOW))
 
-    def test_reads_the_queue_as_android_9_and_older_print_it(self):
-        dump = self.device.dump(6_500).replace("age=1500ms", "age=1500.4ms")
-        self.assertTrue(input_is_quiet(dump.replace("age=5500ms", "age=5500.4ms"), 1000))
-        self.assertFalse(input_is_quiet(dump.replace("age=1500.4ms", "age=999.6ms"), 1000))
+    def test_busy_while_a_window_has_a_key_to_receive_or_is_handling_one(self):
+        # Already in the recent queue, seconds ago, but the app may still open a window for it.
+        for queue in ("OutboundQueue", "WaitQueue"):
+            dump = self.device.dump(9_000).replace(
+                f"{queue}: <empty>", f"{queue}: length=1\n        KeyEvent, age=4000ms")
+            self.assertIn("a window has an event", dispatcher_busy(dump, WINDOW), queue)
+
+    def test_busy_until_the_dispatcher_has_given_the_focus_to_the_focused_window(self):
+        # dumpsys window names the new window; the dispatcher still has the old one, and the
+        # focus change will enter the recent queue once it gets there.
+        self.assertIn("hasn't given the focus to window 5d10e2f",
+                      dispatcher_busy(self.device.dump(9_000), "5d10e2f"))
+        self.assertIn("FocusedWindows: <none>", dispatcher_busy(
+            self.device.dump(9_000).replace(
+                "FocusedWindows:\n    displayId=0, name='838141c com.example.tv/com.example.tv."
+                "MainActivity'", "FocusedWindows: <none>"), WINDOW))
+
+    def test_reads_the_focused_window_as_every_api_level_prints_it(self):
+        dump = self.device.dump(9_000)
+        line = "    displayId=0, name='838141c com.example.tv/com.example.tv.MainActivity'"
+        for focused in ("  FocusedWindow: name='Window{838141c u0 com.example.tv/com.example.tv."
+                        "MainActivity}'",   # up to API 27
+                        "  FocusedWindows:\n    displayId=0, name='Window{838141c u0 com.example."
+                        "tv/com.example.tv.MainActivity}'"):   # API 28 to 30
+            other = dump.replace("  FocusedWindows:\n" + line, focused)
+            self.assertIsNone(dispatcher_busy(other, WINDOW), focused)
+            self.assertIsNotNone(dispatcher_busy(other, "8381"), focused)
+
+    def test_reads_the_live_state_not_the_copy_at_the_last_anr(self):
+        # Android appends the state at the last ANR after the live one, with queues of its own.
+        quiet = self.device.dump(9_000).split("Input Dispatcher State:\n", 1)[1]
+        self.device.handle(KEY, 12_000, since=10_000)
+        waiting = self.device.dump(11_000)
+        anr = "\nInput Dispatcher State at time of last ANR:\n  ANR:\n    Time: 2026-10-02 12:00:00\n"
+        self.assertIn("an event waits", dispatcher_busy(waiting + anr + quiet, WINDOW))
+        busy_then = waiting.split("Input Dispatcher State:\n", 1)[1].replace(WINDOW, "5d10e2f")
+        self.assertIsNone(dispatcher_busy(self.device.dump(9_000) + anr + busy_then, WINDOW))
+        self.assertEqual(recent_queue(waiting + anr + quiet), recent_queue(waiting))
+
+
+class SameEvents(unittest.TestCase):
+    def setUp(self):
+        self.device = Dispatcher()
+        self.device.handle("FocusEvent(hasFocus=true)", 1_000)
+        self.device.keys(5_000)
+
+    def test_the_same_events_a_moment_later(self):
+        self.assertTrue(same_events(recent_queue(self.device.dump(6_000)),
+                                    recent_queue(self.device.dump(6_300))))
+
+    def test_one_more_event(self):
+        before = recent_queue(self.device.dump(6_000))
+        self.device.handle("FocusEvent(hasFocus=false)", 6_100)
+        self.assertFalse(same_events(before, recent_queue(self.device.dump(6_300))))
+
+    def test_one_more_event_in_a_full_queue(self):
+        self.device.keys(*range(5_100, 5_900, 200))
+        before = recent_queue(self.device.dump(6_000))
+        self.device.handle("FocusEvent(hasFocus=false)", 6_100)
+        after = recent_queue(self.device.dump(6_300))
+        self.assertEqual(len(before), len(after))
+        self.assertFalse(same_events(before, after))
+
+    def test_reads_the_ages_android_9_and_older_print(self):
+        before = recent_queue(self.device.dump(6_000).replace("age=1000ms", "age=1000.4ms"))
+        after = recent_queue(self.device.dump(6_300).replace("age=1300ms", "age=1300.4ms"))
+        self.assertTrue(same_events(before, after))
+        self.assertFalse(same_events(before, recent_queue(self.device.dump(6_300))[:-1]))
+        self.assertFalse(same_events(None, after))
