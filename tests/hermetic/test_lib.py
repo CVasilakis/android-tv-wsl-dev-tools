@@ -1,6 +1,7 @@
 """lib.sh: finding the SDK, its tools and AVDs on any setup, time limits, and waiting for the home
 screen."""
 import textwrap
+import time
 import unittest
 
 from emulator.test_on_emulator import front_look
@@ -500,6 +501,44 @@ class WaitForHome(ScriptTestCase):
         self.assertSucceeded(self.wait(backs=2, env={"ADT_BACK_AFTER": "2"}))
         [back] = self.backs()
         self.assertGreaterEqual(back["time"] - self.looks()[0]["time"], 2)
+
+    def test_fails_soon_once_another_apps_window_has_kept_the_focus(self):
+        # An app left in front (someone's TV, a dialog) isn't on the way to the home screen: no
+        # need to wait out the long limit for it.
+        settings = ["com.android.tv.settings/.MainSettings",
+                    "com.android.tv.settings/com.android.tv.settings.MainSettings"]
+        self.sandbox.set_behavior(front=[settings])
+        started = time.monotonic()
+        result = self.wait(limit=60, env={"ADT_OTHER_APP_TIMEOUT": "2"})
+        self.assertEqual(result.code, 2, result.output)
+        self.assertLess(time.monotonic() - started, 30, "waited the long limit")
+        self.assertEqual(result.out, f"activity {settings[0]}, focused window {settings[1]}; a HOME "
+                                     f"intent resolves to {HOME}; the top activity is {settings[0]} "
+                                     "in task 9, RESUMED, idle\n")
+        self.assertGreaterEqual(self.looks()[-1]["time"] - self.looks()[0]["time"], 2)
+        self.assertEqual(self.backs(), [], "pressed a key on another app's screen")
+
+    def test_presses_its_backs_before_the_short_limit(self):
+        usb = ["com.android.tv.settings/.device.storage.NewStorageActivity",
+               "com.android.tv.settings/com.android.tv.settings.device.storage.NewStorageActivity"]
+        self.sandbox.set_behavior(front=[usb])
+        result = self.wait(limit=60, backs=2, env={"ADT_OTHER_APP_TIMEOUT": "3"})
+        self.assertEqual(result.code, 2, result.output)
+        self.assertEqual(len(self.backs()), 2)
+
+    def test_the_home_apps_own_screen_gets_the_long_limit(self):
+        # Google TV's DispatchActivity holds the focus for minutes on a slow host.
+        self.google_tv(31, [DISPATCH])
+        result = self.wait(limit=4, env={"ADT_OTHER_APP_TIMEOUT": "1"})
+        self.assertEqual(result.code, 1, result.output)
+        self.assertGreaterEqual(self.looks()[-1]["time"] - self.looks()[0]["time"], 4)
+
+    def test_no_focused_window_gets_the_long_limit(self):
+        # Right after a boot, or while one screen hands over to the next.
+        self.sandbox.set_behavior(front=[[HOME, None]])
+        result = self.wait(limit=4, env={"ADT_OTHER_APP_TIMEOUT": "1"})
+        self.assertEqual(result.code, 1, result.output)
+        self.assertGreaterEqual(self.looks()[-1]["time"] - self.looks()[0]["time"], 4)
 
 
 SETTINGS = "com.android.tv.settings/.MainSettings"

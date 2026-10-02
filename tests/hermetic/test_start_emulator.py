@@ -612,6 +612,39 @@ class WaitsForHome(EmulatorTestCase):
         self.assertEqual(self.backs(), [])
         self.assertEqual(self.sandbox.running(), {serial: "tv_api25"})
 
+    def test_fails_soon_when_another_apps_screen_keeps_the_focus_on_one_that_had_booted(self):
+        # An app left open on a device someone uses: no Back, and no wait for the long limit.
+        self.sandbox.set_behavior(front=[[self.SETTINGS, self.SETTINGS_WINDOW]])
+        serial = self.sandbox.start_emulator("tv_api25")
+        result = self.start("--wait-for-home", env={"ADT_HOME_TIMEOUT": "60",
+                                                    "ADT_OTHER_APP_TIMEOUT": "2"})
+        self.assertFailed(result, f"'tv_api25' ({serial}) booted, but a screen of another app than "
+                                  "its home app has kept the focus for 2 s, so the home app can't "
+                                  "come to the front.")
+        self.assertIn(f"In front: activity {self.SETTINGS}, focused window {self.SETTINGS_WINDOW};",
+                      result.output)
+        self.assertIn("left running.\nNothing was pressed on it: close that screen", result.output)
+        self.assertEqual(self.backs(), [])
+        self.assertEqual(self.sandbox.running(), {serial: "tv_api25"})
+        looks = [c for c in self.sandbox.calls("adb") if c["argv"][-2:] == ["dumpsys", "window"]]
+        self.assertLess(looks[-1]["time"] - looks[0]["time"], 30, "waited for the long limit")
+
+    def test_stops_the_emulator_it_started_when_another_screen_stays_after_back(self):
+        self.sandbox.set_behavior(front=[self.USB])
+        result = self.start("--wait-for-home", env={"ADT_HOME_TIMEOUT": "60",
+                                                    "ADT_OTHER_APP_TIMEOUT": "2"})
+        self.assertFailed(result, "has kept the focus for 2 s, also after Back, so the home app "
+                                  "can't come to the front,\nso it was stopped.")
+        self.assertIn("To see that screen, boot it without --wait-for-home.", result.output)
+        self.assertEqual(len(self.backs()), 2)
+        self.assertEqual(self.sandbox.running(), {})
+
+    def test_the_other_app_limit_must_be_a_number_of_seconds(self):
+        result = self.start("--wait-for-home", env={"ADT_OTHER_APP_TIMEOUT": "1m"})
+        self.assertFailed(result, "ADT_OTHER_APP_TIMEOUT must be a number of seconds (0: no such "
+                                  "limit), not '1m'")
+        self.assertEqual(self.launched(), [])
+
     def test_waits_up_to_600_s_by_default(self):
         self.sandbox.set_behavior(front=[[HOME, HOME_WINDOW]])
         result = self.start("--wait-for-home")

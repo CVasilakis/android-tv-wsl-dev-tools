@@ -226,13 +226,17 @@ a window of another app has kept the focus for 10 s, once the user is unlocked, 
 Back, twice at most, never on a screen of the home app's own, such as Google TV's first screen,
 where a Back could end what the launcher is doing. It does so only on an emulator whose boot it
 waited for (one it started, or one that was still booting); on one that had booted before, which
-someone may be using, it only looks, and fails if an app stays in front: press Home first, or
-leave out the flag. It never starts an app. With `--quick`, the restored device has usually
-settled already, so the wait is short.
+someone may be using, it only looks. It never starts an app. Another app's screen is never on the
+way to the home screen, so once the same one has kept the focus for `ADT_OTHER_APP_TIMEOUT`
+seconds (default 60; `0`: no such limit), after the Backs if any, the script fails at once, naming
+that screen, rather than wait out the limit below: press Home first, or leave out the flag. With
+`--quick`, the restored device has usually settled already, so the wait is short.
 
 It waits at most `ADT_HOME_TIMEOUT` seconds (default 600; `0`: no limit), counted from when
 Android has booted, on top of `ADT_BOOT_TIMEOUT`: room for Google TV's first screen, which holds
-the focus for minutes on a slow host, and for a host slower still. When time's up it fails,
+the focus for minutes on a slow host, and for a host slower still. That long limit is only for the
+way to the home screen (the home app's own screens, `FallbackHome`, no window with the focus);
+another app's screen gets `ADT_OTHER_APP_TIMEOUT`, as above. When time's up it fails,
 naming what was in front (the focused activity, the focused window, what a HOME intent resolves
 to, and the top activity with its task, state and idle mark), and stops the emulator it started,
 as after a boot timeout; one that was already running is left running.
