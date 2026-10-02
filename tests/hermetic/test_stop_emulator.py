@@ -99,7 +99,8 @@ class WhichEmulator(StopTestCase):
         self.assertFailed(result, "there's no AVD named 'tv_api2'", code=1)
 
     def test_wrong_arguments(self):
-        for args in (("--bogus",), ("--all", "tv_api25"), ("tv_api25", "tv_api30")):
+        for args in (("--bogus",), ("--all", "tv_api25"), ("tv_api25", "tv_api30"),
+                     ("--no-save", "--all", "tv_api25")):
             with self.subTest(args=args):
                 result = self.sandbox.run("stop-emulator.sh", *args)
                 self.assertEqual(result.code, 2, result.output)
@@ -182,6 +183,35 @@ class SavesFirst(StopTestCase):
         result = self.sandbox.run("stop-emulator.sh", "tv_api30")
         self.assertSucceeded(result)
         self.assertIn("(sync failed); they may be lost", result.err)
+
+    def test_no_save_stops_without_saving(self):
+        self.sandbox.set_behavior(api_level=31)
+        for how in ("name", "serial"):
+            with self.subTest(how=how):
+                serial = self.sandbox.start_emulator("tv_api30")
+                target = "tv_api30" if how == "name" else serial
+                result = self.sandbox.run("stop-emulator.sh", "--no-save", target)
+                self.assertSucceeded(result)
+                self.assertEqual(self.shell_calls(serial), [], "no getprop, dumpsys or sync")
+                self.assertIn(f"Not saving on 'tv_api30' ({serial}) (--no-save): changes Android "
+                              "hasn't saved yet are lost.", result.err)
+                self.assertNotIn("Saved what Android", result.err)
+                self.assertEqual(self.sandbox.running(), {})
+
+    def test_no_save_with_all_skips_the_wait_from_api_33_on(self):
+        self.sandbox.set_behavior(api_level=36, pending_package_write=8)
+        first = self.sandbox.start_emulator("tv_api25")
+        second = self.sandbox.start_emulator("tv_api30")
+        started = time.monotonic()
+        result = self.sandbox.run("stop-emulator.sh", "--all", "--no-save",
+                                  env={"ADT_SAVE_WAIT": "10"})
+        self.assertSucceeded(result)
+        self.assertLess(time.monotonic() - started, 6, "no wait for Android's write")
+        for serial in (first, second):
+            self.assertEqual(self.shell_calls(serial), [])
+        self.assertEqual(result.err.count("(--no-save)"), 2)
+        self.assertNotIn("Waiting", result.err)
+        self.assertEqual(self.sandbox.running(), {})
 
     def test_rejects_a_save_wait_that_is_not_a_number(self):
         result = self.sandbox.run("stop-emulator.sh", env={"ADT_SAVE_WAIT": "soon"})
