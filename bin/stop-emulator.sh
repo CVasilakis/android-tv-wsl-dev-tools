@@ -2,11 +2,12 @@
 # Stops a running emulator and returns once its process has exited, so the same AVD can be started
 # again right away, and a script or agent never waits on the emulator without a time limit.
 #
-# Usage:   stop-emulator.sh [--all] [avd-name|serial]
+# Usage:   stop-emulator.sh [--all] [--no-save] [avd-name|serial]
 #            stop-emulator.sh                    # $ANDROID_SERIAL, else the only running emulator
 #            stop-emulator.sh tv_api25           # by AVD name
 #            stop-emulator.sh emulator-5556      # by serial
 #            stop-emulator.sh --all              # every running emulator
+#            stop-emulator.sh --no-save --all    # every running emulator, without saving first
 #          stop-emulator.sh --help
 # Exit:    0 once the emulator has exited (or, when its process can't be found, once adb no
 #          longer lists it, which it then says), and also when it wasn't running, so it's safe to
@@ -55,12 +56,14 @@
 # Android can't be asked to, so the script waits for its own write, up to $ADT_SAVE_WAIT seconds
 # (default 12). Best effort: each adb call has a time limit, and an emulator that doesn't answer is
 # stopped anyway, unsaved; the script says which. A -read-only emulator keeps nothing, so there it
-# skips this.
+# skips this. --no-save skips it too, for when the changes since Android's last save don't matter
+# (a throwaway test run): then the stop doesn't wait for the save, which from API 33 on takes the
+# whole $ADT_SAVE_WAIT seconds when nothing is pending.
 set -euo pipefail
 
 usage() {
     cat <<'EOF'
-Usage: stop-emulator.sh [--all] [avd-name|serial]
+Usage: stop-emulator.sh [--all] [--no-save] [avd-name|serial]
 
 Stops a running emulator and returns once its process has exited, so the AVD can be started
 again right away. First it has Android save changes it hasn't saved yet (a setting, an app
@@ -71,6 +74,9 @@ killed. Never touches physical devices.
   avd-name|serial  the emulator to stop, e.g. tv_api25 or emulator-5554. Default:
                    $ANDROID_SERIAL, else the only running emulator
   --all            stop every running emulator
+  --no-save        stop without having Android save first, for when its unsaved changes
+                   don't matter: they're lost, and the stop skips the save's wait (from API 33
+                   on, all of ADT_SAVE_WAIT when nothing is pending)
   -h, --help       show this help
 
 Environment:
@@ -84,11 +90,13 @@ stopped.
 EOF
 }
 ALL=""
+NO_SAVE=""
 TARGET=""
 while [ $# -gt 0 ]; do
     case "$1" in
         -h|--help) usage; exit 0 ;;
         --all)     ALL=1; shift ;;
+        --no-save) NO_SAVE=1; shift ;;
         -*)        usage >&2; exit 2 ;;
         *)         [ -z "$TARGET" ] || { usage >&2; exit 2; }
                    TARGET="$1"; shift ;;
@@ -276,8 +284,13 @@ stop() {
         return 0
     fi
 
-    # Only an emulator adb can reach: one listed as offline is exiting already, or still booting.
-    if [ -n "$serial" ] && [ "$(adb_bounded devices 2>/dev/null \
+    # Saving first, unless --no-save; only on an emulator adb can reach: one listed as offline is
+    # exiting already, or still booting.
+    if [ -n "$NO_SAVE" ]; then
+        if [ -n "$serial" ]; then
+            echo "Not saving on $label (--no-save): changes Android hasn't saved yet are lost." >&2
+        fi
+    elif [ -n "$serial" ] && [ "$(adb_bounded devices 2>/dev/null \
             | awk -v s="$serial" '$1 == s { print $2 }')" = device ]; then
         save_changes "$serial" "$pid" "$label"
     fi

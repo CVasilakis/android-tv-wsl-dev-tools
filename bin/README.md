@@ -300,13 +300,14 @@ group but this session predates it, it re-runs itself through `sg kvm` instead.
 
 ## `stop-emulator.sh`
 
-`stop-emulator.sh [--all] [name|serial]`
+`stop-emulator.sh [--all] [--no-save] [name|serial]`
 
 ```bash
 stop-emulator.sh                   # $ANDROID_SERIAL, else the only running emulator
 stop-emulator.sh tv_api25          # by AVD name
 stop-emulator.sh emulator-5556     # by serial
 stop-emulator.sh --all             # every running emulator
+stop-emulator.sh --no-save --all   # every running emulator, without saving first
 ```
 
 It runs `adb -s <serial> emu kill` and returns once the emulator's process has exited, so the
@@ -327,6 +328,13 @@ image with `sync`:
 Each adb call has a time limit, and an emulator that doesn't answer as a booted device is
 stopped anyway, unsaved; the script says what it did. A `-read-only` emulator keeps no change,
 so there it skips the save.
+
+**Without saving (`--no-save`).** From API 33 on, the save waits all of `ADT_SAVE_WAIT` when
+nothing is pending, since Android shows no sign of a write it has yet to make. When the changes
+since Android's last save don't matter, e.g. after a test run whose state you don't want to keep,
+`--no-save` skips the save, with a named emulator or with `--all`: the stop is as fast as on API
+31, and whatever Android hadn't saved yet is lost, as with `adb emu kill`. Leave it out after a
+change that should stay, such as an app you disabled or a setting you changed.
 
 `adb emu kill` alone returns at once, before the emulator has exited, and
 `adb wait-for-disconnect` waits for that without a time limit. Neither can stop an emulator whose
