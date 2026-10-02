@@ -83,6 +83,8 @@ DEFAULT_BEHAVIOR = {
                                   # first `adb shell logcat -b events` call until a
                                   # commit_sys_config_file event for package-user-0 shows; None:
                                   # nothing pending, only an older such event shows
+    "earlier_package_write": True,  # the events log holds a write of the app states from long
+                                  # ago (False: none, as on an image that logs none)
     "sync_error": None,           # `adb shell sync` prints this and exits 1
     "monkey_output": None,        # `adb shell monkey` prints this and injects nothing (it failed)
     "api_level": 25,              # every device's `getprop ro.build.version.sdk`; below 24 there's
@@ -456,10 +458,12 @@ NAMESPACES = {"secure": "settings", "system": "system_settings"}   # -> key in r
 
 
 def package_write_events():
-    """The events log's commit_sys_config_file events: one of package-user-0 from long ago, and a
-    new one pending_package_write seconds after the first call, if set."""
-    sys.stdout.write("      1790000000.000   500   600 I commit_sys_config_file: [package-user-0,3]\r\n"
-                     "      1790000001.000   500   600 I commit_sys_config_file: [settings-2-0,2]\r\n")
+    """The events log's commit_sys_config_file events: one of package-user-0 from long ago (unless
+    earlier_package_write is False), and a new one pending_package_write seconds after the first
+    call, if set."""
+    if behavior()["earlier_package_write"]:
+        sys.stdout.write("      1790000000.000   500   600 I commit_sys_config_file: [package-user-0,3]\r\n")
+    sys.stdout.write("      1790000001.000   500   600 I commit_sys_config_file: [settings-2-0,2]\r\n")
     delay = behavior()["pending_package_write"]
     if delay is None:
         return

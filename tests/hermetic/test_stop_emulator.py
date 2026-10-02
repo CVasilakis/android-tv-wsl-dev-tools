@@ -160,6 +160,28 @@ class SavesFirst(StopTestCase):
         self.assertEqual(self.shell_calls(serial)[-1], "sync")
         self.assertEqual(self.sandbox.running(), {})
 
+    def test_from_api_33_says_when_it_saw_no_write_rather_than_saved(self):
+        # Without a logged write it can't tell "nothing was pending" from "Android is late".
+        self.sandbox.set_behavior(api_level=33)
+        serial = self.sandbox.start_emulator("tv_api30")
+        result = self.sandbox.run("stop-emulator.sh", "tv_api30", env={"ADT_SAVE_WAIT": "1"})
+        self.assertSucceeded(result)
+        self.assertNotIn("Saved", result.err)
+        self.assertIn(f"Android logged no write of app states on 'tv_api30' ({serial}) within 1 s: "
+                      "either nothing was pending, or Android is late with it", result.err)
+        # Since when a change can be unsaved: its last logged write, the fake's from long ago.
+        self.assertRegex(result.err, r"an app enabled or disabled in the last \d+ s \(since its "
+                                     r"last write\) isn't saved")
+        self.assertIn(f"Stopped 'tv_api30' ({serial}).", result.err)
+
+    def test_without_any_logged_write_it_names_no_time(self):
+        self.sandbox.set_behavior(api_level=36, earlier_package_write=False)
+        self.sandbox.start_emulator("tv_api30")
+        result = self.sandbox.run("stop-emulator.sh", "tv_api30", env={"ADT_SAVE_WAIT": "1"})
+        self.assertSucceeded(result)
+        self.assertIn("an app enabled or disabled isn't saved", result.err)
+        self.assertNotIn("Saved", result.err)
+
     def test_nothing_to_save_on_a_read_only_emulator(self):
         serial = self.sandbox.start_emulator("tv_api30", "-read-only")
         result = self.sandbox.run("stop-emulator.sh", serial)

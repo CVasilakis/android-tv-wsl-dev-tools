@@ -54,11 +54,12 @@
 # `adb emu kill`, the script has Android save what it hasn't yet, and commits it to the disk image
 # (save_changes says how, per API level). Up to API 31 that takes about a second; from API 33 on
 # Android can't be asked to, so the script waits for its own write, up to $ADT_SAVE_WAIT seconds
-# (default 12). Best effort: each adb call has a time limit, and an emulator that doesn't answer is
-# stopped anyway, unsaved; the script says which. A -read-only emulator keeps nothing, so there it
-# skips this. --no-save skips it too, for when the changes since Android's last save don't matter
-# (a throwaway test run): then the stop doesn't wait for the save, which from API 33 on takes the
-# whole $ADT_SAVE_WAIT seconds when nothing is pending.
+# (default 12), and says "Saved" only once Android has logged a write: without one it can't tell
+# whether nothing was pending or Android is late, and says that. Best effort: each adb call has a
+# time limit, and an emulator that doesn't answer is stopped anyway, unsaved; the script says which.
+# A -read-only emulator keeps nothing, so there it skips this. --no-save skips it too, for when the
+# changes since Android's last save don't matter (a throwaway test run): then the stop doesn't wait
+# for the save, which from API 33 on takes the whole $ADT_SAVE_WAIT seconds when nothing is pending.
 set -euo pipefail
 
 usage() {
@@ -68,8 +69,8 @@ Usage: stop-emulator.sh [--all] [--no-save] [avd-name|serial]
 Stops a running emulator and returns once its process has exited, so the AVD can be started
 again right away. First it has Android save changes it hasn't saved yet (a setting, an app
 disabled or enabled), which a stop would otherwise lose: about a second, up to 12 s from API 33
-on; skipped on a -read-only emulator or one that doesn't answer. If it doesn't exit in time, it's
-killed. Never touches physical devices.
+on, where it says so when Android logged no write meanwhile; skipped on a -read-only emulator or
+one that doesn't answer. If it doesn't exit in time, it's killed. Never touches physical devices.
 
   avd-name|serial  the emulator to stop, e.g. tv_api25 or emulator-5554. Default:
                    $ANDROID_SERIAL, else the only running emulator
@@ -134,11 +135,16 @@ fi
 #    change, before this script started, so it comes within 10 s; it logs it in the events log
 #    (commit_sys_config_file, package-user-0). The wait ends at that event, or after SAVE_WAIT s
 #    (10 s and a margin; 9.9 s after the change was the latest seen) when nothing was pending.
+#    Nothing shows a write Android has yet to make, and no shell command writes at once (an app
+#    can have its own components' state written at once, PackageManager.SYNCHRONOUS, not the
+#    shell), so a wait that ends without an event can't tell "nothing was pending" from "Android
+#    is late": on a starved Google TV API 33 it wrote nothing for minutes while it compiled an
+#    update of Google Play services. Then the script says so, rather than "Saved".
 #  - Then `sync`: Android keeps the old file as a backup until the new one is complete, and until
 #    the filesystem's journal has recorded that (up to 5 s later), a boot reads the backup.
 #  - A -read-only emulator keeps no change anyway, so there it does nothing.
 save_changes() {
-    local serial="$1" pid="$2" label="$3" answer before last started
+    local serial="$1" pid="$2" label="$3" answer before last started saved="" written since now
     if [ -n "$pid" ] && tr '\0' '\n' 2>/dev/null < "/proc/$pid/cmdline" | grep -qx -- -read-only; then
         echo "$label is -read-only, so it keeps no changes: nothing to save." >&2
         return 0
@@ -152,21 +158,38 @@ save_changes() {
         | head -n 1 | tr -d '\r')" || true
     if [ "$answer" = "Settings written." ]; then
         sleep 1
+        saved=1
     else
         echo "Waiting up to $SAVE_WAIT s for Android to save app states changed in the last 10 s..." >&2
         before="$(last_package_write "$serial")"
         started=$SECONDS
         while true; do
             last="$(last_package_write "$serial")"
-            if [ -n "$last" ] && [ "$last" != "$before" ]; then break; fi
+            if [ -n "$last" ] && [ "$last" != "$before" ]; then saved=1; break; fi
             if time_is_up "$started" "$SAVE_WAIT"; then break; fi
             sleep 0.5
         done
     fi
-    if adb_bounded -s "$serial" shell sync < /dev/null > /dev/null 2>&1; then
+    if ! adb_bounded -s "$serial" shell sync < /dev/null > /dev/null 2>&1; then
+        echo "Couldn't commit $label's last changes to its disk (sync failed); they may be lost." >&2
+    elif [ -n "$saved" ]; then
         echo "Saved what Android hadn't saved yet on $label." >&2
     else
-        echo "Couldn't commit $label's last changes to its disk (sync failed); they may be lost." >&2
+        # No sign either way: Android shows no write it has yet to make. The last one it logged
+        # (its time is the device's, which an emulator takes from the host) says since when a
+        # change could be unsaved.
+        since=""
+        written="$(awk '{ printf "%d", $1 }' <<< "$before")"
+        if [[ "$written" =~ ^[0-9]+$ ]] && [ "$written" -gt 0 ]; then
+            printf -v now '%(%s)T' -1
+            since=" in the last $((now - written)) s (since its last write)"
+        fi
+        echo "Android logged no write of app states on $label within $SAVE_WAIT s: either nothing" \
+             "was pending, or Android is late with it (it writes 10 s after a change, but was minutes" \
+             "late while it compiled an app update on an emulator short of CPU), and an app enabled" \
+             "or disabled$since isn't saved. To keep such a change, wait until Android has logged" \
+             "its write (adb logcat -b events -s commit_sys_config_file: a new package-user-0 line)" \
+             "before stopping it." >&2
     fi
 }
 
