@@ -44,6 +44,17 @@ Things that look removable but aren't
   Re-mapping the toolbar of a running emulator, with its original properties put back, doesn't
   park it at (-32768, -32768) again, so a change here can only be checked on a freshly started
   emulator (EMULATOR_TOOLBAR=show start-emulator.sh), with a real mouse.
+- In "show", moving the toolbar again once the window manager has mapped it (WM_STATE Normal)
+  and then moved it: WSLg's window manager ignores the position asked before the map. A few
+  milliseconds after marking the toolbar Normal it places it itself: over the emulator at the
+  top of the screen the first time after boot, later 32 px up and left of where it was (its
+  frame's invisible margin). A move made before that is undone, which left the toolbar at the
+  top of the screen after a boot. So the script waits until the toolbar has left the position
+  it had at the map, for up to PLACE_TIMEOUT, and then moves it where the emulator itself does
+  when its window is moved: the toolbar's frame against the right of the main window's frame
+  (read from _NET_FRAME_EXTENTS, which includes WSLg's invisible margins), its top level with
+  the top of the emulator's screen. Moving the emulator window later makes the emulator place
+  the toolbar there again.
 - Reading _NET_WM_NAME before WM_NAME: Qt can leave the toolbar's WM_NAME empty (emulator
   37.1 does from the start), and only _NET_WM_NAME still says "Emulator".
 - Skipping the group leader: a hidden 1x1 window is also titled "Emulator".
@@ -65,6 +76,10 @@ Things that don't work (don't try them again)
 - XMoveWindow on the toolbar or its frame: WSLg's window manager moves it straight back to
   (-32768, -32768) while it stays a transient utility window.
 - Setting WM_HINTS input=False / dropping WM_TAKE_FOCUS: the toolbar still takes keyboard focus.
+- Setting the toolbar's position before mapping it, with XMoveWindow or with USPosition and
+  PPosition in WM_NORMAL_HINTS: WSLg's window manager places it where it chooses.
+- Raising or activating the emulator window (XRaiseWindow, a _NET_ACTIVE_WINDOW request), to
+  bring it in front of Windows apps after boot: WSLg ignores both.
 - Simulated input (XTest) and XSetInputFocus, e.g. for automated tests: XWayland under WSLg
   ignores them, so only real mouse and keyboard input can test this.
 
@@ -136,9 +151,14 @@ AVD = args[0] if args else None  # None: the only running emulator
 # don't want to wait 30 s for "not found".
 TIMEOUT = float(os.environ.get("WSLG_TOOLBAR_TIMEOUT", "30"))
 
+# Seconds to wait in "show" for WSLg's window manager to place the toolbar it has mapped, which it
+# does within milliseconds; a window manager that leaves it where it is costs this much.
+PLACE_TIMEOUT = 2
+
 # Xlib constants used below (values from X11/X.h and X11/Xutil.h).
 XA_ATOM = 4                # property type "ATOM"
-WITHDRAWN = 0              # WM_STATE's state (ICCCM 4.1.3.1)
+XA_CARDINAL = 6            # property type "CARDINAL"
+WITHDRAWN, NORMAL = 0, 1   # WM_STATE's states (ICCCM 4.1.3.1)
 BAD_WINDOW = 3             # error code
 PROP_MODE_REPLACE = 0
 WINDOW_GROUP_HINT = 1 << 6
@@ -264,6 +284,21 @@ def wm_state(win):
     return state
 
 
+def frame_extents(win):
+    """The width of the window manager's frame around win on its left, right, top and bottom
+    (_NET_FRAME_EXTENTS), or zeros without a window manager."""
+    actual_type, fmt = ctypes.c_ulong(), ctypes.c_int()
+    n, after, data = ctypes.c_ulong(), ctypes.c_ulong(), ctypes.POINTER(ctypes.c_ulong)()
+    if x11.XGetWindowProperty(d, ctypes.c_ulong(win), atom("_NET_FRAME_EXTENTS"), 0, 4, 0,
+                              ctypes.c_ulong(XA_CARDINAL), ctypes.byref(actual_type),
+                              ctypes.byref(fmt), ctypes.byref(n), ctypes.byref(after),
+                              ctypes.byref(data)) != 0 or not data:
+        return 0, 0, 0, 0
+    extents = tuple(data[i] for i in range(4)) if n.value == 4 else (0, 0, 0, 0)
+    x11.XFree(data)
+    return extents
+
+
 def find_windows():
     global searching
     searching = True
@@ -321,37 +356,67 @@ if not toolbars:
 
 toolbar = toolbars[0]
 tb = ctypes.c_ulong(toolbar)
+managed = wm_state(toolbar) is not None  # a window manager has had the toolbar (not on Xvfb)
 x11.XUnmapWindow(d, tb)  # this alone is the "hide" mode
 x11.XSync(d, 0)
+
+
+def wait_for_wm_state(states, failure):
+    """Waits until the toolbar's WM_STATE is one of states; after TIMEOUT, says failure."""
+    deadline = time.monotonic() + TIMEOUT
+    while wm_state(toolbar) not in states:
+        if time.monotonic() >= deadline:
+            print(f"wslg-toolbar: the window manager didn't {failure}", file=sys.stderr)
+            return False
+        time.sleep(0.005)
+    return True
+
+
+def position(win):
+    x, y, child = ctypes.c_int(), ctypes.c_int(), ctypes.c_ulong()
+    x11.XTranslateCoordinates(d, ctypes.c_ulong(win), root, 0, 0,
+                              ctypes.byref(x), ctypes.byref(y), ctypes.byref(child))
+    return x.value, y.value
+
+
+def beside_main():
+    """Where the emulator itself puts its toolbar: the toolbar's frame against the right of the
+    main window's frame, its top level with the top of the emulator's screen."""
+    attrs = XWindowAttributes()
+    x11.XGetWindowAttributes(d, ctypes.c_ulong(main), ctypes.byref(attrs))
+    x, y = position(main)
+    _, main_right, _, _ = frame_extents(main)
+    left, _, top, _ = frame_extents(toolbar)
+    return x + attrs.width + main_right + left, y + top
+
 
 if MODE == "show":
     # Let the window manager withdraw the toolbar before it's changed and mapped again (see
     # docstring). Without WM_STATE no window manager manages it (Xvfb), and Withdrawn it was hidden
     # already: nothing to wait for.
-    deadline = time.monotonic() + TIMEOUT
-    while wm_state(toolbar) not in (None, WITHDRAWN):
-        if time.monotonic() >= deadline:
-            print(f"wslg-toolbar: the window manager didn't withdraw the toolbar within "
-                  f"{TIMEOUT:g} s; showing it anyway", file=sys.stderr)
-            break
-        time.sleep(0.005)
+    wait_for_wm_state((None, WITHDRAWN),
+                      f"withdraw the toolbar within {TIMEOUT:g} s; showing it anyway")
     # A plain top-level window instead of a transient utility: this is what makes WSLg give it
     # real coordinates, and therefore clickable buttons.
     x11.XDeleteProperty(d, tb, atom("WM_TRANSIENT_FOR"))
     normal = (ctypes.c_ulong * 1)(atom("_NET_WM_WINDOW_TYPE_NORMAL").value)
     x11.XChangeProperty(d, tb, atom("_NET_WM_WINDOW_TYPE"), ctypes.c_ulong(XA_ATOM), 32,
                         PROP_MODE_REPLACE, normal, 1)
-
-    # Ask for a spot right of the main window. WSLg may choose its own position (typically
-    # near the top of the screen), which is fine as long as it's on-screen.
-    attrs = XWindowAttributes()
-    x11.XGetWindowAttributes(d, ctypes.c_ulong(main), ctypes.byref(attrs))
-    mx, my, child = ctypes.c_int(), ctypes.c_int(), ctypes.c_ulong()
-    x11.XTranslateCoordinates(d, ctypes.c_ulong(main), root, 0, 0,
-                              ctypes.byref(mx), ctypes.byref(my), ctypes.byref(child))
-    x11.XMoveWindow(d, tb, mx.value + attrs.width + 8, my.value)
+    # Without a window manager this move places it. WSLg's places a window it maps where it
+    # chooses, a moment after marking it WM_STATE Normal, but follows a move after that (see
+    # docstring).
+    x11.XMoveWindow(d, tb, *beside_main())
+    x11.XSync(d, 0)
+    mapped_at = position(toolbar)
     x11.XMapWindow(d, tb)
     x11.XSync(d, 0)
+    if managed and wait_for_wm_state((NORMAL,), f"show the toolbar within {TIMEOUT:g} s; "
+                                                "it may not be beside the emulator"):
+        deadline = time.monotonic() + PLACE_TIMEOUT
+        while position(toolbar) == mapped_at and time.monotonic() < deadline:
+            time.sleep(0.005)
+        x11.XMoveWindow(d, tb, *beside_main())
+        x11.XSync(d, 0)
 
 x11.XCloseDisplay(d)
 print(f"wslg-toolbar: toolbar {'hidden' if MODE == 'hide' else 'shown as a clickable window'}")

@@ -75,6 +75,15 @@ class OnAnXServer(unittest.TestCase):
             self.skipTest("this display has a window manager, whose part the test would play")
         self.windows.set_wm_state(win, x11.NORMAL)
 
+    def map_as_wslg(self, toolbar, delay=0):
+        """Plays the window manager once the script has mapped the toolbar: marks it shown, and
+        delay seconds later puts it where WSLg's does, at the top of the screen over the
+        emulator."""
+        self.assertTrue(self.windows.wait_until_mapped(toolbar))
+        self.windows.set_wm_state(toolbar, x11.NORMAL)
+        time.sleep(delay)
+        self.windows.move(toolbar, 300, 0)
+
     def test_hide_unmaps_only_the_toolbar(self):
         main, toolbar, _ = self.windows.emulator("tv_api25")
         result = self.run_script("tv_api25", "hide")
@@ -111,6 +120,7 @@ class OnAnXServer(unittest.TestCase):
         self.assertEqual(self.windows.transient_for(toolbar), main, "changed before the withdrawal")
         self.assertFalse(self.windows.is_mapped(toolbar), "mapped before the withdrawal")
         self.windows.set_wm_state(toolbar, x11.WITHDRAWN)
+        self.map_as_wslg(toolbar)
         out, err = script.communicate(timeout=60)
         self.assertEqual(script.returncode, 0, err)
         self.assertEqual(err, "")
@@ -126,6 +136,7 @@ class OnAnXServer(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stderr, "", "waited for a withdrawal that can't come")
         self.assertShown(toolbar)
+        self.assertEqual(self.windows.position(toolbar), (400, 0), "beside the emulator")
 
     def test_show_of_a_hidden_toolbar_has_nothing_to_wait_for(self):
         # As after start-emulator.sh's "hide": the window manager has withdrawn the toolbar
@@ -134,9 +145,55 @@ class OnAnXServer(unittest.TestCase):
         self.manage(toolbar)
         self.assertEqual(self.run_script("tv_api25", "hide").returncode, 0)
         self.windows.set_wm_state(toolbar, x11.WITHDRAWN)
-        result = self.run_script("tv_api25", "show", timeout="30")
+        script = self.start_script("tv_api25", "show")
+        self.map_as_wslg(toolbar)
+        _, err = script.communicate(timeout=60)
+        self.assertEqual(script.returncode, 0, err)
+        self.assertEqual(err, "", "waited for a withdrawal that can't come")
+        self.assertShown(toolbar)
+
+    def test_show_puts_the_toolbar_beside_the_emulator_as_the_emulator_does(self):
+        # WSLg's window manager puts the toolbar it maps over the emulator; the emulator itself
+        # puts it with its frame against the right of the main window's frame, its top level
+        # with the top of the emulator's screen. WSLg's frames, invisible margins included:
+        main, toolbar, _ = self.windows.emulator("tv_api25")
+        self.manage(toolbar)
+        for win in (main, toolbar):
+            self.windows.set_frame_extents(win, 38, 38, 59, 38)
+        script = self.start_script("tv_api25", "show")
+        self.assertTrue(self.windows.wait_until_mapped(toolbar, mapped=False))
+        self.windows.set_wm_state(toolbar, x11.WITHDRAWN)
+        self.map_as_wslg(toolbar, delay=0.5)    # a slow one: a move before this is undone
+        _, err = script.communicate(timeout=60)
+        self.assertEqual(script.returncode, 0, err)
+        self.assertEqual(self.windows.position(toolbar), (400 + 38 + 38, 59))
+
+    def test_show_places_the_toolbar_when_the_window_manager_leaves_it_where_it_is(self):
+        # A window manager that follows the position asked before the map never moves the
+        # toolbar after marking it shown: the script moves it once its wait for that has ended.
+        main, toolbar, _ = self.windows.emulator("tv_api25")
+        self.manage(toolbar)
+        for win in (main, toolbar):
+            self.windows.set_frame_extents(win, 38, 38, 59, 38)
+        self.assertEqual(self.run_script("tv_api25", "hide").returncode, 0)
+        self.windows.set_wm_state(toolbar, x11.WITHDRAWN)
+        script = self.start_script("tv_api25", "show")
+        self.assertTrue(self.windows.wait_until_mapped(toolbar))
+        self.windows.set_wm_state(toolbar, x11.NORMAL)
+        _, err = script.communicate(timeout=60)
+        self.assertEqual(script.returncode, 0, err)
+        self.assertEqual(err, "")
+        self.assertEqual(self.windows.position(toolbar), (400 + 38 + 38, 59))
+
+    def test_show_goes_on_when_the_window_manager_never_shows_the_toolbar(self):
+        _, toolbar, _ = self.windows.emulator("tv_api25")
+        self.manage(toolbar)
+        self.assertEqual(self.run_script("tv_api25", "hide").returncode, 0)
+        self.windows.set_wm_state(toolbar, x11.WITHDRAWN)
+        result = self.run_script("tv_api25", "show")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stderr, "", "waited for a withdrawal that can't come")
+        self.assertIn("the window manager didn't show the toolbar within 0.5 s; "
+                      "it may not be beside the emulator", result.stderr)
         self.assertShown(toolbar)
 
     def test_show_goes_on_when_the_window_manager_never_withdraws_the_toolbar(self):

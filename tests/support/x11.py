@@ -6,8 +6,8 @@ EmulatorWindows recreates the window structure the Android Emulator shows (see t
 wslg-toolbar.py) through Xlib, and reads back what the script did to it. On a display with a window
 manager (WSLg's), mapping a window only asks the window manager to map it, which it does a little
 later, so EmulatorWindows waits for it (Xvfb has no window manager and maps windows at once).
-Nor does anything on Xvfb set the WM_STATE a window manager keeps on the windows it manages:
-set_wm_state() lets a test play that part.
+Nor does anything on Xvfb set the WM_STATE and _NET_FRAME_EXTENTS a window manager keeps on the
+windows it manages: set_wm_state() and set_frame_extents() let a test play that part.
 WindowChurn is another client that keeps opening and closing windows, as a desktop's tooltips and
 menus do, while the script searches the display.
 """
@@ -22,6 +22,7 @@ import time
 IS_UNMAPPED = 0
 WINDOW_GROUP_HINT = 1 << 6
 XA_ATOM = 4
+XA_CARDINAL = 6
 ANY_PROPERTY_TYPE = 0
 PROP_MODE_REPLACE = 0
 # WM_STATE's states (ICCCM 4.1.3.1).
@@ -165,6 +166,18 @@ class EmulatorWindows:
         self.x.XDestroyWindow(self.d, ctypes.c_ulong(win))
         self.x.XSync(self.d, 0)
 
+    def move(self, win, x, y):
+        self.x.XMoveWindow(self.d, ctypes.c_ulong(win), x, y)
+        self.x.XSync(self.d, 0)
+
+    def set_frame_extents(self, win, left, right, top, bottom):
+        """Sets _NET_FRAME_EXTENTS as a window manager does: the width of its frame around win."""
+        extents = ctypes.c_ulong(self.x.XInternAtom(self.d, b"_NET_FRAME_EXTENTS", 0))
+        data = (ctypes.c_ulong * 4)(left, right, top, bottom)
+        self.x.XChangeProperty(self.d, ctypes.c_ulong(win), extents, ctypes.c_ulong(XA_CARDINAL),
+                               32, PROP_MODE_REPLACE, data, 4)
+        self.x.XSync(self.d, 0)
+
     def set_wm_state(self, win, state):
         """Sets win's WM_STATE as a window manager does: NORMAL once it shows win, WITHDRAWN once
         win's client has unmapped it."""
@@ -193,6 +206,13 @@ class EmulatorWindows:
         while self.is_mapped(win) != mapped and time.monotonic() < deadline:
             time.sleep(0.01)
         return self.is_mapped(win) == mapped
+
+    def position(self, win):
+        """win's top left corner on the screen."""
+        x, y, child = ctypes.c_int(), ctypes.c_int(), ctypes.c_ulong()
+        self.x.XTranslateCoordinates(self.d, ctypes.c_ulong(win), self.root, 0, 0,
+                                     ctypes.byref(x), ctypes.byref(y), ctypes.byref(child))
+        return x.value, y.value
 
     def wm_state(self, win):
         """win's WM_STATE state, or None if it has none: no window manager has managed it."""
