@@ -6,10 +6,11 @@ EmulatorWindows recreates the window structure the Android Emulator shows (see t
 wslg-toolbar.py) through Xlib, and reads back what the script did to it. On a display with a window
 manager (WSLg's), mapping a window only asks the window manager to map it, which it does a little
 later, so EmulatorWindows waits for it (Xvfb has no window manager and maps windows at once).
+Nor does anything on Xvfb set the WM_STATE a window manager keeps on the windows it manages:
+set_wm_state() lets a test play that part.
 WindowChurn is another client that keeps opening and closing windows, as a desktop's tooltips and
 menus do, while the script searches the display.
 """
-import contextlib
 import ctypes
 import os
 import shutil
@@ -22,6 +23,10 @@ IS_UNMAPPED = 0
 WINDOW_GROUP_HINT = 1 << 6
 XA_ATOM = 4
 ANY_PROPERTY_TYPE = 0
+PROP_MODE_REPLACE = 0
+# WM_STATE's states (ICCCM 4.1.3.1).
+WITHDRAWN = 0
+NORMAL = 1
 
 
 class XWMHints(ctypes.Structure):
@@ -160,17 +165,14 @@ class EmulatorWindows:
         self.x.XDestroyWindow(self.d, ctypes.c_ulong(win))
         self.x.XSync(self.d, 0)
 
-    @contextlib.contextmanager
-    def grabbed(self):
-        """While the block runs, the X server handles only this connection's requests: other
-        clients, such as the script, wait."""
-        self.x.XGrabServer(self.d)
+    def set_wm_state(self, win, state):
+        """Sets win's WM_STATE as a window manager does: NORMAL once it shows win, WITHDRAWN once
+        win's client has unmapped it."""
+        wm_state = ctypes.c_ulong(self.x.XInternAtom(self.d, b"WM_STATE", 0))
+        data = (ctypes.c_ulong * 2)(state, 0)                    # the state, no icon window
+        self.x.XChangeProperty(self.d, ctypes.c_ulong(win), wm_state, wm_state, 32,
+                               PROP_MODE_REPLACE, data, 2)
         self.x.XSync(self.d, 0)
-        try:
-            yield
-        finally:
-            self.x.XUngrabServer(self.d)
-            self.x.XSync(self.d, 0)
 
     def _set_group(self, win, leader):
         hints = XWMHints(flags=WINDOW_GROUP_HINT, window_group=leader)
@@ -191,6 +193,20 @@ class EmulatorWindows:
         while self.is_mapped(win) != mapped and time.monotonic() < deadline:
             time.sleep(0.01)
         return self.is_mapped(win) == mapped
+
+    def wm_state(self, win):
+        """win's WM_STATE state, or None if it has none: no window manager has managed it."""
+        actual_type, fmt = ctypes.c_ulong(), ctypes.c_int()
+        count, after = ctypes.c_ulong(), ctypes.c_ulong()
+        data = ctypes.POINTER(ctypes.c_ulong)()
+        wm_state = ctypes.c_ulong(self.x.XInternAtom(self.d, b"WM_STATE", 0))
+        self.x.XGetWindowProperty(self.d, ctypes.c_ulong(win), wm_state, 0, 1, 0, wm_state,
+                                  ctypes.byref(actual_type), ctypes.byref(fmt),
+                                  ctypes.byref(count), ctypes.byref(after), ctypes.byref(data))
+        state = data[0] if count.value else None
+        if data:
+            self.x.XFree(data)
+        return state
 
     def transient_for(self, win):
         parent = ctypes.c_ulong()

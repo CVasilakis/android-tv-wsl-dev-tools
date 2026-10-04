@@ -33,12 +33,17 @@ Things that look removable but aren't
 -------------------------------------
 - The unmap before changing properties: window managers read a window's type and transient
   hints when it is mapped (ICCCM), so the change has to be followed by a fresh map.
-- The 0.5 s sleep after unmapping: gives the window manager time to process the unmap before
-  the window is mapped again. Unmap, sleep, change, map is the tested sequence. WSLg's window
-  manager marks the toolbar's WM_STATE Withdrawn within milliseconds of the unmap, so waiting
-  for that would be shorter; but re-mapping the toolbar of a running emulator, with its
-  original properties put back, doesn't park it at (-32768, -32768) again, so a replacement can
-  only be checked on a freshly started emulator each time, and hasn't been.
+- In "show", waiting after the unmap until the window manager has withdrawn the toolbar (its
+  WM_STATE Withdrawn): the window manager handles the unmap before the toolbar is changed and
+  mapped again, so the map is a fresh one. On an idle host WSLg's window manager has withdrawn
+  it by the script's first look, and mapping it at once worked too, but then it had been
+  withdrawn before the map anyway; a host short of CPU can delay the window manager by any
+  amount. Without WM_STATE no window manager manages the toolbar (Xvfb), and Withdrawn it was
+  hidden already: nothing to wait for. A window manager that never withdraws it gets the map
+  after WSLG_TOOLBAR_TIMEOUT anyway, with a warning: it receives the unmap first in any case.
+  Re-mapping the toolbar of a running emulator, with its original properties put back, doesn't
+  park it at (-32768, -32768) again, so a change here can only be checked on a freshly started
+  emulator (EMULATOR_TOOLBAR=show start-emulator.sh), with a real mouse.
 - Reading _NET_WM_NAME before WM_NAME: Qt can leave the toolbar's WM_NAME empty (emulator
   37.1 does from the start), and only _NET_WM_NAME still says "Emulator".
 - Skipping the group leader: a hidden 1x1 window is also titled "Emulator".
@@ -126,12 +131,14 @@ MODE = args.pop() if args and args[-1] in ("hide", "show") else "hide"
 if len(args) > 1 or any(a.startswith("-") for a in args):
     sys.exit(USAGE)
 AVD = args[0] if args else None  # None: the only running emulator
-# Seconds to wait for the windows to appear; they can lag a little behind boot. The override is
-# for the tests (tests/), which don't want to wait 30 s for "not found".
+# Seconds to wait for the windows to appear, as they can lag a little behind boot, and in "show"
+# for the window manager to withdraw the toolbar. The override is for the tests (tests/), which
+# don't want to wait 30 s for "not found".
 TIMEOUT = float(os.environ.get("WSLG_TOOLBAR_TIMEOUT", "30"))
 
 # Xlib constants used below (values from X11/X.h and X11/Xutil.h).
 XA_ATOM = 4                # property type "ATOM"
+WITHDRAWN = 0              # WM_STATE's state (ICCCM 4.1.3.1)
 BAD_WINDOW = 3             # error code
 PROP_MODE_REPLACE = 0
 WINDOW_GROUP_HINT = 1 << 6
@@ -243,6 +250,20 @@ def group_leader(win):
     return group
 
 
+def wm_state(win):
+    """The state the window manager gave win in its WM_STATE property, or None without one: a
+    window no window manager manages."""
+    actual_type, fmt = ctypes.c_ulong(), ctypes.c_int()
+    n, after, data = ctypes.c_ulong(), ctypes.c_ulong(), ctypes.POINTER(ctypes.c_ulong)()
+    if x11.XGetWindowProperty(d, ctypes.c_ulong(win), atom("WM_STATE"), 0, 1, 0, atom("WM_STATE"),
+                              ctypes.byref(actual_type), ctypes.byref(fmt), ctypes.byref(n),
+                              ctypes.byref(after), ctypes.byref(data)) != 0 or not data:
+        return None
+    state = data[0] if n.value and fmt.value == 32 else None
+    x11.XFree(data)
+    return state
+
+
 def find_windows():
     global searching
     searching = True
@@ -304,7 +325,16 @@ x11.XUnmapWindow(d, tb)  # this alone is the "hide" mode
 x11.XSync(d, 0)
 
 if MODE == "show":
-    time.sleep(0.5)  # let the window manager process the unmap first (see docstring)
+    # Let the window manager withdraw the toolbar before it's changed and mapped again (see
+    # docstring). Without WM_STATE no window manager manages it (Xvfb), and Withdrawn it was hidden
+    # already: nothing to wait for.
+    deadline = time.monotonic() + TIMEOUT
+    while wm_state(toolbar) not in (None, WITHDRAWN):
+        if time.monotonic() >= deadline:
+            print(f"wslg-toolbar: the window manager didn't withdraw the toolbar within "
+                  f"{TIMEOUT:g} s; showing it anyway", file=sys.stderr)
+            break
+        time.sleep(0.005)
     # A plain top-level window instead of a transient utility: this is what makes WSLg give it
     # real coordinates, and therefore clickable buttons.
     x11.XDeleteProperty(d, tb, atom("WM_TRANSIENT_FOR"))

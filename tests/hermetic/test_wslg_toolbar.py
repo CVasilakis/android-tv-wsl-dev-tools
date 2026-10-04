@@ -1,6 +1,7 @@
 """wslg-toolbar.py: hiding and showing the emulator toolbar on a real (virtual) X server."""
 import subprocess
 import sys
+import time
 import unittest
 
 from support import x11
@@ -55,8 +56,24 @@ class OnAnXServer(unittest.TestCase):
         self.windows = x11.EmulatorWindows(self.display)
         self.addCleanup(self.windows.close)            # destroys this test's windows
 
-    def run_script(self, *args):
-        return run(*args, display=self.display)
+    def run_script(self, *args, timeout="0.5"):
+        return run(*args, display=self.display, timeout=timeout)
+
+    def start_script(self, *args):
+        """Starts the script in the background, with a time limit that only ends what never
+        finishes."""
+        script = subprocess.Popen([sys.executable, SCRIPT, *args], text=True,
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                  env=env(self.display, timeout="30"))
+        self.addCleanup(lambda: (script.kill(), script.communicate()))
+        return script
+
+    def manage(self, win):
+        """Marks win as shown by a window manager (WM_STATE Normal), as WSLg's does, so that the
+        test can play the window manager, which Xvfb doesn't have."""
+        if self.windows.wm_state(win) is not None:
+            self.skipTest("this display has a window manager, whose part the test would play")
+        self.windows.set_wm_state(win, x11.NORMAL)
 
     def test_hide_unmaps_only_the_toolbar(self):
         main, toolbar, _ = self.windows.emulator("tv_api25")
@@ -75,9 +92,63 @@ class OnAnXServer(unittest.TestCase):
         _, toolbar, _ = self.windows.emulator("tv_api25")
         result = self.run_script("tv_api25", "show")
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertShown(toolbar)
+
+    def assertShown(self, toolbar):
         self.assertTrue(self.windows.wait_until_mapped(toolbar))
         self.assertIsNone(self.windows.transient_for(toolbar), "no longer a transient utility")
         self.assertEqual(self.windows.window_types(toolbar), ["_NET_WM_WINDOW_TYPE_NORMAL"])
+
+    def test_show_waits_for_the_window_manager_to_withdraw_the_toolbar(self):
+        # The window manager reads a window's hints when it's mapped: "show" changes them and
+        # maps the toolbar again only once the window manager has handled the unmap, which it
+        # marks by setting WM_STATE to Withdrawn. Here the test is the window manager, a slow one.
+        main, toolbar, _ = self.windows.emulator("tv_api25")
+        self.manage(toolbar)
+        script = self.start_script("tv_api25", "show")
+        self.assertTrue(self.windows.wait_until_mapped(toolbar, mapped=False))
+        time.sleep(1)                            # the window manager's delay
+        self.assertEqual(self.windows.transient_for(toolbar), main, "changed before the withdrawal")
+        self.assertFalse(self.windows.is_mapped(toolbar), "mapped before the withdrawal")
+        self.windows.set_wm_state(toolbar, x11.WITHDRAWN)
+        out, err = script.communicate(timeout=60)
+        self.assertEqual(script.returncode, 0, err)
+        self.assertEqual(err, "")
+        self.assertIn("toolbar shown", out)
+        self.assertShown(toolbar)
+
+    def test_show_without_a_window_manager_has_nothing_to_wait_for(self):
+        # No WM_STATE: no window manager will withdraw the toolbar, as on Xvfb.
+        _, toolbar, _ = self.windows.emulator("tv_api25")
+        if self.windows.wm_state(toolbar) is not None:
+            self.skipTest("this display has a window manager")
+        result = self.run_script("tv_api25", "show", timeout="30")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stderr, "", "waited for a withdrawal that can't come")
+        self.assertShown(toolbar)
+
+    def test_show_of_a_hidden_toolbar_has_nothing_to_wait_for(self):
+        # As after start-emulator.sh's "hide": the window manager has withdrawn the toolbar
+        # already, and the unmap changes nothing it would mark.
+        _, toolbar, _ = self.windows.emulator("tv_api25")
+        self.manage(toolbar)
+        self.assertEqual(self.run_script("tv_api25", "hide").returncode, 0)
+        self.windows.set_wm_state(toolbar, x11.WITHDRAWN)
+        result = self.run_script("tv_api25", "show", timeout="30")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stderr, "", "waited for a withdrawal that can't come")
+        self.assertShown(toolbar)
+
+    def test_show_goes_on_when_the_window_manager_never_withdraws_the_toolbar(self):
+        # The X server hands the window manager the unmap before the map, so mapping the toolbar
+        # anyway is the best the script can do; it says why it may not work.
+        _, toolbar, _ = self.windows.emulator("tv_api25")
+        self.manage(toolbar)
+        result = self.run_script("tv_api25", "show")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("the window manager didn't withdraw the toolbar within 0.5 s; "
+                      "showing it anyway", result.stderr)
+        self.assertShown(toolbar)
 
     def test_switching_back_and_forth(self):
         # After "show" the window manager puts the toolbar on top, above the hidden bar that is
@@ -147,26 +218,15 @@ class OnAnXServer(unittest.TestCase):
         self.assertFalse(self.windows.is_mapped(toolbar))
 
     def test_an_error_on_the_toolbar_it_changes_is_still_reported(self):
-        # Only the search skips windows that closed. "show" unmaps the toolbar and waits a
-        # moment before it changes the toolbar and maps it again: the toolbar closing then must
-        # make the script fail. With the server grabbed, the script can't go on while the test
-        # checks that it's still in that moment; if it isn't (a slow test), try again.
-        for _ in range(5):
-            windows = x11.EmulatorWindows(self.display)
-            self.addCleanup(windows.close)
-            _, toolbar, _ = windows.emulator("tv_api25")
-            script = subprocess.Popen([sys.executable, SCRIPT, "tv_api25", "show"], text=True,
-                                      stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                      env=env(self.display))
-            windows.wait_until_mapped(toolbar, mapped=False)
-            with windows.grabbed():
-                in_time = not windows.is_mapped(toolbar)
-                if in_time:
-                    windows.destroy(toolbar)
-            _, err = script.communicate(timeout=60)
-            if in_time:
-                break
-        else:
-            self.fail("the test never closed the toolbar while the script waited")
+        # Only the search skips windows that closed. "show" unmaps the toolbar and waits for the
+        # window manager to withdraw it before it changes the toolbar and maps it again: the
+        # toolbar closing meanwhile must make the script fail. Here the test is the window
+        # manager, so the script waits until the test has closed the toolbar.
+        _, toolbar, _ = self.windows.emulator("tv_api25")
+        self.manage(toolbar)
+        script = self.start_script("tv_api25", "show")
+        self.assertTrue(self.windows.wait_until_mapped(toolbar, mapped=False))
+        self.windows.destroy(toolbar)
+        _, err = script.communicate(timeout=60)
         self.assertNotEqual(script.returncode, 0)
         self.assertIn("BadWindow", err)

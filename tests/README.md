@@ -125,7 +125,7 @@ ADT_AVD=tv_api31 tests/run.py --emulator -k test_remote_keys; kill $(jobs -p); b
 | [`run.py`](run.py) | Entry point: picks the tiers, filters, prints skip reasons. |
 | [`support/sandbox.py`](support/sandbox.py) | `Sandbox`: a throwaway machine per test. `ScriptTestCase`: the base class. |
 | [`support/fake_tools.py`](support/fake_tools.py) | Fakes for `adb`, `emulator`, `avdmanager`, `android`, `sdkmanager`, `python3`, `getent`, `id`, `sg`. |
-| [`support/x11.py`](support/x11.py) | Private Xvfb server, fake emulator windows (the main window, the toolbar, and the hidden bar also titled "Emulator"; Xvfb has no window manager, so `raise_()` puts a window on top as one would when it maps it), and `WindowChurn`, a client that keeps opening and closing windows. |
+| [`support/x11.py`](support/x11.py) | Private Xvfb server, fake emulator windows (the main window, the toolbar, and the hidden bar also titled "Emulator"; Xvfb has no window manager, so `raise_()` puts a window on top as one would when it maps it, and `set_wm_state()` sets `WM_STATE` as one would), and `WindowChurn`, a client that keeps opening and closing windows. |
 | [`support/input_dump.py`](support/input_dump.py) | Reading Android's input dispatcher from `dumpsys input`, for the emulator tier. |
 | `hermetic/test_<script>.py` | One file per script, plus [`test_conventions.py`](hermetic/test_conventions.py) for the rules all scripts follow, and [`test_input_dump.py`](hermetic/test_input_dump.py) for `support/input_dump.py`. |
 | [`emulator/test_on_emulator.py`](emulator/test_on_emulator.py) | The real-emulator tier. |
@@ -207,9 +207,9 @@ one stays a zombie until the cleanup reaps it).
   wait until `sandbox.calls()` shows that key's `adb` call; to stop an emulator while
   `start-emulator.sh` waits for its boot, start the script with `start_in_background()`
   ([`test_start_emulator.py`](hermetic/test_start_emulator.py)) and wait until the calls show
-  its boot polls. To act while `wslg-toolbar.py` is between two steps, wait until the windows
-  show the first step, and grab the X server (`EmulatorWindows.grabbed()`): the script can't go
-  on while the test checks that it's still there. A time limit a test sets
+  its boot polls. To act while `wslg-toolbar.py show` has unmapped the toolbar, play the window
+  manager (`EmulatorWindows.set_wm_state()`): the script goes on only once the test has set the
+  toolbar's `WM_STATE` to Withdrawn. A time limit a test sets
   (`ADT_BOOT_TIMEOUT=2`) must only end what never finishes by design, not race what the script
   does on the way, and a check on how long a
   script took belongs only where its output can't show which way it went. The scripts' own

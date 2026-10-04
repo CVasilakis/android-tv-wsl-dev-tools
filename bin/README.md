@@ -500,10 +500,12 @@ You can't have both a clickable toolbar and a working keyboard, so `wslg-toolbar
 
 Switch at any time on a running emulator, as often as you like: `wslg-toolbar.py show`. Without an AVD
 name it acts on the only emulator window; with several, pass the name: `wslg-toolbar.py tv_api25 show`.
-The emulator has a second window titled "Emulator" (a 620x21 bar, hidden once it has booted);
-the script tells the toolbar apart by its shape, a column taller than wide. Restarting the
-emulator undoes it. The script's docstring describes the emulator's windows and explains the
-mechanism, how to inspect them (`xwininfo`, `xprop`) and which approaches don't work.
+`show` unmaps the toolbar, waits until the window manager has withdrawn it, and maps it again as
+a normal window; if the window manager doesn't withdraw it within 30 s, the script says so and
+maps it anyway. The emulator has a second window titled "Emulator" (a 620x21 bar, hidden once it
+has booted); the script tells the toolbar apart by its shape, a column taller than wide.
+Restarting the emulator undoes it. The script's docstring describes the emulator's windows and
+explains the mechanism, how to inspect them (`xwininfo`, `xprop`) and which approaches don't work.
 
 ## Checking what the emulator is doing
 
