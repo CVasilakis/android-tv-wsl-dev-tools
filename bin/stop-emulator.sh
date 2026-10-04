@@ -84,7 +84,8 @@ Environment:
   ADT_STOP_TIMEOUT  seconds to wait for the emulator to exit after `adb emu kill` before
                     killing it, which loses its Quick Boot snapshot (default: 60)
   ADT_SAVE_WAIT     from API 33 on, seconds to wait for Android to save app states changed
-                    in the last 10 s, before stopping (default: 12)
+                    in the last 10 s, before stopping (default: 12; raise it on a host short
+                    of CPU, where Android writes later)
 
 Exits 0 once the emulator has exited, and also if it wasn't running; 1 if it couldn't be
 stopped.
@@ -132,9 +133,13 @@ fi
 #    then a pause of 1 s lets a setting changed just before be written (0.34 s at most, measured
 #    on an emulator starved of CPU). From API 33 on that command writes nothing (it prints the
 #    whole package dump), so the script waits for Android's own write: Android scheduled it at the
-#    change, before this script started, so it comes within 10 s; it logs it in the events log
-#    (commit_sys_config_file, package-user-0). The wait ends at that event, or after SAVE_WAIT s
-#    (10 s and a margin; 9.9 s after the change was the latest seen) when nothing was pending.
+#    change, before this script started, so it comes within 10 s if Android gets the CPU; it
+#    logs it in the events log (commit_sys_config_file, package-user-0). The wait ends at that
+#    event, or after SAVE_WAIT s
+#    (10 s and a margin; 9.9 s after the change was the latest seen on a host with CPU to spare)
+#    when nothing was pending. On a host short of CPU the write comes later (21.6 s after the
+#    change on a laptop with the emulator pinned to one CPU), so the message without a write names
+#    ADT_SAVE_WAIT; the default stays short, since it's the stop's wait whenever nothing is pending.
 #    Nothing shows a write Android has yet to make, and no shell command writes at once (an app
 #    can have its own components' state written at once, PackageManager.SYNCHRONOUS, not the
 #    shell), so a wait that ends without an event can't tell "nothing was pending" from "Android
@@ -185,11 +190,12 @@ save_changes() {
             since=" in the last $((now - written)) s (since its last write)"
         fi
         echo "Android logged no write of app states on $label within $SAVE_WAIT s: either nothing" \
-             "was pending, or Android is late with it (it writes 10 s after a change, but was minutes" \
-             "late while it compiled an app update on an emulator short of CPU), and an app enabled" \
-             "or disabled$since isn't saved. To keep such a change, wait until Android has logged" \
-             "its write (adb logcat -b events -s commit_sys_config_file: a new package-user-0 line)" \
-             "before stopping it." >&2
+             "was pending, or Android is late with it (it writes 10 s after a change, but later on a" \
+             "host short of CPU, and minutes late while it compiled an app update), and an app" \
+             "enabled or disabled$since isn't saved. To keep such a change, wait until Android has" \
+             "logged its write (adb logcat -b events -s commit_sys_config_file: a new package-user-0" \
+             "line) before stopping it; on a slow host, set ADT_SAVE_WAIT to wait longer (e.g." \
+             "ADT_SAVE_WAIT=30)." >&2
     fi
 }
 

@@ -336,7 +336,10 @@ pending or Android is late: it writes 10 s after a change, but on a starved Goog
 wrote nothing for minutes while it compiled an update of Google Play services. Then it says so,
 and since when a change could be unsaved (its last logged write), rather than "Saved". To keep
 such a change, wait until `adb logcat -b events -s commit_sys_config_file` shows a new
-`package-user-0` line before stopping.
+`package-user-0` line before stopping. On a host short of CPU, Android's write 10 s after a change
+can slip well past 12 s (21.6 s after an enable, seen on a laptop with the emulator pinned to one
+CPU), so there raise `ADT_SAVE_WAIT` (e.g. `ADT_SAVE_WAIT=30`), or wait for the logged write. The
+default stays short because the stop waits all of it whenever nothing is pending.
 
 Each adb call has a time limit, and an emulator that doesn't answer as a booted device is
 stopped anyway, unsaved; the script says what it did. A `-read-only` emulator keeps no change,
@@ -581,6 +584,7 @@ TV or Google TV; these are the differences in the images that you may run into:
 | `start-emulator.sh: '<avd>' booted, but its home app wasn't in front with the focus within 300 s` (with `--wait-for-home`) | the next line says what was in front: nothing focused (a host short of CPU: raise `ADT_HOME_TIMEOUT`), another app (on an emulator that had booted before: press Home, or leave out the flag), or a screen that two Backs didn't close |
 | `start-emulator.sh: … was stopped before it finished booting` | the AVD was already running and booting (another call started it), and was stopped while this one waited; start it again |
 | `start-emulator.sh: … adb can't reach it` (with `--quick`) | the restored snapshot left adb offline: `stop-emulator.sh <serial>`, then start it without `--quick` |
+| `Android logged no write of app states on … within 12 s` from `stop-emulator.sh` | from API 33 on: nothing was pending, or Android is late with its write, so an app enabled or disabled since its last write may be lost; on a host short of CPU, raise `ADT_SAVE_WAIT` (see [`stop-emulator.sh`](#stop-emulatorsh)) |
 | `… It's still running.` from `stop-emulator.sh` | the emulator couldn't be stopped, or, without its PID, adb still listed it after `ADT_STOP_TIMEOUT` seconds (see [`stop-emulator.sh`](#stop-emulatorsh)); kill its `qemu-system-…` process by the PID in the `pid_<PID>.ini` that `adb -s <serial> emu avd discoverypath` names (without an answer: the one in `$XDG_RUNTIME_DIR/avd/running/` whose `port.serial=` is the serial's number; a killed emulator's file stays behind, so check the PID's command line first), or in `hardware-qemu.ini.lock` in the AVD's folder, or reboot WSL (`wsl --shutdown` in Windows) |
 | `adb devices` shows `offline` or `unauthorized` | `adb reconnect offline`; if that doesn't help, `adb kill-server && adb start-server`; else stop the emulator and cold boot it |
 | `can't tell which AVD to use` / `there's no AVD named …` | pass the AVD name or set `ADT_AVD`; the message lists the AVDs found |

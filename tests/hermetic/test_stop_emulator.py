@@ -174,6 +174,18 @@ class SavesFirst(StopTestCase):
                                      r"last write\) isn't saved")
         self.assertIn(f"Stopped 'tv_api30' ({serial}).", result.err)
 
+    def test_from_api_33_names_save_wait_for_a_slow_host(self):
+        # On a host short of CPU, Android's write came 21.6 s after the change, past the default.
+        self.sandbox.set_behavior(api_level=34, pending_package_write=4)
+        self.sandbox.start_emulator("tv_api30")
+        result = self.sandbox.run("stop-emulator.sh", "tv_api30", env={"ADT_SAVE_WAIT": "1"})
+        self.assertSucceeded(result)
+        self.assertNotIn("Saved", result.err)
+        self.assertIn("(it writes 10 s after a change, but later on a host short of CPU, and "
+                      "minutes late while it compiled an app update)", result.err)
+        self.assertIn("before stopping it; on a slow host, set ADT_SAVE_WAIT to wait longer (e.g. "
+                      "ADT_SAVE_WAIT=30).", result.err)
+
     def test_without_any_logged_write_it_names_no_time(self):
         self.sandbox.set_behavior(api_level=36, earlier_package_write=False)
         self.sandbox.start_emulator("tv_api30")
