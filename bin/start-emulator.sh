@@ -56,7 +56,10 @@
 # so there it only looks. The long limit is for the device on its way to its home screen; another
 # app's screen never is, so once the same one has kept the focus for $ADT_OTHER_APP_TIMEOUT seconds
 # (default 60; 0: no such limit), after the Backs if any, it fails at once, naming it, rather than
-# wait out $ADT_HOME_TIMEOUT. With --quick the restored device has usually settled already.
+# wait out $ADT_HOME_TIMEOUT. Nor can a home app come when none is enabled (a stock launcher left
+# disabled): from API 24 on, once the user is unlocked and still nothing but Settings' FallbackHome
+# handles a HOME intent, it fails at once. With --quick the restored device has usually settled
+# already.
 #
 # Home on Android TV 8.0 and 8.1: on the API 26 and 27 Android TV images, the Home key never
 # leaves an app until tv_user_setup_complete is set, so after the boot the script sets it, and
@@ -84,6 +87,8 @@
 #   "its home app wasn't in front ... within ... s" (--wait-for-home only)
 #       What was in front instead is named: something kept the focus, or nothing had it. On a
 #       slow host, raise ADT_HOME_TIMEOUT.
+#   "no home app is enabled" (--wait-for-home only, API 24 on)
+#       Every home app is disabled, e.g. the stock launcher by `pm disable-user`: enable one.
 #
 # Everything below exists for a reason; see the comment on each step before removing one.
 set -euo pipefail
@@ -106,7 +111,8 @@ serial="$(start-emulator.sh)" captures it. Without $DISPLAY it adds -no-window.
                   row; if another app's screen keeps the focus, press Back (twice at most),
                   except on an emulator that had booted before this call. If that takes over
                   $ADT_HOME_TIMEOUT s, or another app's screen keeps the focus for
-                  $ADT_OTHER_APP_TIMEOUT s, fail, and stop the emulator if this script started it
+                  $ADT_OTHER_APP_TIMEOUT s, or no home app is enabled (API 24 on), fail, and
+                  stop the emulator if this script started it
   avd-name        the AVD to boot. Default: $ADT_AVD, else tv_api25 if it exists, else the
                   only Android TV AVD
   emulator flags  passed on to the emulator, e.g. -wipe-data, -no-window,
@@ -487,11 +493,15 @@ if [ -n "$WAIT_FOR_HOME" ]; then
     if [ "$HOME_STATUS" -eq 0 ]; then
         echo "The home app ($FRONT) is in front." >&2
     else
-        # 2: another app's screen kept the focus for OTHER_APP_TIMEOUT s (wait_for_home, lib.sh).
+        # 2: another app's screen kept the focus for OTHER_APP_TIMEOUT s; 3: no home app is
+        # enabled (wait_for_home, lib.sh).
         if [ "$HOME_STATUS" -eq 2 ]; then
             why="a screen of another app than its home app has kept the focus for $OTHER_APP_TIMEOUT s"
             why+="$(if [ "$BACKS" -gt 0 ]; then echo ", also after Back"; fi), so the home app can't come to"
             why+=" the front"
+        elif [ "$HOME_STATUS" -eq 3 ]; then
+            why="no home app is enabled (a disabled stock launcher?): the user is unlocked, and nothing"
+            why+=" but Settings' FallbackHome handles a HOME intent"
         else
             why="its home app wasn't in front with the focus within $HOME_TIMEOUT s"
         fi
@@ -499,6 +509,9 @@ if [ -n "$WAIT_FOR_HOME" ]; then
             if [ "$HOME_STATUS" -eq 2 ]; then
                 hint="Nothing was pressed on it: close that screen on the device (Back, or Home:
 adb -s $SERIAL shell input keyevent HOME), then try again."
+            elif [ "$HOME_STATUS" -eq 3 ]; then
+                hint="Enable its home app, e.g. its stock launcher, then try again
+(adb -s $SERIAL shell pm list packages -d lists the disabled apps; adb -s $SERIAL shell pm enable <package>)."
             else
                 hint="On a slow host, set ADT_HOME_TIMEOUT to wait longer (0: no limit)."
             fi
@@ -509,6 +522,9 @@ $hint"
         fi
         if [ "$HOME_STATUS" -eq 2 ]; then
             hint="To see that screen, boot it without --wait-for-home."
+        elif [ "$HOME_STATUS" -eq 3 ]; then
+            hint="Boot it without --wait-for-home and enable its home app, e.g. its stock launcher
+(adb shell pm list packages -d lists the disabled apps; adb shell pm enable <package>)."
         else
             hint="On a slow host, set ADT_HOME_TIMEOUT to wait longer (0: no limit)."
         fi

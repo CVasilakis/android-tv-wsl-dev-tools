@@ -214,6 +214,14 @@ emulator_avd() {
 # (status 2), rather than wait out <seconds> for a home app that can't come (an app left open on
 # a device someone uses, a dialog that stays).
 #
+# Nor can a home app come when none is enabled (e.g. a stock launcher left disabled): from API 24
+# on, once the user is unlocked, a HOME intent then still resolves to FallbackHome, which stays in
+# front, so wait_for_home prints what was in front and fails at once (status 3) when, at two looks
+# in a row, the user is unlocked and no activity but FallbackHome handles a HOME intent (no_home_app).
+# Two looks, as an app being updated is missing from the query for a moment. Before API 24 there's
+# no FallbackHome, and no `cmd` or other shell command that lists the enabled HOME activities, so
+# there the wait for a home app that isn't enabled runs to <seconds>.
+#
 # BACK_AFTER is how long another app's screen must keep the focus to be taken as stuck: one that's
 # only passing by while the device settles has left by then. ADT_BACK_AFTER exists for the tests.
 # OTHER_APP_TIMEOUT (ADT_OTHER_APP_TIMEOUT; 0: none, only <seconds>) is far longer than any such
@@ -222,7 +230,8 @@ BACK_AFTER="${ADT_BACK_AFTER:-10}"
 OTHER_APP_TIMEOUT="${ADT_OTHER_APP_TIMEOUT:-60}"
 wait_for_home() {
     local serial="$1" limit="$2" backs="${3:-0}" start=$SECONDS sdk="" resolved look settled=""
-    local other="" other_since="" windows activities key window app homes package top
+    local other="" other_since="" windows activities key window app homes package top shown
+    local no_home=""
     while true; do
         [ -n "$sdk" ] || sdk="$(adb_bounded -s "$serial" shell getprop ro.build.version.sdk \
             < /dev/null 2>/dev/null | tr -d '\r' || true)"
@@ -242,6 +251,15 @@ wait_for_home() {
             <(printf '%s\n' "$activities"))
         key="${look[1]:-}" app="${look[2]:-}" window="${look[3]:-}" homes="${look[4]:-}"
         package="${look[5]:-}" top="${look[6]:-}"
+        shown="activity ${app:-none}, focused window ${window:-none}${resolved:+; a HOME intent \
+resolves to $resolved}; the top activity is ${top:-none}"
+        if [ -n "$sdk" ] && [ "$sdk" -ge 24 ] && [[ "$resolved" == */*FallbackHome ]] \
+                && no_home_app "$serial"; then
+            if [ -n "$no_home" ]; then echo "$shown"; return 3; fi
+            no_home=1
+        else
+            no_home=""
+        fi
         if [ -n "$sdk" ] && [ "${look[0]:-}" = 1 ]; then
             if [ "$key" = "$settled" ]; then echo "$package"; return 0; fi
             settled="$key"
@@ -265,8 +283,7 @@ wait_for_home() {
                     other=""
                 elif [ "$OTHER_APP_TIMEOUT" -gt 0 ] \
                         && time_is_up "$other_since" "$OTHER_APP_TIMEOUT"; then
-                    echo "activity ${app:-none}, focused window $window${resolved:+; a HOME intent \
-resolves to $resolved}; the top activity is ${top:-none}"
+                    echo "$shown"
                     return 2
                 fi
             else
@@ -274,12 +291,35 @@ resolves to $resolved}; the top activity is ${top:-none}"
             fi
         fi
         if [ "$limit" -gt 0 ] && time_is_up "$start" "$limit"; then
-            echo "activity ${app:-none}, focused window ${window:-none}${resolved:+; a HOME intent \
-resolves to $resolved}; the top activity is ${top:-none}"
+            echo "$shown"
             return 1
         fi
         sleep 1
     done
+}
+
+# no_home_app <serial>: whether a device (API 24 on) has no home app to show: its user 0 is unlocked
+# (`dumpsys user`'s "Started users state": {0=3} up to API 32, [0=RUNNING_UNLOCKED] from 33 on), and
+# no activity but Settings' FallbackHome handles a HOME intent (`cmd package query-activities`).
+# Until the user is unlocked, Android answers that query with the activities that can run before
+# (direct boot aware ones, like FallbackHome) and leaves out every launcher, so the query alone
+# can't tell. So it takes the user's state once fully unlocked, RUNNING_UNLOCKED, rather than an
+# earlier sign (sys.user.0.ce_available is set seconds before it on a starved emulator, while the
+# user is still unlocking). Any answer it doesn't understand counts as "no".
+no_home_app() {
+    local users
+    users="$(adb_bounded -s "$1" shell dumpsys user < /dev/null 2>/dev/null | tr -d '\r')" \
+        || return 1
+    grep -Eq '^ *Started users state: .*[{[ ]0=(3|RUNNING_UNLOCKED)[]},]' <<< "$users" || return 1
+    adb_bounded -s "$1" shell cmd package query-activities --components \
+        -a android.intent.action.MAIN -c android.intent.category.HOME < /dev/null 2>/dev/null \
+        | tr -d '\r' | awk '
+            NF == 0 { next }
+            { n++ }
+            $0 == "No activities found" { next }
+            !/^[[:alnum:]_.]+\/[[:alnum:]_.$]+$/ { unknown = 1; next }
+            !/FallbackHome$/ { other = 1 }
+            END { exit !(n && !unknown && !other) }'
 }
 
 # home_look <sdk> <home> <dumpsys window> <dumpsys activity activities>: one look at a device for

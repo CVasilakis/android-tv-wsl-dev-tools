@@ -31,6 +31,7 @@ from pathlib import Path
 
 HOME = "com.google.android.tvlauncher/.MainActivity"
 HOME_WINDOW = "com.google.android.tvlauncher/com.google.android.tvlauncher.MainActivity"
+FALLBACK_HOME = "com.android.tv.settings/.system.FallbackHome"
 
 DEFAULT_BEHAVIOR = {
     "boot_polls": 0,              # getprop sys.boot_completed answers "" this many times, then "1"
@@ -92,6 +93,13 @@ DEFAULT_BEHAVIOR = {
     "home_resolves": [HOME],      # what `cmd package resolve-activity --brief` answers for a HOME
                                   # intent, one per call, the last one repeated: e.g. FallbackHome
                                   # (FALLBACK_HOME) first, as until the user is unlocked
+    "user_unlocked": None,        # whether `dumpsys user` shows user 0 unlocked (RUNNING_UNLOCKED);
+                                  # None: unless a HOME intent resolves to FallbackHome (the latest
+                                  # answer of resolve-activity)
+    "home_activities": None,      # what `cmd package query-activities --components` lists for a
+                                  # HOME intent, one list per call, the last one repeated; None:
+                                  # FallbackHome, and the activity HOME resolves to while the user
+                                  # is unlocked (before, Android lists only direct boot aware ones)
     "front": [[HOME, HOME_WINDOW]],  # [focused activity (mFocusedApp), focused window's title
                                   # (mCurrentFocus)] that `dumpsys window` shows, one per call, the
                                   # last one repeated; None: null. A "BACK" item: the ones after it
@@ -417,6 +425,12 @@ def adb(args):
             and "android.intent.category.HOME" in args:
         sys.stdout.write("priority=0 preferredOrder=0 match=0x108000 specificIndex=-1 "
                          f"isDefault=true\r\n{step('home_resolves')}\r\n")
+    elif args[:4] == ["shell", "cmd", "package", "query-activities"] \
+            and "android.intent.category.HOME" in args and "--components" in args:
+        listed = home_activities()
+        sys.stdout.write("".join(f"{a}\r\n" for a in listed) if listed else "No activities found\r\n")
+    elif args == ["shell", "dumpsys", "user"]:
+        dumpsys_user()
     elif args == ["shell", "dumpsys", "window"]:
         shown = front()
         if isinstance(shown, dict):
@@ -509,6 +523,37 @@ def home_activity():
     if behavior()["api_level"] < 24:
         return items[-1]
     return items[min(counters().get("home_resolves", 1), len(items)) - 1]
+
+
+def user_unlocked():
+    unlocked = behavior()["user_unlocked"]
+    return home_activity() != FALLBACK_HOME if unlocked is None else unlocked
+
+
+def home_activities():
+    if behavior()["home_activities"] is not None:
+        return step("home_activities")
+    if not user_unlocked() or home_activity() == FALLBACK_HOME:
+        return [FALLBACK_HOME]
+    return [home_activity(), FALLBACK_HOME]
+
+
+def dumpsys_user():
+    """`dumpsys user`, its lines on user 0's state in the format of the API level: the state's
+    number up to API 32 (3: RUNNING_UNLOCKED, 1: RUNNING_LOCKED), its name from 33 on; a State
+    line of its own from API 26 on."""
+    level = behavior()["api_level"]
+    state = "RUNNING_UNLOCKED" if user_unlocked() else "RUNNING_LOCKED"
+    lines = ["Users:", "  UserInfo{0:Owner:c13} serialNo=0 isPrimary=true"]
+    if level >= 26:
+        lines.append(f"    State: {state}")
+    lines += ["    Created: <unknown>", "", "  Device owner id:-10000", ""]
+    if level >= 33:
+        lines.append(f"  Started users state: [0={state}]")
+    else:
+        lines.append(f"  Started users state: {{0={3 if user_unlocked() else 1}}}")
+    lines.append("  Max users: 1 (limit reached: true)")
+    sys.stdout.write("".join(f"{line}\r\n" for line in lines))
 
 
 def home_package():

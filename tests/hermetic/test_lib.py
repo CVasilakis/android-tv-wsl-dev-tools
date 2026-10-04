@@ -526,6 +526,19 @@ class WaitForHome(ScriptTestCase):
         self.assertEqual(result.code, 2, result.output)
         self.assertEqual(len(self.backs()), 2)
 
+    def test_fails_with_status_3_when_no_home_app_is_enabled(self):
+        # The user unlocked, and still nothing but FallbackHome for a HOME intent, at two looks.
+        fallback = "com.android.tv.settings/.system.FallbackHome"
+        window = "com.android.tv.settings/com.android.tv.settings.system.FallbackHome"
+        self.sandbox.set_behavior(api_level=36, home_resolves=[fallback], user_unlocked=True,
+                                  front=[[fallback, window]])
+        result = self.wait(limit=60)
+        self.assertEqual(result.code, 3, result.output)
+        self.assertEqual(result.out, f"activity {fallback}, focused window {window}; a HOME intent "
+                                     f"resolves to {fallback}; the top activity is {fallback} in "
+                                     "task 7, RESUMED, idle\n")
+        self.assertEqual(len(self.looks()), 2)
+
     def test_the_home_apps_own_screen_gets_the_long_limit(self):
         # Google TV's DispatchActivity holds the focus for minutes on a slow host.
         self.google_tv(31, [DISPATCH])

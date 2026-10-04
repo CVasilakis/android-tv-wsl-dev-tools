@@ -171,7 +171,9 @@ script was called (finding `lib.sh`, suggested commands) is tested every way.
 Arrange failures and odd situations with `sandbox.set_behavior(...)` (see `DEFAULT_BEHAVIOR` in
 `fake_tools.py`; e.g. `front` and `home_resolves` for what the device shows in front over time, one item per look, for
 `--wait-for-home` (a `"BACK"` item in `front`: what comes after it waits for a Back key; an item
-can also be the two dumps a look reads, as captured from a device), with `ADT_BACK_AFTER=1` so
+can also be the two dumps a look reads, as captured from a device; `user_unlocked` and
+`home_activities` for what `dumpsys user` and `cmd package query-activities` show, by default an
+unlocked user once HOME no longer resolves to FallbackHome), with `ADT_BACK_AFTER=1` so
 another screen gets Back after 1 s rather than 10, and `ADT_OTHER_APP_TIMEOUT` of a few seconds
 so another app's screen fails the wait sooner than after 60 s; `adb_offline` for an emulator adb can't reach, with `ADT_OFFLINE_TIMEOUT=1`
 in the script's environment so `start-emulator.sh --quick` doesn't wait 30 s, or

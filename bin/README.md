@@ -232,6 +232,17 @@ seconds (default 60; `0`: no such limit), after the Backs if any, the script fai
 that screen, rather than wait out the limit below: press Home first, or leave out the flag. With
 `--quick`, the restored device has usually settled already, so the wait is short.
 
+Nor can a home app come when none is enabled, e.g. a stock launcher left disabled
+(`pm disable-user`), or re-enabled just before a stop that lost the change. From API 24 on, a HOME
+intent then still resolves to `FallbackHome` once the user is unlocked, which stays in front.
+So when, at two looks in a row, the user is unlocked (`dumpsys user`: `RUNNING_UNLOCKED`) and no
+activity but `FallbackHome` handles a HOME intent (`cmd package query-activities`), the script fails
+at once, saying no home app is enabled and what a HOME intent resolves to; enable one (`adb shell pm
+list packages -d` lists the disabled apps, `adb shell pm enable <package>` enables one). Before the
+user is unlocked, Android lists only `FallbackHome` for a HOME intent even with a home app enabled,
+so that alone means nothing. API 22 and 23 have no `FallbackHome` and no command that lists the
+enabled HOME activities, so there the wait runs to its limit.
+
 It waits at most `ADT_HOME_TIMEOUT` seconds (default 600; `0`: no limit), counted from when
 Android has booted, on top of `ADT_BOOT_TIMEOUT`: room for Google TV's first screen, which holds
 the focus for minutes on a slow host, and for a host slower still. That long limit is only for the
@@ -581,7 +592,8 @@ TV or Google TV; these are the differences in the images that you may run into:
 | `start-emulator.sh: the emulator exited` | the printed log lines say why (e.g. an unknown flag); full log in `${TMPDIR:-/tmp}/emulator-<name>.log` |
 | `start-emulator.sh: '<avd>' didn't finish booting within 900 s` | the host is slow: raise `ADT_BOOT_TIMEOUT`; or Android can't boot: without `--quick` if you used it, else try `-wipe-data` (factory reset) |
 | `create-avd.sh: AVD '<name>' already exists` | it never overwrites one; `--if-missing` accepts it when it's from the same system image (see [`create-avd.sh`](#create-avdsh)) |
-| `start-emulator.sh: '<avd>' booted, but its home app wasn't in front with the focus within 300 s` (with `--wait-for-home`) | the next line says what was in front: nothing focused (a host short of CPU: raise `ADT_HOME_TIMEOUT`), another app (on an emulator that had booted before: press Home, or leave out the flag), or a screen that two Backs didn't close |
+| `start-emulator.sh: '<avd>' booted, but its home app wasn't in front with the focus within 600 s` (with `--wait-for-home`) | the next line says what was in front: nothing focused (a host short of CPU: raise `ADT_HOME_TIMEOUT`), another app (on an emulator that had booted before: press Home, or leave out the flag), or a screen that two Backs didn't close |
+| `start-emulator.sh: '<avd>' booted, but no home app is enabled` (with `--wait-for-home`, API 24 on) | every home app is disabled, e.g. the stock launcher by `pm disable-user`: `adb shell pm list packages -d` lists the disabled apps, `adb shell pm enable <package>` enables one (see [`start-emulator.sh`](#start-emulatorsh)) |
 | `start-emulator.sh: … was stopped before it finished booting` | the AVD was already running and booting (another call started it), and was stopped while this one waited; start it again |
 | `start-emulator.sh: … adb can't reach it` (with `--quick`) | the restored snapshot left adb offline: `stop-emulator.sh <serial>`, then start it without `--quick` |
 | `Android logged no write of app states on … within 12 s` from `stop-emulator.sh` | from API 33 on: nothing was pending, or Android is late with its write, so an app enabled or disabled since its last write may be lost; on a host short of CPU, raise `ADT_SAVE_WAIT` (see [`stop-emulator.sh`](#stop-emulatorsh)) |

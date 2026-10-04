@@ -581,6 +581,60 @@ class WaitsForHome(EmulatorTestCase):
         self.assertSucceeded(self.start("--wait-for-home"))
         self.assertEqual(self.backs(), [])
 
+    def test_fails_at_once_when_no_home_app_is_enabled(self):
+        # A stock launcher left disabled: once the user is unlocked, a HOME intent still finds only
+        # FallbackHome, which stays in front; no home app can come. The state's format differs
+        # (dumpsys user: {0=3} up to API 32, [0=RUNNING_UNLOCKED] from 33 on).
+        for level in (24, 30, 36):
+            with self.subTest(api_level=level):
+                self.sandbox.set_behavior(api_level=level, home_resolves=[FALLBACK_HOME],
+                                          user_unlocked=True,
+                                          front=[[FALLBACK_HOME, FALLBACK_HOME_WINDOW]])
+                looks_before = len(self.looks())
+                result = self.start("--wait-for-home", env={"ADT_HOME_TIMEOUT": "60"})
+                self.assertFailed(result, "'tv_api25' booted, but no home app is enabled (a disabled "
+                                          "stock launcher?): the user is unlocked, and nothing but "
+                                          "Settings' FallbackHome handles a HOME intent,\nso it was "
+                                          "stopped.")
+                self.assertIn(f"In front: activity {FALLBACK_HOME}, focused window "
+                              f"{FALLBACK_HOME_WINDOW}; a HOME intent resolves to {FALLBACK_HOME};",
+                              result.output)
+                self.assertIn("enable its home app, e.g. its stock launcher\n(adb shell pm list "
+                              "packages -d lists the disabled apps", result.output)
+                self.assertEqual(len(self.looks()) - looks_before, 2, "not at two looks in a row")
+                self.assertEqual(self.sandbox.running(), {}, "the emulator it started is stopped")
+
+    def test_leaves_one_that_had_booted_running_when_no_home_app_is_enabled(self):
+        self.sandbox.set_behavior(home_resolves=[FALLBACK_HOME], user_unlocked=True,
+                                  front=[[FALLBACK_HOME, FALLBACK_HOME_WINDOW]])
+        serial = self.sandbox.start_emulator("tv_api25")
+        result = self.start("--wait-for-home", env={"ADT_HOME_TIMEOUT": "60"})
+        self.assertFailed(result, f"'tv_api25' ({serial}) booted, but no home app is enabled")
+        self.assertIn(f"left running.\nEnable its home app, e.g. its stock launcher, then try "
+                      f"again\n(adb -s {serial} shell pm list packages -d lists the disabled apps; "
+                      f"adb -s {serial} shell pm enable <package>).", result.output)
+        self.assertEqual(self.sandbox.running(), {serial: "tv_api25"})
+
+    def test_fallback_home_alone_is_no_sign_while_the_user_is_locked(self):
+        # Until the user is unlocked, Android lists only FallbackHome for a HOME intent, even with
+        # a home app enabled: that's the way to the home screen, which gets the long limit.
+        for level in (24, 30, 36):
+            with self.subTest(api_level=level):
+                self.sandbox.set_behavior(api_level=level, home_resolves=[FALLBACK_HOME],
+                                          front=[[FALLBACK_HOME, FALLBACK_HOME_WINDOW]])
+                result = self.start("--wait-for-home", env=self.FAST)
+                self.assertFailed(result, "home app wasn't in front with the focus within 2 s")
+                self.assertNotIn("no home app is enabled", result.output)
+
+    def test_a_home_app_missing_from_one_look_is_no_sign(self):
+        # An app being updated is missing from the query for a moment.
+        self.sandbox.set_behavior(home_resolves=[FALLBACK_HOME, HOME], user_unlocked=True,
+                                  home_activities=[[FALLBACK_HOME], [HOME, FALLBACK_HOME]],
+                                  front=[[FALLBACK_HOME, FALLBACK_HOME_WINDOW], [HOME, HOME_WINDOW]])
+        result = self.start("--wait-for-home", env={"ADT_HOME_TIMEOUT": "60"})
+        self.assertSucceeded(result)
+        self.assertIn("The home app (com.google.android.tvlauncher) is in front.", result.err)
+
     def test_waits_while_another_window_has_the_focus(self):
         for front in ([HOME, "Application Not Responding: com.example.tv"],   # a dialog
                       ["com.android.systemui/.SomeActivity",
