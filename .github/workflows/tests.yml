@@ -18,7 +18,9 @@ concurrency:
 jobs:
   hermetic:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    # Only for a hang. The tier's time is mostly the scripts' own real waits, so it grows with
+    # each feature, and a busy runner stretches it; a passing run must never come near this.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
