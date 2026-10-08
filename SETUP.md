@@ -49,7 +49,7 @@ Downloads are what goes over the network; "on disk" is what the finished install
 | Optional: the Google TV x86 system images | ~720–940 MB each | 3.2–8.2 GB each (table below) |
 | The `tv_api25` AVD, once booted and used for tests | | 1–2.5 GB (`~/.android/avd`), it grows with snapshots; about the same for each other AVD, ~5 GB for API 23 |
 | A Gradle distribution (first `./gradlew` of a project) | ~150 MB | |
-| Gradle/Maven dependencies of a project (AGP, Kotlin, test libraries, …) | a few hundred MB | ~1.1 GB (`~/.gradle`) |
+| Gradle/Maven dependencies of a project (AGP, Kotlin, test libraries, …) | a few hundred MB | ~1.3 GB (`~/.gradle`) |
 
 The tested Android TV x86 system images (`system-images;android-<level>;android-tv;x86`):
 
@@ -84,7 +84,7 @@ Plan for **~8 GB** in `$HOME` for a full first-time setup with one project built
 booted, and **4–6 GB more** for each other Android version (its system image and AVD); ~11 GB for
 API 34 and 36, whose images alone take 8.2 GB.
 
-**Memory:** a running emulator takes 1.8–2.5 GB of RAM up to API 28, and 3–3.4 GB from API 29 on.
+**Memory:** a running emulator takes 1.8–2.5 GB of RAM up to API 28, and 3–3.8 GB from API 29 on.
 
 ## Prerequisites
 

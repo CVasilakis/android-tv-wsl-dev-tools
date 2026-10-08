@@ -47,19 +47,19 @@
 # starting and has the focus, at two looks in a row (wait_for_home in lib.sh says exactly what it
 # checks; on Google TV that comes after a screen the launcher shows first, minutes on a slow host),
 # for at most $ADT_HOME_TIMEOUT seconds (default 600; 0: no limit), counted from when Android has
-# booted: on an emulator starved of CPU, Google TV's first screen held the focus for minutes and
-# the whole wait took over a third of this limit, which leaves room for a host slower still. When
-# time's up it fails, naming what was in front, and stops the emulator if it started it, as after a
-# boot timeout. When another app's screen keeps the focus (a new AVD's first boot shows "USB drive
-# connected" on API 23 and 29), it presses Back, twice at most, never on a screen of the home app's
-# own, and only on an emulator whose boot it waited for: one that had booted before may be in use,
-# so there it only looks. The long limit is for the device on its way to its home screen; another
-# app's screen never is, so once the same one has kept the focus for $ADT_OTHER_APP_TIMEOUT seconds
-# (default 60; 0: no such limit), after the Backs if any, it fails at once, naming it, rather than
-# wait out $ADT_HOME_TIMEOUT. Nor can a home app come when none is enabled (a stock launcher left
-# disabled): from API 24 on, once the user is unlocked and still nothing but Settings' FallbackHome
-# handles a HOME intent, it fails at once. With --quick the restored device has usually settled
-# already.
+# booted: on an emulator starved of CPU, Google TV's first screen held the focus for minutes and the
+# whole wait took over a third of this limit, which leaves room for a host slower still. When time's
+# up it fails, naming what was in front, and stops the emulator if it started it, as after a boot
+# timeout. When another app's screen keeps the focus (a new AVD's first boot shows "USB drive
+# connected" on API 23, 28 and 29), it presses Back, twice at most, never on a screen of the home
+# app's own, and only on an emulator whose boot it waited for: one that had booted before may be in
+# use, so there it only looks. The long limit is for the device on its way to its home screen;
+# another app's screen never is, so once the same one has kept the focus for $ADT_OTHER_APP_TIMEOUT
+# seconds (default 60; 0: no such limit), after the Backs if any, it fails at once, naming it,
+# rather than wait out $ADT_HOME_TIMEOUT. Nor can a home app come when none is enabled (a stock
+# launcher left disabled): from API 24 on, once the user is unlocked and still nothing but Settings'
+# FallbackHome handles a HOME intent, it fails at once. With --quick the restored device has usually
+# settled already.
 #
 # Home on Android TV 8.0 and 8.1: on the API 26 and 27 Android TV images, the Home key never
 # leaves an app until tv_user_setup_complete is set, so after the boot the script sets it, and

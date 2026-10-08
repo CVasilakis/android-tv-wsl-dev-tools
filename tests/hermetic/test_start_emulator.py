@@ -554,7 +554,7 @@ class WaitsForHome(EmulatorTestCase):
         self.assertEqual(len(self.looks()), len(flapping) + 2, "returned while it still changed")
 
     def test_presses_back_when_another_screen_keeps_the_focus(self):
-        # A new AVD's first boot shows "USB drive connected" over the home app on API 23 and 29.
+        # A new AVD's first boot shows "USB drive connected" over the home app on API 23, 28 and 29.
         self.sandbox.set_behavior(front=[self.USB, "BACK", [HOME, HOME_WINDOW]])
         result = self.start("--wait-for-home", env=self.SOON)
         self.assertSucceeded(result)

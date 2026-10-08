@@ -94,7 +94,7 @@ Why the steps look like this:
   (`sys.boot_completed`), which on a runner comes before the device has settled: the home app can
   still be starting, and no window may have the focus yet, so the tests' first keys would reach no
   app. With `--wait-for-home` it also waits until the home app's screen is in front, has finished
-  starting and has the focus, presses Back for a screen that stays in front of it (on API 23 and
+  starting and has the focus, presses Back for a screen that stays in front of it (on API 23, 28 and
   29, a new AVD's first boot opens "USB drive connected"), and fails, naming what was in front, if
   the home app doesn't settle within `ADT_HOME_TIMEOUT` seconds
   ([`bin/README.md`](bin/README.md#start-emulatorsh)).

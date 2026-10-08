@@ -200,9 +200,10 @@ emulator_avd() {
 # boot, as Google Play services was updated, and went through DispatchActivity again.
 #
 # Another app's screen can keep the focus: a new AVD's first boot shows "USB drive connected" (for
-# its SD card) in front of the home app on API 23 and 29, until Back. So when a window of another
-# app than the home app's has kept the focus for BACK_AFTER s, once the user is unlocked, it presses
-# Back, up to <backs> times (default 0: it only looks; never on a device someone may be using).
+# its SD card) in front of the home app on API 23, 28 and 29, until Back. So when a window of
+# another app than the home app's has kept the focus for BACK_AFTER s, once the user is unlocked, it
+# presses Back, up to <backs> times (default 0: it only looks; never on a device someone may be
+# using).
 # Never on a screen of the home app's own, like DispatchActivity: a Back there could end what the
 # launcher is doing. After <seconds> (0: no limit) it prints what was in front instead, and fails
 # (status 1).
