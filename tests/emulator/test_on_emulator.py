@@ -2,12 +2,14 @@
 
 Uses the developer's own setup (SDK, AVD) exactly as the scripts find it; set ADT_AVD to pick
 the AVD. If that AVD is already running it's reused and left running; otherwise it's booted
-without a window, with --wait-for-home so the tests start on a device that has settled, and
+without a window, with --wait-for-home so the tests start on a device that has settled, with the
+emulator flags in ADT_TEST_EMULATOR_FLAGS if any, and
 stopped afterwards (without saving a snapshot, so the next normal start is unaffected). The stop-emulator.sh tests need an AVD of their own to stop, so they skip if the
 AVD was already running.
 """
 import os
 import re
+import shlex
 import signal
 import subprocess
 import tempfile
@@ -171,8 +173,11 @@ def wait_for_home(serial):
 
 
 def start(avd, *flags):
-    """Boots the AVD the way this tier does: no window, no snapshot saved when it's stopped."""
-    return start_script(avd, "-no-window", "-no-snapshot-save", *flags)
+    """Boots the AVD the way this tier does: no window, no snapshot saved when it's stopped, and
+    the emulator flags in ADT_TEST_EMULATOR_FLAGS, e.g. another renderer where the default one
+    crashes."""
+    own = shlex.split(os.environ.get("ADT_TEST_EMULATOR_FLAGS", ""))
+    return start_script(avd, "-no-window", "-no-snapshot-save", *own, *flags)
 
 
 def stop(target, stop_timeout=STOP_TIMEOUT):

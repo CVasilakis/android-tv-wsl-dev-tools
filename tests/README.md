@@ -46,7 +46,10 @@ Some hermetic tests skip, with the reason printed, when an optional tool is miss
 
 The emulator tier reuses the AVD if it's already running and leaves it running. Otherwise it boots
 it (cold) with `--wait-for-home -no-window -no-snapshot-save`, so every test starts on a device
-that has settled, and stops it at the end. The `stop-emulator.sh` tests
+that has settled, and stops it at the end. To add emulator flags to the boots it makes, e.g.
+another renderer where the default one crashes, set `ADT_TEST_EMULATOR_FLAGS`
+(`ADT_TEST_EMULATOR_FLAGS="-gpu swangle_indirect"`); a `-gpu` there replaces
+`start-emulator.sh`'s default. The `stop-emulator.sh` tests
 skip when the AVD was already running, since they would have to stop it. It tests one AVD per run, so to
 cover every Android version you use:
 

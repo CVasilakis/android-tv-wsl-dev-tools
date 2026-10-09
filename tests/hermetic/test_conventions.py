@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 from emulator import test_on_emulator as tier
 from support.sandbox import BIN, LIB, TOOLS
@@ -62,6 +63,14 @@ class Conventions(unittest.TestCase):
                     with self.subTest(f"{script.name}:{number}"):
                         self.assertRegex(code, r"=\$SECONDS$",
                                          "check time limits with time_is_up")
+
+    def test_the_emulator_tier_boots_with_the_developers_emulator_flags(self):
+        # Where the default renderer crashes (SELinux), the tier's own boots need another one.
+        flags = {"ADT_TEST_EMULATOR_FLAGS": "-gpu swangle_indirect -cores '2'"}
+        with mock.patch.object(tier, "start_script") as start_script, mock.patch.dict(os.environ, flags):
+            tier.start("tv_api25", "--wait-for-home")
+        start_script.assert_called_once_with("tv_api25", "-no-window", "-no-snapshot-save", "-gpu",
+                                             "swangle_indirect", "-cores", "2", "--wait-for-home")
 
     def test_the_emulator_tier_copies_the_scripts_current_time_limits(self):
         # The tier's limits for start-emulator.sh and stop-emulator.sh are built from these values

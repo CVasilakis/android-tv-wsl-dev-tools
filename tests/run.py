@@ -16,7 +16,8 @@ def main():
     parser = argparse.ArgumentParser(
         prog="tests/run.py",
         description="Runs the behavior tests of the scripts in bin/.",
-        epilog="Environment: ADT_AVD picks the AVD for --emulator; SCRIPT_TESTS_DISPLAY=:0 "
+        epilog="Environment: ADT_AVD picks the AVD for --emulator, ADT_TEST_EMULATOR_FLAGS adds "
+               "emulator flags to the boots it makes; SCRIPT_TESTS_DISPLAY=:0 "
                "runs the X11 tests on an existing display instead of Xvfb.")
     tier = parser.add_mutually_exclusive_group()
     tier.add_argument("--emulator", action="store_true", help="only the real-emulator tests")
