@@ -64,6 +64,27 @@ bin/stop-emulator.sh          # stop it, returns once it has exited (<avd-name|s
 - `sudo` needs a password and there's no terminal to type it into, so ask the user to run sudo
   commands themselves in a regular terminal.
 
+## Commit messages
+
+Agents never create commits. When asked for a commit message, read recent history (`git log`)
+first and match its style and level of detail.
+
+- **Subject: the outcome, not the activity** ("classify lock storage failures as storage errors",
+  not "update locking code"). Use a conventional prefix (`fix(locking): …`) only if recent
+  history does.
+- **Body: understandable without the diff.** Say what changed, why, which module or layer owns
+  it, and which behavior was deliberately kept (invariants, compatibility). Explain non-obvious
+  decisions, such as why a port or boundary was added or why responsibilities stay in separate
+  layers.
+- Describe behavior, not file inventories, symbol lists or the order things were implemented in.
+- Left-aligned `-` bullets, one purpose each; don't repeat the subject or another bullet.
+- No filler, promotional wording or vague phrases ("improve robustness", "various fixes")
+  unless the concrete behavior follows right away.
+- Mention tests only if they ran, with the exact passing count when known. Never claim a run
+  passed if it failed or didn't run.
+- No trailers or sign-offs of any kind (`Co-Authored-By`, "Generated with …", …).
+- Make it detailed enough to keep the design intent, and no longer than that.
+
 ## Things that look removable but aren't
 
 Each of these fixes a real problem. The reasons are in the linked file; read them before changing anything.

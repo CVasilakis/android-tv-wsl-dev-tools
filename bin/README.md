@@ -508,6 +508,10 @@ and that configuration change recreates the app in front, which then drops the k
 
 ## The side toolbar under WSLg (`wslg-toolbar.py`)
 
+Outside WSL, `start-emulator.sh` leaves the toolbar as the emulator shows it. Under GNOME on
+Wayland (Fedora) the emulator runs through Xwayland and warns that Qt's "wayland" plugin isn't
+bundled, which is harmless.
+
 Under WSLg the emulator's side toolbar (power, volume, Back, Home, "⋯" → Extended controls) breaks input:
 
 1. **Its buttons ignore clicks.** WSLg draws the toolbar next to the emulator but places its X11

@@ -12,7 +12,7 @@ and emulators on their own.
 
 ## Documentation
 
-- [`SETUP.md`](SETUP.md): installing the toolchain (JDK, Android SDK, emulator) on WSL2, and how
+- [`SETUP.md`](SETUP.md): installing the toolchain (JDK, Android SDK, emulator) on WSL2 or Fedora, and how
   much disk and memory it takes.
 - [`bin/README.md`](bin/README.md): the scripts. What each one does, how they find your setup,
   controlling the TV, other Android versions and screen sizes, troubleshooting.
@@ -25,7 +25,10 @@ and emulators on their own.
 **Where:** Ubuntu on WSL2 (Windows 11, or a recent Windows 10 build, with WSLg), tested on Ubuntu
 24.04. Other Debian-based distributions, and Ubuntu outside WSL, may work but are untested; the
 WSLg workarounds are skipped outside WSL. GitHub's Ubuntu runners are covered for headless use in
-CI ([`CI.md`](CI.md)). macOS, native Windows and non-Debian distributions aren't supported.
+CI ([`CI.md`](CI.md)). Native Fedora 44 Workstation has its steps in [`SETUP.md`](SETUP.md),
+from a test on API 25; it isn't supported until the emulator tier has passed there on every
+tested image. Fedora under WSL is untested. macOS, native Windows and other non-Debian
+distributions aren't supported.
 
 **What:** Android TV apps, controlled with a D-pad remote and no touchscreen. The AVD settings,
 the default AVD and the remote in the terminal are built around that. Phone, tablet, Wear OS and

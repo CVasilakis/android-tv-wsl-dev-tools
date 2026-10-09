@@ -1,7 +1,8 @@
-# Development environment setup (WSL2)
+# Development environment setup
 
-How to set up the toolchain for developing Android TV apps from the command line on WSL2, with an
-Android TV emulator and without Android Studio. What's supported is in [Scope](README.md#scope).
+How to set up the toolchain for developing Android TV apps from the command line on WSL2 (or
+natively on Fedora), with an Android TV emulator and without Android Studio. What's supported is in
+[Scope](README.md#scope). Where Fedora differs from Ubuntu, a step says so.
 For using the emulator once it's set up, see [`bin/README.md`](bin/README.md); for a CI runner,
 see [`CI.md`](CI.md).
 
@@ -16,7 +17,7 @@ The versions are the ones this setup was tested with; newer ones should work too
 
 | Component | Tested version | Location |
 |---|---|---|
-| JDK | OpenJDK 21 (`openjdk-21-jdk-headless`) | `/usr/lib/jvm/java-21-openjdk-amd64` |
+| JDK | OpenJDK 21 (`openjdk-21-jdk-headless`); on Fedora 25 (`java-25-openjdk-devel`) | `/usr/lib/jvm/java-21-openjdk-amd64`; on Fedora `/usr/lib/jvm/java-25-openjdk` |
 | Android SDK root | — | `~/Android/Sdk` |
 | cmdline-tools | 22.0 | `~/Android/Sdk/cmdline-tools/latest` |
 | `android` CLI | downloaded by `cmdline-tools/latest/bin/android` on its first run | `~/.android/cli`, `~/.android/bin` |
@@ -36,7 +37,7 @@ Downloads are what goes over the network; "on disk" is what the finished install
 | Item | Download | On disk |
 |---|---|---|
 | cmdline-tools zip | ~174 MB | 175 MB (`cmdline-tools/`) |
-| JDK apt package | ~83 MB | |
+| JDK package (Ubuntu's) | ~83 MB | |
 | platform-tools | ~9 MB | 22 MB |
 | platforms;android-36 | ~66 MB | 146 MB |
 | build-tools (automatic, first build) | ~64 MB | 147 MB |
@@ -88,8 +89,11 @@ API 34 and 36, whose images alone take 8.2 GB.
 
 ## Prerequisites
 
-- WSL2 with **WSLg** (Windows 11, or a recent Windows 10 build): `echo $DISPLAY` prints `:0`.
-- Nested virtualization enabled for WSL2 (the default), so `/dev/kvm` exists: `ls -l /dev/kvm`.
+- WSL2 with **WSLg** (Windows 11, or a recent Windows 10 build): `echo $DISPLAY` prints `:0`. On
+  Fedora, a desktop session; under GNOME on Wayland the emulator runs through Xwayland, so there
+  too `echo $DISPLAY` prints a display such as `:0`.
+- Hardware virtualization, so `/dev/kvm` exists: `ls -l /dev/kvm`. For WSL2 that's nested
+  virtualization, enabled by default; on Fedora, virtualization enabled in the firmware.
 - `unzip`, `curl` and `python3` 3.10+ (used by `bin/wslg-toolbar.py` and the tests).
 
 ## Steps
@@ -98,28 +102,46 @@ API 34 and 36, whose images alone take 8.2 GB.
 
 This is the whole sudo part of the setup; everything after it runs as your own user.
 
+Ubuntu:
+
 ```bash
 sudo apt-get install -y openjdk-21-jdk-headless \
     libpulse0 libnss3 libxkbfile1 libsm6 libxext6 libxi6 libdrm2 libpng16-16t64
 sudo usermod -aG kvm $USER
 ```
 
-- A JRE alone (`openjdk-21-jre`) is **not** enough: the Android build needs `javac` and `jlink`.
+Fedora:
+
+```bash
+sudo dnf install -y java-25-openjdk-devel \
+    pulseaudio-libs libXext libXi libxkbfile libSM libdrm libpng nss expat
+```
+
+- A JRE alone (`openjdk-21-jre`; on Fedora `java-25-openjdk-headless`) is **not** enough: the
+  Android build needs `javac` and `jlink`.
 - Current Android Gradle Plugin versions need JDK 17+; Robolectric tests on recent API levels
   need 21 or newer. A JDK only works with a Gradle that can run on it: 21 with Gradle 8.5 or
   newer, 25 with 9.1 or newer, so a project whose wrapper is still on 8.x fails on JDK 25 with
   `Unsupported class file major version 69`.
+- Fedora has no JDK 21 package, only 25 (and newer ones as `java-latest-openjdk`). JDK 25 works
+  for projects on Gradle 9.1 or newer. Move a project still on Gradle 8.x to a newer Gradle, or
+  install a JDK 21 from elsewhere, e.g. Temurin from Adoptium's Fedora repository (untested here).
 - The `lib…` packages are the system libraries the emulator needs and doesn't bundle. Ubuntu's
   WSL image lacks `libpulse0`, `libnss3`, `libxkbfile1` and `libsm6`; a more minimal Ubuntu, such
   as a container, lacks the others too. Without one of them the emulator fails before showing
   anything, even with `-no-audio`, e.g.
   `qemu-system-i386: error while loading shared libraries: libnss3.so: cannot open shared object file`.
+  Fedora Workstation has its `lib…` packages installed already; a minimal Fedora lacks them.
 - `sudo` needs a password, so run these in a regular terminal. Tools that run commands without a
   terminal (such as an AI agent's shell) can't prompt for it.
 
-Check: `/usr/lib/jvm/java-21-openjdk-amd64/bin/javac -version` prints 21.
+Check: `/usr/lib/jvm/java-21-openjdk-amd64/bin/javac -version` prints 21 (Fedora:
+`/usr/lib/jvm/java-25-openjdk/bin/javac -version` prints 25).
 
 #### Make `/dev/kvm` writable
+
+On native Fedora there's nothing to do: systemd's udev rules make `/dev/kvm` writable by everyone
+(`crw-rw-rw-`), so `test -w /dev/kvm && echo ok` prints `ok`. The rest of this section is for WSL.
 
 The x86 emulator won't start without hardware acceleration, and `/dev/kvm` is only writable by
 root and by the group that owns it. Two separate things have to be true, so check the device
@@ -172,18 +194,19 @@ works.
 
 ### 3. Environment variables and the `android` CLI
 
-Put this in `~/.bashrc`, then `source ~/.bashrc`:
+Put this in `~/.bashrc` on Ubuntu, or in `~/.bashrc.d/android.sh` on Fedora (where exactly, and
+why, below), then open a new terminal:
 
 ```bash
 # Android SDK
 export ANDROID_HOME="$HOME/Android/Sdk"
 export ANDROID_SDK_ROOT="$ANDROID_HOME"
-export JAVA_HOME="/usr/lib/jvm/java-21-openjdk-amd64"
+export JAVA_HOME="/usr/lib/jvm/java-21-openjdk-amd64"      # Fedora: /usr/lib/jvm/java-25-openjdk
 export PATH="$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator"
 ```
 
-**Put it above the interactive check, not at the end of the file.** Ubuntu's stock `~/.bashrc`
-starts with
+**On Ubuntu, put it above the interactive check, not at the end of the file.** Ubuntu's stock
+`~/.bashrc` starts with
 
 ```bash
 case $- in
@@ -194,7 +217,13 @@ esac
 
 so anything below it is skipped by non-interactive shells — build scripts, CI, and the shells AI
 agents run commands in. Appending the block to the end of the file works when you type commands
-yourself and then fails with `SDK location not found` from `bash -lc './gradlew …'`. Check both:
+yourself and then fails with `SDK location not found` from `bash -lc './gradlew …'`.
+
+**On Fedora, a file of its own in `~/.bashrc.d/` is the place.** Fedora's `~/.bashrc` reads every
+file there and has no interactive check, and its `~/.bash_profile` reads `~/.bashrc`, so login
+shells get it whether interactive or not.
+
+Check both:
 
 ```bash
 bash -lic 'echo $ANDROID_HOME'    # interactive
@@ -205,11 +234,11 @@ A shell that is neither interactive nor a login shell (`bash -c …`) reads no s
 so give those the variable explicitly or rely on the project's `local.properties` (step 7).
 
 Gradle and `avdmanager` run the JDK in `JAVA_HOME`. The `java` and `javac` on `PATH` are whichever
-JDK `update-alternatives` picked, which with several JDKs installed can be another one, so check
-the JDK through `JAVA_HOME`:
+JDK `update-alternatives` (Fedora: `alternatives`) picked, which with several JDKs installed can be
+another one, so check the JDK through `JAVA_HOME`:
 
 ```bash
-"$JAVA_HOME/bin/javac" -version    # prints 21
+"$JAVA_HOME/bin/javac" -version    # prints 21 (Fedora: 25)
 ```
 
 To also call this repository's scripts by name, see
@@ -350,7 +379,9 @@ Likewise for any other level whose image you installed in step 5. From API 29 on
 prints a devices.xml error that's harmless ([`bin/README.md`](bin/README.md#create-avdsh)).
 
 `create-avd.sh` only writes files, so it works without KVM access; booting the AVD (step 7) is the
-first thing that needs it.
+first thing that needs it. On Fedora it says that SELinux denies the usual renderer and that the
+AVD renders with `swangle_indirect` instead, as `start-emulator.sh` then does: that's expected
+([`bin/README.md`](bin/README.md#create-avdsh)).
 
 ### 7. Use it from a project
 
@@ -386,6 +417,8 @@ The tests need only Python 3.10+; two optional tools enable more of them. See
   [Make `/dev/kvm` writable](#make-devkvm-writable).
 - **`error while loading shared libraries: lib….so`** when the emulator starts: a system library
   is missing; install the packages of step 1.
+- **`JAVA_HOME is set to an invalid directory`** from `avdmanager` or Gradle: `JAVA_HOME` names a
+  JDK that isn't installed, e.g. Ubuntu's path on Fedora (step 3).
 - **`sudo: a terminal is required to read the password`**: run the command in a regular terminal (step 1).
 - **`Error: "emulator" package must be installed!`** from `create-avd.sh`: step 4 is missing.
 - **`Package … not found.`** from `android sdk install`, and the setup carries on regardless: a

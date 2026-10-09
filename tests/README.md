@@ -27,7 +27,7 @@ too. The emulator tier isn't run there; run it locally before a release.
 | emulator | [`emulator/`](emulator) | Your SDK and AVD (`ADT_AVD` picks one) | What fakes can't show: booting really completes, and with `--wait-for-home` returns with the home app in front and focused, `remote.sh`'s keys arrive in Android as the right keys, its Home key takes the device from an app to its home app, `--long-press` holds the key for the device's long-press timeout and leaves the settings as they were, and `stop-emulator.sh` returns only once the AVD can start again, also for a `-read-only` emulator, which writes no lock file, even a frozen one (SIGSTOP) named by its AVD, and doesn't fail on one that's exiting already (sent SIGTERM). |
 
 Some hermetic tests skip, with the reason printed, when an optional tool is missing:
-- **Xvfb** (`sudo apt-get install -y xvfb`) for the `wslg-toolbar.py`
+- **Xvfb** (`sudo apt-get install -y xvfb`; Fedora: `sudo dnf install -y xorg-x11-server-Xvfb`) for the `wslg-toolbar.py`
   tests, which create emulator-like windows on a private X server. It runs on the first free
   display from `:99` up, reachable only through an abstract socket. Under WSLg `/tmp/.X11-unix`
   is read-only, and a low display number would capture the desktop's own apps. It runs with
@@ -42,7 +42,8 @@ Some hermetic tests skip, with the reason printed, when an optional tool is miss
   (`CreateWndow(): rdp_peer is not initalized`, then `terminated with signal 11` in
   `/mnt/wslg/stderr.log`); after the restart, the window manager can stop mapping new windows
   for a while.
-- **shellcheck** (`sudo apt-get install -y shellcheck`) for static analysis of the shell scripts.
+- **shellcheck** (`sudo apt-get install -y shellcheck`; Fedora: `sudo dnf install -y ShellCheck`) for
+  static analysis of the shell scripts.
 
 The emulator tier reuses the AVD if it's already running and leaves it running. Otherwise it boots
 it (cold) with `--wait-for-home -no-window -no-snapshot-save`, so every test starts on a device
