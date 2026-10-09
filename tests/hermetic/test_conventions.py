@@ -99,7 +99,8 @@ class Conventions(unittest.TestCase):
                 with self.subTest(script.name):
                     py_compile.compile(str(script), cfile=os.path.join(out, "x.pyc"), doraise=True)
 
-    @unittest.skipUnless(shutil.which("shellcheck"), "shellcheck isn't installed")
+    @unittest.skipUnless(shutil.which("shellcheck"),
+                         "shellcheck isn't installed (apt install shellcheck / dnf install ShellCheck)")
     def test_shellcheck(self):
         result = subprocess.run(["shellcheck", "-x", "--source-path=SCRIPTDIR", *map(str, SHELL)],
                                 capture_output=True, text=True, cwd=TOOLS)
