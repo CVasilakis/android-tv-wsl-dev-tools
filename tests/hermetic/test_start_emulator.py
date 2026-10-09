@@ -163,8 +163,16 @@ class Boots(EmulatorTestCase):
     def test_crash_during_boot_is_reported_with_the_log(self):
         self.sandbox.set_behavior(emulator_crash="unknown option: -bogus")
         result = self.start("-bogus")
-        self.assertFailed(result, "the emulator exited")   # not waiting for the boot timeout
+        self.assertFailed(result, "the emulator exited with status 1")   # not waiting for the boot timeout
         self.assertIn("unknown option: -bogus", result.output, "the log's last lines are shown")
+
+    def test_crash_by_a_signal_is_named(self):
+        # The emulator's log says nothing about a segfault (e.g. SELinux denying SwiftShader's
+        # execheap), so the signal is all that tells a crash from a normal start.
+        self.sandbox.set_behavior(emulator_signal="SEGV")
+        result = self.start()
+        self.assertFailed(result, "the emulator exited, killed by signal 11 (SIGSEGV)")
+        self.assertIn("Android emulator version", result.err, "the log's last lines are shown")
 
 
 class ColdOrQuickBoot(EmulatorTestCase):

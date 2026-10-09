@@ -76,8 +76,9 @@
 #       device belongs to another group, the kvm group can't help; chgrp the device instead (the
 #       message shows how). If /dev/kvm doesn't exist at all, hardware virtualization is off
 #       (in the firmware, or nested virtualization for WSL).
-#   "the emulator exited"
-#       It failed to start or crashed; the log's last lines are printed.
+#   "the emulator exited with status N" / "the emulator exited, killed by signal N (SIG...)"
+#       It failed to start or crashed; the log's last lines are printed. A crash by a signal can
+#       leave nothing in the log, so the signal is named.
 #   "didn't finish booting within ... s"
 #       Android didn't boot in time, and the emulator was stopped. On a slow host, raise
 #       ADT_BOOT_TIMEOUT; if it never boots, try -wipe-data (factory reset).
@@ -307,12 +308,29 @@ if [ -z "$SERIAL" ]; then
 fi
 BOOT_STARTED=$SECONDS
 
+# How the emulator started above ended, from its exit status. A crash can leave nothing in its
+# log (a segfault: SwiftShader's, where SELinux denies it executable heap), so its signal is all
+# that tells it from a normal start. Sets EXIT_REASON rather than printing it: wait only works
+# in the shell that started the emulator, not in a $(...) subshell.
+emulator_exit_reason() {
+    local status=0
+    wait "$EMULATOR_PID" 2>/dev/null || status=$?
+    if [ "$status" -gt 128 ]; then
+        EXIT_REASON="the emulator exited, killed by signal $((status - 128)) (SIG$(kill -l "$status"))"
+    else
+        EXIT_REASON="the emulator exited with status $status"
+    fi
+}
+
 # Without this, a crashed or stopped emulator would leave the loops below waiting forever. One
 # started elsewhere has no process here to watch, so adb has to still list it.
 check_alive() {
     if [ -n "$STARTED_HERE" ]; then
-        kill -0 "$EMULATOR_PID" 2>/dev/null || die "the emulator exited. Last lines of $LOG:
+        if ! kill -0 "$EMULATOR_PID" 2>/dev/null; then
+            emulator_exit_reason
+            die "$EXIT_REASON. Last lines of $LOG:
 $(tail -n 15 "$LOG")"
+        fi
     # grep without -q reads all its input: exiting early could fail the pipeline (pipefail).
     elif ! running_emulators | grep -xF -- "$SERIAL" > /dev/null; then
         die "'$AVD_NAME' ($SERIAL) was stopped before it finished booting."

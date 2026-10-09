@@ -19,6 +19,7 @@ State directory ($FAKE_STATE):
   devices.json            serials of connected physical devices
   counters.json           per-knob counters (e.g. how many key events failed so far)
 """
+import ctypes
 import json
 import os
 import re
@@ -40,6 +41,9 @@ DEFAULT_BEHAVIOR = {
                                   # boot), "until_reconnect" (a stale Quick Boot snapshot, fixed by
                                   # adb reconnect offline) or "forever"
     "emulator_crash": None,       # emulator prints this and exits 1 instead of booting
+    "emulator_signal": None,      # emulator dies of this signal (e.g. "SEGV") instead of booting,
+                                  # with nothing about it in its log, like a real one whose
+                                  # SwiftShader SELinux denies execheap
     "emulator_hidden": False,     # emulator keeps running but never shows up in adb devices
     "emulator_exit_delay": 0,     # seconds an emulator keeps running after `adb emu kill` (saving
                                   # its Quick Boot snapshot) while adb devices no longer lists it:
@@ -738,10 +742,21 @@ def emulator(args):
     crash = behavior()["emulator_crash"]
     if crash:
         fail(crash)
+    if behavior()["emulator_signal"]:
+        die_of_signal(getattr(signal, "SIG" + behavior()["emulator_signal"]))
     name = args[1]
     if name not in avd_names():
         fail(f"ERROR        | Unknown AVD name [{name}], use -list-avds to see valid list.")
     boot(name)
+
+
+def die_of_signal(signum):
+    """Ends this process by the signal itself, not by an exit status, as a crash does. Without a
+    core dump: the host's crash handler (apport, systemd-coredump, WSL's) would record one."""
+    sys.stdout.flush()
+    ctypes.CDLL(None).prctl(4, 0, 0, 0, 0)   # PR_SET_DUMPABLE 0
+    signal.signal(signum, signal.SIG_DFL)
+    os.kill(os.getpid(), signum)
 
 
 def discovery_folder():

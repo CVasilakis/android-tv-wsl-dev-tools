@@ -182,7 +182,7 @@ in the background (a `-gpu` flag of your own replaces the default), logs to `${T
 finds the emulator's serial by asking each running emulator for its AVD name, waits until
 `sys.boot_completed=1` (so it can be chained with `./gradlew installDebug`), and on WSL finishes
 with `wslg-toolbar.py <name> hide`. If the emulator exits during boot, it stops waiting and prints
-the end of the log.
+how it exited (its exit status, or the signal that killed it) and the end of the log.
 
 **Already running.** An AVD that's already running isn't started again, but it may still be
 booting, e.g. started by another call or CI step a moment ago. The script then waits for its boot
@@ -589,7 +589,8 @@ TV or Google TV; these are the differences in the images that you may run into:
 | `wslg-toolbar: no running emulator window found` | emulator not running, or started with `-no-window` |
 | `wslg-toolbar: several windows look like the toolbar` | an emulator version with another tall window titled "Emulator": compare them with `xwininfo -root -tree \| grep qemu-system` and update the script's search |
 | `wslg-toolbar.py`: `X Error of failed request: BadWindow` | the emulator's toolbar or window closed while the script changed it (the emulator exited or restarted): run it again once the emulator is up |
-| `start-emulator.sh: the emulator exited` | the printed log lines say why (e.g. an unknown flag); full log in `${TMPDIR:-/tmp}/emulator-<name>.log` |
+| `start-emulator.sh: the emulator exited with status …` | the printed log lines say why (e.g. an unknown flag); full log in `${TMPDIR:-/tmp}/emulator-<name>.log` |
+| `start-emulator.sh: the emulator exited, killed by signal 11 (SIGSEGV)` | the emulator crashed; the log usually doesn't say why, as its last lines show a normal start. Try another renderer: `start-emulator.sh <avd> -gpu swangle_indirect` |
 | `start-emulator.sh: '<avd>' didn't finish booting within 900 s` | the host is slow: raise `ADT_BOOT_TIMEOUT`; or Android can't boot: without `--quick` if you used it, else try `-wipe-data` (factory reset) |
 | `create-avd.sh: AVD '<name>' already exists` | it never overwrites one; `--if-missing` accepts it when it's from the same system image (see [`create-avd.sh`](#create-avdsh)) |
 | `start-emulator.sh: '<avd>' booted, but its home app wasn't in front with the focus within 600 s` (with `--wait-for-home`) | the next line says what was in front: nothing focused (a host short of CPU: raise `ADT_HOME_TIMEOUT`), another app (on an emulator that had booted before: press Home, or leave out the flag), or a screen that two Backs didn't close |
