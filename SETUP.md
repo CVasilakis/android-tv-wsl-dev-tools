@@ -42,7 +42,7 @@ Downloads are what goes over the network; "on disk" is what the finished install
 | build-tools (automatic, first build) | ~64 MB | 147 MB |
 | emulator | ~354 MB | 821 MB |
 | Android TV API 25 x86 system image | ~420 MB | 3.1 GB (can be copied instead, see step 5) |
-| `libpulse0` | a few MB | |
+| The emulator's system libraries (`libpulse0`, …, step 1) | a few MB | |
 | the `android` CLI, on its first run | ~250 MB | ~250 MB (`~/.android`) |
 | **The SDK once everything above is installed** | | **~4.4 GB** (`~/Android/Sdk`) |
 | Optional: the Android TV x86 system images of other levels | ~280–920 MB each | 1.4–8.2 GB each (table below) |
@@ -99,20 +99,25 @@ API 34 and 36, whose images alone take 8.2 GB.
 This is the whole sudo part of the setup; everything after it runs as your own user.
 
 ```bash
-sudo apt-get install -y openjdk-21-jdk-headless libpulse0
+sudo apt-get install -y openjdk-21-jdk-headless \
+    libpulse0 libnss3 libxkbfile1 libsm6 libxext6 libxi6 libdrm2 libpng16-16t64
 sudo usermod -aG kvm $USER
 ```
 
 - A JRE alone (`openjdk-21-jre`) is **not** enough: the Android build needs `javac` and `jlink`.
 - Current Android Gradle Plugin versions need JDK 17+; Robolectric tests on recent API levels
-  need 21.
-- `libpulse0` is the emulator's only system library that isn't bundled with it. Without it the
-  emulator fails before showing anything, even with `-no-audio`:
-  `qemu-system-x86_64: error while loading shared libraries: libpulse.so.0`.
+  need 21 or newer. A JDK only works with a Gradle that can run on it: 21 with Gradle 8.5 or
+  newer, 25 with 9.1 or newer, so a project whose wrapper is still on 8.x fails on JDK 25 with
+  `Unsupported class file major version 69`.
+- The `lib…` packages are the system libraries the emulator needs and doesn't bundle. Ubuntu's
+  WSL image lacks `libpulse0`, `libnss3`, `libxkbfile1` and `libsm6`; a more minimal Ubuntu, such
+  as a container, lacks the others too. Without one of them the emulator fails before showing
+  anything, even with `-no-audio`, e.g.
+  `qemu-system-i386: error while loading shared libraries: libnss3.so: cannot open shared object file`.
 - `sudo` needs a password, so run these in a regular terminal. Tools that run commands without a
   terminal (such as an AI agent's shell) can't prompt for it.
 
-Check: `javac -version` prints 21.
+Check: `/usr/lib/jvm/java-21-openjdk-amd64/bin/javac -version` prints 21.
 
 #### Make `/dev/kvm` writable
 
@@ -199,13 +204,24 @@ bash -lc  'echo $ANDROID_HOME'    # non-interactive: must print the same path
 A shell that is neither interactive nor a login shell (`bash -c …`) reads no startup file at all,
 so give those the variable explicitly or rely on the project's `local.properties` (step 7).
 
+Gradle and `avdmanager` run the JDK in `JAVA_HOME`. The `java` and `javac` on `PATH` are whichever
+JDK `update-alternatives` picked, which with several JDKs installed can be another one, so check
+the JDK through `JAVA_HOME`:
+
+```bash
+"$JAVA_HOME/bin/javac" -version    # prints 21
+```
+
 To also call this repository's scripts by name, see
 [`README.md`](README.md#optional-put-the-scripts-on-your-path).
 
 #### The `android` CLI
 
 cmdline-tools 22.0 deprecates `sdkmanager`: running it prints a warning pointing at the `android`
-CLI, whose `android sdk` subcommand replaces it. The steps below use `android`:
+CLI, whose `android sdk` subcommand replaces it. From cmdline-tools 23.0 on, `sdkmanager` is only
+a wrapper that runs `android sdk`: like `android`, its first run downloads the CLI, and it exits 0
+for a package that doesn't exist (notes below), but it can't turn telemetry off
+([Telemetry](#telemetry)). The steps below use `android`:
 
 | Task | `android` | deprecated `sdkmanager` |
 |---|---|---|
@@ -258,6 +274,9 @@ disable it. What that means in practice:
 - **`~/.android/analytics.settings` doesn't stop it.** That file is the older SDK-wide opt-out
   (`"hasOptedIn":false`); events are spooled regardless of it. It may still gate the upload, but
   the recording on disk happens either way.
+- **`sdkmanager` can't opt out.** From cmdline-tools 23.0 on, it runs `android sdk` without
+  `--no-metrics`, so each call writes an event, and it refuses the flag (it prints its usage and
+  exits 1).
 - **There is no persistent opt-out** — no config file, no subcommand, no environment variable.
   (`ANDROID_CLI_ANALYTICS_URL` and `ANDROID_CLI_CRASH_URL` only change where reports are sent.)
   So the flag has to be on every call, which is why every `android` command here carries it.
@@ -343,7 +362,8 @@ From the project's folder (here cloned next to this repository):
 ./gradlew installDebug
 ```
 
-`local.properties` (git-ignored in Android projects) is created by Gradle/IDEs, or by hand:
+`local.properties` (git-ignored in Android projects) is created by Android Studio, not by Gradle on
+the command line, so create it by hand:
 
 ```bash
 echo "sdk.dir=$HOME/Android/Sdk" > local.properties
@@ -364,8 +384,8 @@ The tests need only Python 3.10+; two optional tools enable more of them. See
   **`No access to /dev/kvm`**: not in the `kvm` group yet, or the device belongs to another
   group, or `/dev/kvm` doesn't exist (nested virtualization is off for WSL). See
   [Make `/dev/kvm` writable](#make-devkvm-writable).
-- **`error while loading shared libraries: libpulse.so.0`** when the emulator starts:
-  `sudo apt-get install -y libpulse0` (step 1).
+- **`error while loading shared libraries: lib….so`** when the emulator starts: a system library
+  is missing; install the packages of step 1.
 - **`sudo: a terminal is required to read the password`**: run the command in a regular terminal (step 1).
 - **`Error: "emulator" package must be installed!`** from `create-avd.sh`: step 4 is missing.
 - **`Package … not found.`** from `android sdk install`, and the setup carries on regardless: a

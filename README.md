@@ -37,7 +37,8 @@ tools don't provide.
 - **Android TV x86: API 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 33, 34 and 36**, every one from
   API 22 on (there are none for 32 and 35). API 22 is the oldest the emulator can boot.
 - **Google TV x86: API 30, 31, 33, 34 and 36**, every one there is. Google TV is Android TV with
-  Google's home screen. Its x86_64 and 16 KB page size (`google-tv-ps16k`) variants are untested.
+  Google's home screen. Its x86_64 and 16 KB page size (`google-tv-ps16k`) variants are untested,
+  as is Android TV's x86_64 image of API 36.
 
 ## Getting started
 

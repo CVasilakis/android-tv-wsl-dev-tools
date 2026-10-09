@@ -19,7 +19,11 @@ The same as a workstation ([`SETUP.md`](SETUP.md)), without the WSL parts:
 | Disk space for the system images and AVDs ([sizes](SETUP.md#sizes)) | Not enough, or only just, once a system image is installed: delete preinstalled toolchains first (below). |
 
 Use `sdkmanager` rather than the newer `android` CLI here: the `android` CLI downloads itself on
-its first run, which on a fresh runner is every run.
+its first run, which on a fresh runner is every run. That holds while the runner image's
+cmdline-tools are older than 23.0 (12.0 on `ubuntu-24.04` at the time of writing). From 23.0 on,
+`sdkmanager` runs the `android` CLI ([`SETUP.md`](SETUP.md#the-android-cli)): it downloads it too,
+records usage, and exits 0 for a package that doesn't exist, so a typo in the package list would
+no longer fail the step.
 
 The scripts need nothing else from the runner: without `$DISPLAY`, `start-emulator.sh` runs the
 emulator without a window by itself ([`bin/README.md`](bin/README.md#start-emulatorsh)).
