@@ -7,6 +7,7 @@ emulator flags in ADT_TEST_EMULATOR_FLAGS if any, and
 stopped afterwards (without saving a snapshot, so the next normal start is unaffected). The stop-emulator.sh tests need an AVD of their own to stop, so they skip if the
 AVD was already running.
 """
+import getpass
 import os
 import re
 import shlex
@@ -190,6 +191,26 @@ def stop(target, stop_timeout=STOP_TIMEOUT):
     limit = save + stop_timeout + 2 * KILL_WAIT + 3 + ADB_CALLS * ADB_CALL
     return subprocess.run([str(BIN / "stop-emulator.sh"), target], capture_output=True, text=True,
                           timeout=limit, env={**os.environ, "ADT_STOP_TIMEOUT": str(stop_timeout)})
+
+
+def scratch_files():
+    """The emulator's own scratch files, in /tmp/android-<user> whatever $TMPDIR is: a -read-only
+    emulator keeps its disk overlays there (emulator-*.qcow2), which it deletes when it exits, but
+    not when it's killed."""
+    folder = f"/tmp/android-{getpass.getuser()}"
+    try:
+        return {os.path.join(folder, name) for name in os.listdir(folder)
+                if name.startswith("emulator-")}
+    except OSError:
+        return set()
+
+
+def remove_new_scratch_files(before):
+    for path in scratch_files() - before:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
 
 
 def emulator_pids(*args):
@@ -453,7 +474,9 @@ class StopOnTheRealEmulator(unittest.TestCase):
 
     def test_stop_kills_a_read_only_emulator_that_does_not_answer(self):
         # -read-only writes no lock file, and a frozen console can't name the process: the
-        # emulator's discovery file names it, found by the AVD's name.
+        # emulator's discovery file names it, found by the AVD's name. Killed, it leaves its disk
+        # overlays behind.
+        self.addCleanup(remove_new_scratch_files, scratch_files())
         started = start(self.avd, "-read-only")
         self.assertEqual(started.returncode, 0, started.stderr)
         [pid] = emulator_pids("-avd", self.avd, "-read-only")

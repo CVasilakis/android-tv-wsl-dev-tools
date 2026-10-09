@@ -354,7 +354,9 @@ default stays short because the stop waits all of it whenever nothing is pending
 
 Each adb call has a time limit, and an emulator that doesn't answer as a booted device is
 stopped anyway, unsaved; the script says what it did. A `-read-only` emulator keeps no change,
-so there it skips the save.
+so there it skips the save. It keeps its changes meanwhile in disk overlays in its own scratch
+folder, `/tmp/android-<user>/` whatever `$TMPDIR` is (`emulator-*.qcow2`, a few tens of MB), and
+deletes them when it exits; killed (SIGKILL), it leaves them there, to delete by hand.
 
 **Without saving (`--no-save`).** From API 33 on, the save waits all of `ADT_SAVE_WAIT` when
 nothing is pending, since Android shows no sign of a write it has yet to make. When the changes
