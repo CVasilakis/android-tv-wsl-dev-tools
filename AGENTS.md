@@ -73,6 +73,7 @@ Each of these fixes a real problem. The reasons are in the linked file; read the
 | `readlink -f` when sourcing `lib.sh` and in `TOOLS_DIR` | `bin/*.sh`, `lib/lib.sh` | Scripts called through a symlink on `PATH` must still find the repository. |
 | AVD settings (`hw.keyboard`, `swiftshader_indirect`, landscape, …) | `bin/create-avd.sh` | Keyboard input, WSLg rendering, orientation. |
 | `sg kvm` re-exec (by the real path), waiting for `sys.boot_completed` | `bin/start-emulator.sh` | KVM access without restarting WSL; installing too early fails. |
+| `swangle_indirect` instead of `swiftshader_indirect` when `getenforce` says `Enforcing` and `selinuxuser_execheap` is off | `lib/lib.sh`, `bin/create-avd.sh`, `bin/start-emulator.sh` | SELinux then denies SwiftShader's JIT executable heap memory, and the emulator segfaults at startup with nothing in its log (Fedora's default; [`bin/README.md`](bin/README.md#create-avdsh)). |
 | Comparing `/dev/kvm`'s gid with the `kvm` group's | `bin/start-emulator.sh` | On WSL the device often belongs to no group, and then `usermod -aG kvm` can never help. |
 | Cold boot by default, the offline watchdog only with `--quick` | `bin/start-emulator.sh` | A restored snapshot can leave adb `offline` for good; a cold boot is offline for a while normally. |
 | `install_hint`'s fallback to `sdkmanager` | `lib/lib.sh` | `android` only ships from cmdline-tools 22.0; on older SDKs the hint would name a command the user doesn't have. |

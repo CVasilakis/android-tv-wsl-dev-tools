@@ -41,6 +41,9 @@ DEFAULT_BEHAVIOR = {
                                   # boot), "until_reconnect" (a stale Quick Boot snapshot, fixed by
                                   # adb reconnect offline) or "forever"
     "emulator_crash": None,       # emulator prints this and exits 1 instead of booting
+    "selinux_mode": "Enforcing",  # what getenforce prints, once sandbox.selinux() has installed it
+    "selinux_execheap": "off",    # getsebool's selinuxuser_execheap (Fedora's default: off); None:
+                                  # a policy without that boolean
     "emulator_signal": None,      # emulator dies of this signal (e.g. "SEGV") instead of booting,
                                   # with nothing about it in its log, like a real one whose
                                   # SwiftShader SELinux denies execheap
@@ -867,6 +870,20 @@ def getent(args):
         sys.exit(2)
 
 
+def getenforce(args):
+    print(behavior()["selinux_mode"])
+
+
+def getsebool(args):
+    # The real one fails when SELinux is disabled, or the policy has no such boolean.
+    b = behavior()
+    if b["selinux_mode"] == "Disabled":
+        fail("getsebool:  SELinux is disabled")
+    if args != ["selinuxuser_execheap"] or b["selinux_execheap"] is None:
+        fail(f"Error getting active value for {' '.join(args)}")
+    print(f"selinuxuser_execheap --> {b['selinux_execheap']}")
+
+
 def android(args):
     # Presence-only: the scripts suggest "android sdk install ..." in messages but never run it.
     fail("fake android: the scripts must not run the android CLI")
@@ -907,7 +924,8 @@ def python3(args):
 
 TOOLS = {"adb": adb, "emulator": emulator, "avdmanager": avdmanager,
          "android": android, "sdkmanager": sdkmanager,
-         "getent": getent, "id": id_, "sg": sg, "python3": python3}
+         "getent": getent, "id": id_, "sg": sg, "python3": python3,
+         "getenforce": getenforce, "getsebool": getsebool}
 
 
 def main(tool):

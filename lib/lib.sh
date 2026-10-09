@@ -113,6 +113,18 @@ command_for() {
 KVM_DEVICE="${ADT_KVM_DEVICE:-/dev/kvm}"
 is_wsl() { grep -qi microsoft "${ADT_PROC_VERSION:-/proc/version}" 2>/dev/null; }
 
+# The emulator's usual software renderer, swiftshader_indirect, works on any host, including WSLg,
+# except where SELinux denies user processes executable heap memory, which SwiftShader's JIT
+# needs: enforcing, with the selinuxuser_execheap boolean off, as on Fedora by default. There the
+# emulator segfaults at startup, with nothing in its log, so create-avd.sh and start-emulator.sh
+# use swangle_indirect, also software rendering, which runs there. Without SELinux's tools
+# (Ubuntu), or when they can't tell, it's the usual one.
+selinux_denies_execheap() {
+    [ "$(getenforce 2>/dev/null)" = Enforcing ] &&
+        [ "$(getsebool selinuxuser_execheap 2>/dev/null)" = "selinuxuser_execheap --> off" ]
+}
+SELINUX_GPU_REASON="SELinux denies the usual renderer, swiftshader_indirect, executable heap memory (selinuxuser_execheap is off)"
+
 # The folders AVDs can live in, in the order the emulator and avdmanager look at them.
 avd_homes() {
     [ -n "${ANDROID_AVD_HOME:-}" ] && echo "$ANDROID_AVD_HOME"

@@ -219,8 +219,15 @@ set_prop hw.ramSize 2048                  # enough for the TV images; more starv
 set_prop hw.cpu.ncore 4
 set_prop disk.dataPartition.size 4G       # the image's default userdata is ~550 MB: too small for many test apps
 set_prop hw.gpu.enabled yes
-set_prop hw.gpu.mode swiftshader_indirect # software GL: works on any host (no GPU driver or WSLg GPU passthrough
-                                          # needed); start-emulator.sh passes -gpu too, unless you pass your own
+# Software GL: works on any host (no GPU driver or WSLg GPU passthrough needed); swangle_indirect
+# where SELinux would make swiftshader_indirect crash (see lib.sh). start-emulator.sh passes -gpu
+# too, unless you pass your own.
+GPU_MODE=swiftshader_indirect
+if selinux_denies_execheap; then
+    GPU_MODE=swangle_indirect
+    echo "$SELINUX_GPU_REASON, so the AVD renders with swangle_indirect (hw.gpu.mode)."
+fi
+set_prop hw.gpu.mode "$GPU_MODE"
 set_prop hw.initialOrientation landscape  # the tv_1080p profile defaults to portrait, which is wrong for a TV
 set_prop showDeviceFrame no               # no device skin around the screen
 set_prop hw.audioInput no                 # no microphone needed

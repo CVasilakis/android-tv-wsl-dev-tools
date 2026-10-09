@@ -46,6 +46,24 @@ class CreatesTheTvAvd(ScriptTestCase):
                 self.assertEqual(keys.count(key), 1, "a setting must replace, not duplicate, a key")
         self.assertIn(("tag.id", "android-tv"), config, "unrelated keys are kept")
 
+    def test_renders_with_swangle_where_selinux_denies_swiftshader_executable_heap(self):
+        # So that `emulator -avd` run directly doesn't segfault either (Fedora's default).
+        self.sandbox.selinux("Enforcing", execheap="off")
+        result = self.sandbox.run("create-avd.sh")
+        self.assertSucceeded(result)
+        config = read_config(self.sandbox.home / ".android/avd/tv_api25.avd")
+        self.assertIn(("hw.gpu.mode", "swangle_indirect"), config)
+        self.assertEqual([key for key, _ in config].count("hw.gpu.mode"), 1)
+        self.assertIn("SELinux", result.output, "says why it doesn't use the usual renderer")
+
+    def test_keeps_swiftshader_where_selinux_allows_it(self):
+        self.sandbox.selinux("Permissive", execheap="off")
+        result = self.sandbox.run("create-avd.sh")
+        self.assertSucceeded(result)
+        config = read_config(self.sandbox.home / ".android/avd/tv_api25.avd")
+        self.assertIn(("hw.gpu.mode", "swiftshader_indirect"), config)
+        self.assertNotIn("SELinux", result.output)
+
     def test_uses_the_given_name(self):
         result = self.sandbox.run("create-avd.sh", "my_tv", how="relative")
         self.assertSucceeded(result)

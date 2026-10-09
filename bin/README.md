@@ -69,11 +69,18 @@ and then sets these in the new AVD's `config.ini` (by default
 | `hw.ramSize` | 2048 | enough for the TV images while leaving memory to Gradle and other emulators |
 | `hw.cpu.ncore` | 4 | |
 | `disk.dataPartition.size` | 4G | room for many test apps (the default is ~550 MB) |
-| `hw.gpu.mode` | swiftshader_indirect | software rendering: works on any host, including WSLg |
+| `hw.gpu.mode` | swiftshader_indirect | software rendering: works on any host, including WSLg, except under SELinux (below) |
 | `hw.initialOrientation` | landscape | the tv_1080p profile defaults to portrait |
 | `showDeviceFrame` | no | no device skin |
 
 The TV profile has **no touchscreen** (`hw.screen=no-touch`), like a real TV.
+
+**Under SELinux.** SwiftShader, the renderer behind `swiftshader_indirect`, needs executable heap
+memory, which SELinux denies user processes when it's enforcing and the `selinuxuser_execheap`
+boolean is off, as on Fedora by default: the emulator then segfaults at startup, with nothing in
+its log. So where `getenforce` says `Enforcing` and `getsebool selinuxuser_execheap` says `off`,
+`create-avd.sh` sets `hw.gpu.mode` to `swangle_indirect`, also software rendering, and
+`start-emulator.sh` passes `-gpu swangle_indirect`; each says so.
 
 `--size <W>x<H>` and `--density <dpi>` replace the profile's screen (`hw.lcd.width`,
 `hw.lcd.height`, `hw.lcd.density`); each one given alone keeps the profile's value for the other.
@@ -178,7 +185,8 @@ stop-emulator.sh                           # save recent changes, stop it (and a
 ```
 
 It runs `emulator -avd <name> -gpu swiftshader_indirect -no-snapshot-load -no-boot-anim -no-audio`
-in the background (a `-gpu` flag of your own replaces the default), logs to `${TMPDIR:-/tmp}/emulator-<name>.log`,
+in the background (`-gpu swangle_indirect` [under SELinux](#create-avdsh); a `-gpu` flag of your
+own replaces the default), logs to `${TMPDIR:-/tmp}/emulator-<name>.log`,
 finds the emulator's serial by asking each running emulator for its AVD name, waits until
 `sys.boot_completed=1` (so it can be chained with `./gradlew installDebug`), and on WSL finishes
 with `wslg-toolbar.py <name> hide`. If the emulator exits during boot, it stops waiting and prints

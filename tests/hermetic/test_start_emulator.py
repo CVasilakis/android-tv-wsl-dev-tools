@@ -147,6 +147,36 @@ class Boots(EmulatorTestCase):
         self.assertEqual(argv.count("-gpu"), 1)
         self.assertEqual(argv[argv.index("-gpu") + 1], "host")
 
+    def test_renders_with_swangle_where_selinux_denies_swiftshader_executable_heap(self):
+        # Fedora's default: swiftshader_indirect segfaults at startup, with nothing in its log.
+        self.sandbox.selinux("Enforcing", execheap="off")
+        result = self.start()
+        self.assertSucceeded(result)
+        [argv] = self.launched()
+        self.assertEqual(argv[argv.index("-gpu") + 1], "swangle_indirect")
+        self.assertIn("SELinux", result.err, "says why it doesn't use the usual renderer")
+
+    def test_keeps_swiftshader_where_selinux_allows_it(self):
+        for mode, execheap in (("Permissive", "off"), ("Disabled", "off"), ("Enforcing", "on"),
+                               ("Enforcing", None)):
+            with self.subTest(mode=mode, execheap=execheap):
+                self.sandbox.selinux(mode, execheap)
+                result = self.start()
+                self.assertSucceeded(result)
+                argv = self.launched()[-1]
+                self.assertEqual(argv[argv.index("-gpu") + 1], "swiftshader_indirect")
+                self.assertNotIn("SELinux", result.err)
+                self.sandbox.stop_emulators()
+
+    def test_own_gpu_flag_wins_over_the_selinux_choice(self):
+        self.sandbox.selinux("Enforcing", execheap="off")
+        result = self.start("tv_api25", "-gpu", "swiftshader_indirect")
+        self.assertSucceeded(result)
+        [argv] = self.launched()
+        self.assertEqual(argv.count("-gpu"), 1)
+        self.assertEqual(argv[argv.index("-gpu") + 1], "swiftshader_indirect")
+        self.assertNotIn("SELinux", result.err)
+
     def test_logs_to_tmpdir(self):
         result = self.start()
         log = self.sandbox.tmp / "emulator-tv_api25.log"

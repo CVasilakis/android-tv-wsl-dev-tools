@@ -142,6 +142,13 @@ class Sandbox:
     def not_wsl(self):
         self.proc_version.write_text("Linux version 6.12.0-generic (Debian)\n")
 
+    def selinux(self, mode="Enforcing", execheap="off"):
+        """Installs SELinux's getenforce and getsebool, which are missing by default (as on Ubuntu),
+        answering with this mode and selinuxuser_execheap (None: a policy without that boolean)."""
+        self.set_behavior(selinux_mode=mode, selinux_execheap=execheap)
+        for name in ("getenforce", "getsebool"):
+            self._write_fake(self.bin / name, name)
+
     # --- Running and inspecting -------------------------------------------------------------
 
     def env(self, **overrides):

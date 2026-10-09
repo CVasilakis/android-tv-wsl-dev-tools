@@ -127,7 +127,7 @@ ADT_AVD=tv_api31 tests/run.py --emulator -k test_remote_keys; kill $(jobs -p); b
 |---|---|
 | [`run.py`](run.py) | Entry point: picks the tiers, filters, prints skip reasons. |
 | [`support/sandbox.py`](support/sandbox.py) | `Sandbox`: a throwaway machine per test. `ScriptTestCase`: the base class. |
-| [`support/fake_tools.py`](support/fake_tools.py) | Fakes for `adb`, `emulator`, `avdmanager`, `android`, `sdkmanager`, `python3`, `getent`, `id`, `sg`. |
+| [`support/fake_tools.py`](support/fake_tools.py) | Fakes for `adb`, `emulator`, `avdmanager`, `android`, `sdkmanager`, `python3`, `getent`, `id`, `sg`, and SELinux's `getenforce` and `getsebool`. |
 | [`support/x11.py`](support/x11.py) | Private Xvfb server, fake emulator windows (the main window, the toolbar, and the hidden bar also titled "Emulator"; Xvfb has no window manager, so `raise_()` puts a window on top as one would when it maps it, and `set_wm_state()` and `set_frame_extents()` set `WM_STATE` and `_NET_FRAME_EXTENTS` as one would), and `WindowChurn`, a client that keeps opening and closing windows. |
 | [`support/input_dump.py`](support/input_dump.py) | Reading Android's input dispatcher from `dumpsys input`, for the emulator tier. |
 | `hermetic/test_<script>.py` | One file per script, plus [`test_conventions.py`](hermetic/test_conventions.py) for the rules all scripts follow, and [`test_input_dump.py`](hermetic/test_input_dump.py) for `support/input_dump.py`. |
@@ -188,7 +188,7 @@ waits for, with `ADT_SAVE_WAIT` in seconds (`earlier_package_write=False`: no wr
 states logged before), or `sync_error`;
 `adb_lists_exited` for adb's lag in unlisting an emulator whose process has exited, with
 `sandbox.kill_emulator(serial)`, which leaves a zombie, or `emulator_already_exiting` for one
-that's shutting down when `adb emu kill` comes), `connect_device()`, `wsl()` and file permissions on `sandbox.kvm`. Check the
+that's shutting down when `adb emu kill` comes), `connect_device()`, `wsl()`, `selinux()` (SELinux's tools, missing by default as on Ubuntu, with a mode and the `selinuxuser_execheap` boolean) and file permissions on `sandbox.kvm`. Check the
 results with `result.code/out/err`, `sandbox.calls()`/`argvs(tool)` (each call has the `time` it
 was made), `sandbox.running()` and the
 files in `sandbox.home`; `sandbox.emulator_pid(serial)` and `sandbox.alive(pid)` show whether an

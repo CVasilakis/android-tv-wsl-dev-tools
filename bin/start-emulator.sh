@@ -117,7 +117,8 @@ serial="$(start-emulator.sh)" captures it. Without $DISPLAY it adds -no-window.
   avd-name        the AVD to boot. Default: $ADT_AVD, else tv_api25 if it exists, else the
                   only Android TV AVD
   emulator flags  passed on to the emulator, e.g. -wipe-data, -no-window,
-                  -gpu host (replaces the default -gpu swiftshader_indirect)
+                  -gpu host (replaces the default -gpu swiftshader_indirect, or
+                  swangle_indirect where SELinux denies the former executable heap memory)
   -h, --help      show this help
 
 Environment:
@@ -283,7 +284,8 @@ if [ -z "$SERIAL" ] && [ -z "${DISPLAY:-}" ] && ! in_list -no-window "$@"; then
 fi
 
 # -gpu swiftshader_indirect: software rendering, works on any host including WSLg (see
-#   create-avd.sh). Left out when the caller passes their own -gpu.
+#   create-avd.sh); swangle_indirect where SELinux would make it crash (see lib.sh). Left out
+#   when the caller passes their own -gpu.
 # -no-audio: sound is rarely needed; one less host integration (PulseAudio) to go wrong.
 # -no-boot-anim: faster cold boots.
 # -no-snapshot-load: cold boot, unless --quick (see the header). The emulator still saves a
@@ -291,7 +293,12 @@ fi
 # nohup + & keeps the emulator running after this script (and the terminal) exits.
 if [ -z "$SERIAL" ]; then
     GPU=(-gpu swiftshader_indirect)
-    if in_list -gpu "$@"; then GPU=(); fi
+    if in_list -gpu "$@"; then
+        GPU=()
+    elif selinux_denies_execheap; then
+        GPU=(-gpu swangle_indirect)
+        echo "$SELINUX_GPU_REASON, so the emulator renders with -gpu swangle_indirect." >&2
+    fi
     BOOT=(-no-snapshot-load)
     BOOT_KIND="cold boot"
     if [ -n "$QUICK" ]; then BOOT=(); BOOT_KIND="Quick Boot"; fi
