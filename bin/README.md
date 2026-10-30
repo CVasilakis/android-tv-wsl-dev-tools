@@ -494,14 +494,16 @@ remote.sh --long-press BACK emulator-5556      # of Back, on another emulator
 
 From API 30 on, `remote.sh` uses `adb shell input keyevent --longpress <key>`, which does just
 that. Before API 30, `--longpress` sends the release at once, so the app sees a short press (OK
-opens what it's on). There `remote.sh` has `monkey` (`adb shell monkey`) replay the three events
-instead, from a script it pushes to `/data/local/tmp` and deletes afterwards, with the release
-one long-press timeout (500 ms when unset) after the repeat. What that means before API 30:
+opens what it's on). There `remote.sh` runs a small program of its own on the device
+([`lib/HoldKey.java`](../lib/HoldKey.java), shipped built as `lib/HoldKey.dex`, which `remote.sh` pushes to
+`/data/local/tmp` and deletes afterwards) that injects the three events through the input system
+as the shell user, with the release one long-press timeout (500 ms when unset) after the repeat. What
+that means before API 30:
 
-- A long press takes a moment longer than the hold itself: monkey starts a process on the device.
-- Monkey unlocks the screen rotation when it exits; `remote.sh` puts the rotation settings
-  (`accelerometer_rotation`, `user_rotation`) back as they were.
-- While the key is held, `ActivityManager.isUserAMonkey()` returns true to apps.
+- A long press takes a moment longer than the hold itself: the program starts a process on the device.
+- Nothing else runs meanwhile and no setting changes. `monkey`, which `remote.sh` used before, locked the
+  screen rotation and unlocked it again, and on API 28 left the windows that opened while it ran
+  (a menu, a panel) without their window focus, so their keys went nowhere.
 
 Monkey isn't an option from API 30 on: on API 36 it adds a virtual touchscreen while it runs,
 and that configuration change recreates the app in front, which then drops the keys.
@@ -586,7 +588,8 @@ TV or Google TV; these are the differences in the images that you may run into:
 | 26, 27 | The slowest cold boots up to API 28. Home doesn't leave apps until `tv_user_setup_complete` is set, which `start-emulator.sh` does ([Home on API 26 and 27](#home-on-api-26-and-27)). |
 | 29 on | `dumpsys input` lists key events without key codes. avdmanager prints the harmless devices.xml error. |
 | 30 | `remote.sh` keys lag the most; the emulator console's key events never arrive. |
-| 36 | `adb shell monkey` adds a virtual touchscreen while it runs; that configuration change recreates the app in front, which drops the keys monkey sends. |
+| 28 | `adb shell monkey` leaves a window that opens while it runs without its window focus, so its keys are dropped: `remote.sh --long-press` doesn't use it. |
+| 36 | `adb shell monkey` adds a virtual touchscreen while it runs; that configuration change recreates the app in front, which drops the keys monkey sends: `remote.sh --long-press` doesn't use it. |
 | Google TV, all | The stock launcher is `com.google.android.apps.tv.launcherx`, with priority 2 like the others. Without a Google account it shows a sign-in screen instead of a home screen: "Add account" on 30–33, "Set up Google TV" on 34 and 36; Home opens it like a home screen. Right after a boot it can come to the front by itself, over an app just opened. |
 | Google TV, 30–33 | After a boot the launcher first shows `.coreservices.bootmode.DispatchActivity`, in a task of its own, while it decides what to show (minutes on a slow host), then brings its home task to the front, over any app opened meanwhile; its home screen then opens the sign-in screen over itself, in that task. On 34 and 36 the launcher decides inside its home screen. |
 | Google TV, 30–34 | `tvlauncher` is installed too, without a HOME filter. |
@@ -613,6 +616,7 @@ TV or Google TV; these are the differences in the images that you may run into:
 | `start-emulator.sh: … adb can't reach it` (with `--quick`) | the restored snapshot left adb offline: `stop-emulator.sh <serial>`, then start it without `--quick` |
 | `Android logged no write of app states on … within 12 s` from `stop-emulator.sh` | from API 33 on: nothing was pending, or Android is late with its write, so an app enabled or disabled since its last write may be lost; on a host short of CPU, raise `ADT_SAVE_WAIT` (see [`stop-emulator.sh`](#stop-emulatorsh)) |
 | `… It's still running.` from `stop-emulator.sh` | the emulator couldn't be stopped, or, without its PID, adb still listed it after `ADT_STOP_TIMEOUT` seconds (see [`stop-emulator.sh`](#stop-emulatorsh)); kill its `qemu-system-…` process by the PID in the `pid_<PID>.ini` that `adb -s <serial> emu avd discoverypath` names (without an answer: the one in `$XDG_RUNTIME_DIR/avd/running/` whose `port.serial=` is the serial's number; a killed emulator's file stays behind, so check the PID's command line first), or in `hardware-qemu.ini.lock` in the AVD's folder, or reboot WSL (`wsl --shutdown` in Windows) |
+| The emulator dies in a long series of app starts, the host out of memory (`page allocation failure` in `dmesg`, swap full) | its `qemu-system-…` process grows with every cold start of an app, whichever app (about 130 MB each on the API 22 image), and gives nothing back while it runs: stop it and start it again between batches of starts (`stop-emulator.sh`, then `start-emulator.sh`) |
 | `adb devices` shows `offline` or `unauthorized` | `adb reconnect offline`; if that doesn't help, `adb kill-server && adb start-server`; else stop the emulator and cold boot it |
 | `can't tell which AVD to use` / `there's no AVD named …` | pass the AVD name or set `ADT_AVD`; the message lists the AVDs found |
 | `'avdmanager' not found` (or `emulator`, `platform-tools`) | the SDK wasn't found, or lacks that package: set `ANDROID_HOME` (see [Finding your setup](#finding-your-setup)) |
@@ -622,6 +626,6 @@ TV or Google TV; these are the differences in the images that you may run into:
 | `This AVD's configuration is missing a kernel file! … "kernel-ranchu"` from the emulator | an AVD made from an image without a ranchu kernel (API 21), e.g. by avdmanager directly: it can't boot |
 | `remote.sh` keys lag behind | expected: each key is an `adb shell input keyevent` call (see [Controlling the TV](#controlling-the-tv)) |
 | A long press with `adb shell input keyevent --longpress` acts as a short press | before API 30 it doesn't hold the key: use `remote.sh --long-press` ([Long presses](#long-presses)) |
-| `remote.sh: the long press failed on …` | monkey's last lines of output follow it; usually the device is gone, offline or still booting: `adb devices` |
+| `remote.sh: the long press failed on …` | the program's last lines of output follow it; usually the device is gone, offline or still booting: `adb devices` |
 | Black emulator window | if started with `--quick`, start it without |
 | `No access to /dev/kvm`, `libpulse.so.0`, `SDK location not found`, … | setup problems: [`../SETUP.md`](../SETUP.md#troubleshooting) |

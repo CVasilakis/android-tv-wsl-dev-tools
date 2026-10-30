@@ -33,6 +33,9 @@ bin/stop-emulator.sh          # stop it, returns once it has exited (<avd-name|s
   `readlink -f "$0"`/`$BIN_DIR`, never through the current folder or `$PATH`. The only thing read
   from the current folder is the project's `local.properties`. Messages that suggest another
   script use `command_for <script>` (bare name if it's on `PATH`, else the path the user typed).
+- **`lib/HoldKey.dex` is built from `lib/HoldKey.java`** by `lib/build-hold-key.sh` (it needs a JDK and the
+  SDK's build-tools): rebuild it and commit both whenever the source changes. It's what `remote.sh
+  --long-press` runs on the device before API 30.
 - **`bin/` holds only commands**: users may put it on `PATH`. Helpers go in `lib/`.
 - **Scope** ([`README.md`](README.md#scope)): Android TV apps, on Ubuntu under WSL2. Phones and
   other device types are out of scope. Don't claim support for a distribution, image or API level

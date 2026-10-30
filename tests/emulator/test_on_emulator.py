@@ -35,7 +35,7 @@ FOCUS_TIMEOUT = 30   # for an app's activity to come to the front (am start, the
 # came over 30 s after Home, and its main thread going idle, or Android's 10 s idle timeout), with
 # Settings opened again while other apps come over it, and for the input dispatcher to settle.
 SETTLE_TIMEOUT = 120
-LONG_PRESS_TIMEOUT = 180   # for remote.sh --long-press: up to 9 adb calls, monkey's among them
+LONG_PRESS_TIMEOUT = 180   # for remote.sh --long-press: up to 9 adb calls, the program's among them
 
 # Python's limits for the scripts, from the scripts' own: when Python stops a script on the way,
 # its emulator can be left running (start-emulator.sh starts it with nohup), so a script must
@@ -407,8 +407,9 @@ class OnTheRealEmulator(unittest.TestCase):
         # DPAD_UP: holding it only moves the focus, whatever is on the screen.
         timeout = self.adb_shell("settings", "get", "secure", "long_press_timeout").strip()
         timeout = int(timeout) if timeout.isdigit() else 500
-        rotation = [self.adb_shell("settings", "get", "system", name).strip()
-                    for name in ("accelerometer_rotation", "user_rotation")]
+        settings = {(namespace, name): self.adb_shell("settings", "get", namespace, name).strip()
+                    for namespace, name in (("system", "accelerometer_rotation"),
+                                            ("system", "user_rotation"), ("secure", "long_press_timeout"))}
         self.wait_until_input_is_settled()
         received = RecentInput(self.adb_shell)
         remote = subprocess.Popen([str(BIN / "remote.sh"), "--long-press", "DPAD_UP", self.serial],
@@ -425,7 +426,7 @@ class OnTheRealEmulator(unittest.TestCase):
         events = [event for _, event in received.key_events()]
         self.assertEqual(len(events), 3, "down, repeat, up")
         # The repeat comes after the long-press timeout. The release comes as long after it
-        # before API 30 (monkey), and right after it from 30 on (input keyevent --longpress).
+        # before API 30 (HoldKey), and right after it from 30 on (input keyevent --longpress).
         gaps = [times[1] - times[0]]
         if int(self.adb_shell("getprop", "ro.build.version.sdk")) < 30:
             gaps.append(times[2] - times[1])
@@ -439,10 +440,9 @@ class OnTheRealEmulator(unittest.TestCase):
                                bool(int(flags, 16) & 0x80)) for action, flags, code, repeat in details],
                              [(True, 19, 0, False), (True, 19, 1, True), (False, 19, 0, False)],
                              "down, a repeat flagged FLAG_LONG_PRESS, up")
-        self.assertEqual([self.adb_shell("settings", "get", "system", name).strip()
-                          for name in ("accelerometer_rotation", "user_rotation")], rotation,
-                         "the rotation settings monkey changes are put back")
-        self.assertNotIn("adt-long-press", self.adb_shell("ls", "/data/local/tmp"))
+        self.assertEqual({key: self.adb_shell("settings", "get", *key).strip() for key in settings},
+                         settings, "no setting changed")
+        self.assertNotIn("adt-hold-key", self.adb_shell("ls", "/data/local/tmp"))
 
 
 @unittest.skipUnless(ENABLED, "real-emulator tests run only with: tests/run.py --emulator")

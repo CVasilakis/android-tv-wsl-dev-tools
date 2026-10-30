@@ -1,7 +1,10 @@
 """remote.sh: which emulator it talks to, which key each keyboard key sends, and long presses."""
 import subprocess
+from pathlib import Path
 
 from support.sandbox import ScriptTestCase
+
+LIB = Path(__file__).resolve().parents[2] / "lib"
 
 # Keyboard input -> Android key sent with `adb shell input keyevent` (see remote.sh).
 KEYS = {
@@ -127,11 +130,36 @@ class LongPress(RemoteTestCase):
         self.sandbox.set_behavior(device_settings={"long_press_timeout": value})
 
     def test_from_api_30_on_it_is_inputs_own_long_press(self):
-        # There input holds the key, and monkey would make the app in front drop it (API 36).
+        # There input holds the key, and a program of ours would be needless.
         self.sandbox.set_behavior(api_level=30)
         self.assertSucceeded(self.sandbox.run("remote.sh", "--long-press", "DPAD_CENTER"))
         self.assertEqual(self.long_presses(self.serial), [(23, 400, 400)])
-        self.assertNotIn("monkey", " ".join(" ".join(argv) for argv in self.sandbox.argvs("adb")))
+        calls = " ".join(" ".join(argv) for argv in self.sandbox.argvs("adb"))
+        self.assertNotIn("monkey", calls)
+        self.assertNotIn("app_process", calls)
+
+    def test_before_api_30_it_is_our_own_program_never_monkey(self):
+        # monkey made the windows opened while it ran miss their focus on API 28, and on API 36
+        # recreated the app in front; HoldKey injects the three events and nothing else runs.
+        self.assertSucceeded(self.sandbox.run("remote.sh", "--long-press", "DPAD_CENTER"))
+        calls = " ".join(" ".join(argv) for argv in self.sandbox.argvs("adb"))
+        self.assertNotIn("monkey", calls)
+        self.assertIn("app_process /system/bin HoldKey 23 400 800", calls)
+
+    def test_pushes_the_program_it_ships_and_takes_it_away_again(self):
+        self.sandbox.run("remote.sh", "--long-press", "DPAD_CENTER")
+        pushes = [argv for argv in self.sandbox.argvs("adb") if "push" in argv]
+        self.assertEqual(len(pushes), 1)
+        self.assertEqual(Path(pushes[0][pushes[0].index("push") + 1]).read_bytes(),
+                         (LIB / "HoldKey.dex").read_bytes())
+        self.assertEqual(self.sandbox.device_state(self.serial)["files"], {})
+
+    def test_the_shipped_program_is_a_dex_of_HoldKey(self):
+        dex = (LIB / "HoldKey.dex").read_bytes()
+        self.assertEqual(dex[:4], b"dex\n")
+        self.assertIn(b"HoldKey", dex)
+        self.assertIn(b"Events injected: 3", dex)   # what remote.sh reads as success
+        self.assertIn(b"HoldKey", (LIB / "HoldKey.java").read_bytes())
 
     def test_holds_the_key_for_twice_the_devices_long_press_timeout(self):
         result = self.sandbox.run("remote.sh", "--long-press", "DPAD_CENTER")
@@ -171,38 +199,22 @@ class LongPress(RemoteTestCase):
     def test_leaves_no_file_on_the_device_or_the_host(self):
         self.sandbox.run("remote.sh", "--long-press", "DPAD_CENTER")
         self.assertEqual(self.sandbox.device_state(self.serial)["files"], {})
-        self.assertEqual(list(self.sandbox.tmp.glob("adt-long-press*")), [])
+        self.assertEqual(list(self.sandbox.tmp.glob("adt-*")), [])
 
-    def test_puts_back_the_rotation_settings_monkey_changes(self):
-        # monkey unlocks the rotation when it exits; a TV image starts with it locked (0).
-        before = self.sandbox.system_settings(self.serial)
-        self.assertEqual(before["accelerometer_rotation"], "0")
+    def test_changes_no_setting_of_the_device(self):
+        # monkey locked the rotation and unlocked it again on exit, and the settings were put back.
+        before = (self.sandbox.device_settings(self.serial), self.sandbox.system_settings(self.serial))
         self.sandbox.run("remote.sh", "--long-press", "DPAD_CENTER")
-        self.assertEqual(self.sandbox.system_settings(self.serial), before)
+        self.assertEqual((self.sandbox.device_settings(self.serial), self.sandbox.system_settings(self.serial)), before)
+        self.assertNotIn("put", " ".join(" ".join(argv) for argv in self.sandbox.argvs("adb")))
 
-    def test_leaves_an_unset_rotation_setting_unset(self):
-        # API 26 to 28 have no user_rotation until something sets it.
-        self.sandbox.set_behavior(device_system_settings={"accelerometer_rotation": "1"})
-        serial = self.sandbox.start_emulator("phone")
-        self.sandbox.run("remote.sh", "--long-press", "DPAD_CENTER", serial)
-        self.assertEqual(self.sandbox.system_settings(serial), {"accelerometer_rotation": "1"})
-
-    def test_puts_back_a_user_rotation_other_than_0(self):
-        self.sandbox.set_behavior(device_system_settings={"accelerometer_rotation": "1",
-                                                          "user_rotation": "1"})
-        serial = self.sandbox.start_emulator("phone")
-        self.sandbox.run("remote.sh", "--long-press", "DPAD_CENTER", serial)
-        self.assertEqual(self.sandbox.system_settings(serial),
-                         {"accelerometer_rotation": "1", "user_rotation": "1"})
-
-    def test_a_failed_monkey_run_is_an_error_with_its_message(self):
-        # Before API 24 adb shell always exits 0, so failure is read from monkey's output.
-        self.sandbox.set_behavior(monkey_output="** Monkey aborted due to error.")
+    def test_a_failed_run_is_an_error_with_its_message(self):
+        # Before API 24 adb shell always exits 0, so failure is read from the program's output.
+        self.sandbox.set_behavior(hold_key_output="Error: Unable to open class path")
         result = self.sandbox.run("remote.sh", "--long-press", "DPAD_CENTER")
         self.assertFailed(result, "the long press failed on emulator-5554")
-        self.assertIn("** Monkey aborted due to error.", result.err)
+        self.assertIn("Error: Unable to open class path", result.err)
         self.assertEqual(self.sandbox.device_state(self.serial)["files"], {})
-        self.assertEqual(self.sandbox.system_settings(self.serial)["accelerometer_rotation"], "0")
 
     def test_l_then_a_key_holds_that_key_in_the_remote(self):
         result = self.sandbox.run("remote.sh", input="l\nl\x1b[Blhh")
@@ -216,7 +228,7 @@ class LongPress(RemoteTestCase):
         self.assertEqual([key for _, key in self.presses()], ["HOME"])
 
     def test_the_remote_keeps_going_after_a_failed_long_press(self):
-        self.sandbox.set_behavior(monkey_output="** Monkey aborted due to error.")
+        self.sandbox.set_behavior(hold_key_output="Error: Unable to open class path")
         result = self.sandbox.run("remote.sh", input="l\nh")
         self.assertSucceeded(result)
         self.assertIn("the long press failed", result.err)

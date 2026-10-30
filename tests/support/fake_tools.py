@@ -94,7 +94,7 @@ DEFAULT_BEHAVIOR = {
     "earlier_package_write": True,  # the events log holds a write of the app states from long
                                   # ago (False: none, as on an image that logs none)
     "sync_error": None,           # `adb shell sync` prints this and exits 1
-    "monkey_output": None,        # `adb shell monkey` prints this and injects nothing (it failed)
+    "hold_key_output": None,      # the HoldKey program prints this and injects nothing (it failed)
     "api_level": 25,              # every device's `getprop ro.build.version.sdk`; below 24 there's
                                   # no `cmd` (adb shell prints "cmd: not found" and exits 0)
     "home_resolves": [HOME],      # what `cmd package resolve-activity --brief` answers for a HOME
@@ -404,7 +404,7 @@ def adb(args):
             write_running(serial, info)
     elif args[:1] == ["push"] and len(args) == 3:
         try:
-            text = Path(args[1]).read_text()
+            text = Path(args[1]).read_bytes().decode("latin-1")   # a dex isn't text
         except OSError:
             fail(f"adb: error: cannot stat '{args[1]}': No such file or directory")
         state = device_state(serial)
@@ -415,8 +415,8 @@ def adb(args):
         state = device_state(serial)
         state["files"].pop(args[3], None)
         write_device_state(serial, state)
-    elif args[:2] == ["shell", "monkey"]:
-        monkey(serial, emulators, args[2:])
+    elif len(args) == 2 and args[0] == "shell" and re.match(r"CLASSPATH=\S+ app_process /system/bin HoldKey ", args[1]):
+        hold_key(serial, args[1].split())
     elif args[:3] == ["shell", "input", "keyevent"] and len(args) == 4:
         if take("keyevent", behavior()["keyevent_failures"]):
             fail("error: closed")
@@ -643,52 +643,26 @@ def input_long_press(serial, emulators, code):
     write_device_state(serial, state)
 
 
-def monkey(serial, emulators, args):
-    """`monkey [-c <category>]... -f <script> <count>`: replays the key events of a script pushed
-    to the device, recording them as Android receives them, with times in ms from the first one.
-    Like the real monkey, it waits between events as their event times say, gives each event the
-    down time of the one before when their recorded down times match (else its recorded one),
-    only starts if an activity has one of the categories (TVs have none in LAUNCHER, the default),
-    and when it exits it locks the rotation at 0 and unlocks it again."""
-    categories = [args[i + 1] for i, a in enumerate(args[:-1]) if a == "-c"]
-    script = next((args[i + 1] for i, a in enumerate(args[:-1]) if a == "-f"), None)
-    output = behavior()["monkey_output"]
+def hold_key(serial, words):
+    """`CLASSPATH=<dex> app_process /system/bin HoldKey <code> <repeat ms> <release ms>`: the program
+    remote.sh pushes for a long press before API 30. It needs its dex pushed to the device, and
+    injects a down, a repeat flagged as a long press and a release, all with the down time of the
+    first, at the times given (ms from the first)."""
+    output = behavior()["hold_key_output"]
     if output:
         print(output)
         return
-    if "android.intent.category.HOME" not in categories:
-        for category in categories or ["android.intent.category.LAUNCHER"]:
-            print(f"// Warning: no activities found for category {category}")
-        print("** No activities found to run, monkey aborted.")
-        return
+    dex = words[0].removeprefix("CLASSPATH=")
     state = device_state(serial)
-    if script not in state["files"]:
-        fail(f"** Error: script file {script} not found")   # made up: not what the scripts check
-    lines = [line.strip() for line in state["files"][script].splitlines()]
-    body = lines[lines.index("start data >>") + 1:] if "start data >>" in lines else []
-    first = recorded_down = down = None
-    injected = 0
-    for line in body:
-        event = re.fullmatch(r"DispatchKey\((-?\d+(?:,-?\d+){7})\)", line)
-        if not event:
-            continue
-        recorded, at, action, code, repeat = map(int, event.group(1).split(",")[:5])
-        if first is None:
-            first, down = at, 0
-        elif recorded != recorded_down:
-            down = recorded - first
-        recorded_down = recorded
-        injected += 1
-        state["key_events"].append({"action": "down" if action == 0 else "up", "code": code,
-                                    "repeat": repeat, "at_ms": at - first, "down_ms": down,
-                                    # set by Android's input dispatcher on a first repeat
-                                    "long_press": action == 0 and repeat == 1})
+    if dex not in state["files"]:
+        print(f"Error: Unable to open class path: {dex}")
+        return
+    code, repeat_at, release_at = map(int, words[4:7])
+    for action, repeat, at in (("down", 0, 0), ("down", 1, repeat_at), ("up", 0, release_at)):
+        state["key_events"].append({"action": action, "code": code, "repeat": repeat, "at_ms": at,
+                                    "down_ms": 0, "long_press": repeat == 1})
     write_device_state(serial, state)
-    if serial in emulators:
-        info = emulators[serial]
-        info["system_settings"].update(accelerometer_rotation="1", user_rotation="0")
-        write_running(serial, info)
-    print(f"Events injected: {injected}")
+    print("Events injected: 3")
 
 
 def adb_emu(serial, info, args):

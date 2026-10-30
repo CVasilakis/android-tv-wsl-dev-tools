@@ -220,7 +220,7 @@ class Sandbox:
 
     def device_state(self, serial):
         """What's on a device: {"files": {path: text}, "key_events": [{"action", "code",
-        "repeat", "at_ms", "down_ms", "long_press"}, ...]} (see fake_tools.monkey)."""
+        "repeat", "at_ms", "down_ms", "long_press"}, ...]} (see fake_tools.hold_key)."""
         path = self.state / "device" / f"{serial}.json"
         return json.loads(path.read_text()) if path.exists() else {"files": {}, "key_events": []}
 

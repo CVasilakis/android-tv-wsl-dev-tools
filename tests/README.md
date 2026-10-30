@@ -24,7 +24,7 @@ too. The emulator tier isn't run there; run it locally before a release.
 | Tier | Folder | Needs | Checks |
 |---|---|---|---|
 | hermetic | [`hermetic/`](hermetic) | Python 3; optional: Xvfb, shellcheck | Each script's behavior against fake tools and a fake machine, and how the emulator tier reads Android's input dump. Run it after every script change. |
-| emulator | [`emulator/`](emulator) | Your SDK and AVD (`ADT_AVD` picks one) | What fakes can't show: booting really completes, and with `--wait-for-home` returns with the home app in front and focused, `remote.sh`'s keys arrive in Android as the right keys, its Home key takes the device from an app to its home app, `--long-press` holds the key for the device's long-press timeout and leaves the settings as they were, and `stop-emulator.sh` returns only once the AVD can start again, also for a `-read-only` emulator, which writes no lock file, even a frozen one (SIGSTOP) named by its AVD, and doesn't fail on one that's exiting already (sent SIGTERM). |
+| emulator | [`emulator/`](emulator) | Your SDK and AVD (`ADT_AVD` picks one) | What fakes can't show: booting really completes, and with `--wait-for-home` returns with the home app in front and focused, `remote.sh`'s keys arrive in Android as the right keys, its Home key takes the device from an app to its home app, `--long-press` holds the key for the device's long-press timeout and changes no setting, and `stop-emulator.sh` returns only once the AVD can start again, also for a `-read-only` emulator, which writes no lock file, even a frozen one (SIGSTOP) named by its AVD, and doesn't fail on one that's exiting already (sent SIGTERM). |
 
 Some hermetic tests skip, with the reason printed, when an optional tool is missing:
 - **Xvfb** (`sudo apt-get install -y xvfb`; Fedora: `sudo dnf install -y xorg-x11-server-Xvfb`) for the `wslg-toolbar.py`
@@ -82,7 +82,7 @@ fail.
 On API 29 and newer, Android's input dump doesn't show key codes, so there the tier checks only
 that each key press arrived, and how far apart a long press's events are; which Android key it
 was, and the long-press flag on the repeat, are still checked on older ones, and by the hermetic
-tests for all of them. The hermetic tests' fake `monkey` and `input keyevent --longpress` record
+tests for all of them. The hermetic tests' fake `HoldKey` program and `input keyevent --longpress` record
 the key events they send, with their times, as Android would receive them (`api_level` picks
 which one `remote.sh` uses). The tier reads Android's input dump, whose recent queue keeps only
 the last 10 events, window focus changes included, so it sends one key at a time, a moment after
