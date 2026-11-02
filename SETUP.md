@@ -94,7 +94,7 @@ API 34 and 36, whose images alone take 8.2 GB.
   too `echo $DISPLAY` prints a display such as `:0`.
 - Hardware virtualization, so `/dev/kvm` exists: `ls -l /dev/kvm`. For WSL2 that's nested
   virtualization, enabled by default; on Fedora, virtualization enabled in the firmware.
-- `unzip`, `curl` and `python3` 3.10+ (used by `bin/wslg-toolbar.py` and the tests).
+- `unzip`, `curl` and `python3` 3.10+ (used by `bin/tv-wslg-toolbar.py` and the tests).
 
 ## Steps
 
@@ -154,7 +154,7 @@ getent group kvm           # kvm:x:<gid>:<members>
 
 - **The gids match** and you're a member: you're done for new sessions. The new group only
   applies to sessions started after `usermod` (on WSL: after `wsl --shutdown` from Windows, then
-  reopening the terminal). `bin/start-emulator.sh` also works in an already-open session by
+  reopening the terminal). `bin/tv-start-emulator.sh` also works in an already-open session by
   re-running itself with `sg kvm`.
 - **The gids differ**: the device belongs to a group that isn't `kvm`, so being in `kvm` grants
   nothing. This happens on WSL, where `/dev/kvm` is created before udev applies
@@ -171,7 +171,7 @@ getent group kvm           # kvm:x:<gid>:<members>
   in the other distro (with 993 being this distro's `kvm` gid, and free there):
   `sudo groupmod -g 993 kvm`.
 
-`bin/start-emulator.sh` tells the two cases apart and prints the fix for the one you have.
+`bin/tv-start-emulator.sh` tells the two cases apart and prints the fix for the one you have.
 
 Check: `test -w /dev/kvm && echo ok` in a session started after `usermod` (or under `sg kvm`).
 
@@ -359,7 +359,7 @@ android sdk install --no-metrics "system-images;android-30;android-tv;x86" "syst
 
 `android sdk list --no-metrics --all | grep android-tv` lists every level available. Skip
 API 21: its image installs, but the emulator can't boot it
-([`bin/README.md`](bin/README.md#create-avdsh)).
+([`bin/README.md`](bin/README.md#tv-create-avdsh)).
 
 **Optional: Google TV.** To test on Google TV, install its images the same way, for example:
 
@@ -370,18 +370,18 @@ android sdk install --no-metrics "system-images;android-30;google-tv;x86" "syste
 ### 6. Emulator (AVD)
 
 ```bash
-bin/create-avd.sh            # creates the AVD "tv_api25"
-bin/create-avd.sh --api 28   # optional: "tv_api28", from the API 28 image of step 5
-bin/create-avd.sh --google-tv --api 36   # optional: "gtv_api36", from the Google TV image
+bin/tv-create-avd.sh            # creates the AVD "tv_api25"
+bin/tv-create-avd.sh --api 28   # optional: "tv_api28", from the API 28 image of step 5
+bin/tv-create-avd.sh --google-tv --api 36   # optional: "gtv_api36", from the Google TV image
 ```
 
 Likewise for any other level whose image you installed in step 5. From API 29 on, avdmanager
-prints a devices.xml error that's harmless ([`bin/README.md`](bin/README.md#create-avdsh)).
+prints a devices.xml error that's harmless ([`bin/README.md`](bin/README.md#tv-create-avdsh)).
 
-`create-avd.sh` only writes files, so it works without KVM access; booting the AVD (step 7) is the
-first thing that needs it. On Fedora it says that SELinux denies the usual renderer and that the
-AVD renders with `swangle_indirect` instead, as `start-emulator.sh` then does: that's expected
-([`bin/README.md`](bin/README.md#create-avdsh)).
+`tv-create-avd.sh` only writes files, so it works without KVM access; booting the AVD (step 7) is
+the first thing that needs it. On Fedora it says that SELinux denies the usual renderer and that the
+AVD renders with `swangle_indirect` instead, as `tv-start-emulator.sh` then does: that's expected
+([`bin/README.md`](bin/README.md#tv-create-avdsh)).
 
 ### 7. Use it from a project
 
@@ -389,7 +389,7 @@ From the project's folder (here cloned next to this repository):
 
 ```bash
 ./gradlew assembleDebug                                 # the first run downloads Gradle, AGP, Kotlin and build-tools
-../android-tv-wsl-dev-tools/bin/start-emulator.sh          # boots tv_api25, returns when Android is ready
+../android-tv-wsl-dev-tools/bin/tv-start-emulator.sh    # boots tv_api25, returns when Android is ready
 ./gradlew installDebug
 ```
 
@@ -420,7 +420,7 @@ The tests need only Python 3.10+; two optional tools enable more of them. See
 - **`JAVA_HOME is set to an invalid directory`** from `avdmanager` or Gradle: `JAVA_HOME` names a
   JDK that isn't installed, e.g. Ubuntu's path on Fedora (step 3).
 - **`sudo: a terminal is required to read the password`**: run the command in a regular terminal (step 1).
-- **`Error: "emulator" package must be installed!`** from `create-avd.sh`: step 4 is missing.
+- **`Error: "emulator" package must be installed!`** from `tv-create-avd.sh`: step 4 is missing.
 - **`Package … not found.`** from `android sdk install`, and the setup carries on regardless: a
   typo in a package id. The command exits 0 anyway, so check with `android sdk list --no-metrics`
   ([The `android` CLI](#the-android-cli)).

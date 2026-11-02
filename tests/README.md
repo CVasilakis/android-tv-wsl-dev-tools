@@ -24,10 +24,10 @@ too. The emulator tier isn't run there; run it locally before a release.
 | Tier | Folder | Needs | Checks |
 |---|---|---|---|
 | hermetic | [`hermetic/`](hermetic) | Python 3; optional: Xvfb, shellcheck | Each script's behavior against fake tools and a fake machine, and how the emulator tier reads Android's input dump. Run it after every script change. |
-| emulator | [`emulator/`](emulator) | Your SDK and AVD (`ADT_AVD` picks one) | What fakes can't show: booting really completes, and with `--wait-for-home` returns with the home app in front and focused, `remote.sh`'s keys arrive in Android as the right keys, its Home key takes the device from an app to its home app, `--long-press` holds the key for the device's long-press timeout and changes no setting, and `stop-emulator.sh` returns only once the AVD can start again, also for a `-read-only` emulator, which writes no lock file, even a frozen one (SIGSTOP) named by its AVD, and doesn't fail on one that's exiting already (sent SIGTERM). |
+| emulator | [`emulator/`](emulator) | Your SDK and AVD (`ADT_AVD` picks one) | What fakes can't show: booting really completes, and with `--wait-for-home` returns with the home app in front and focused, `tv-remote.sh`'s keys arrive in Android as the right keys, its Home key takes the device from an app to its home app, `--long-press` holds the key for the device's long-press timeout and changes no setting, and `tv-stop-emulator.sh` returns only once the AVD can start again, also for a `-read-only` emulator, which writes no lock file, even a frozen one (SIGSTOP) named by its AVD, and doesn't fail on one that's exiting already (sent SIGTERM). |
 
 Some hermetic tests skip, with the reason printed, when an optional tool is missing:
-- **Xvfb** (`sudo apt-get install -y xvfb`; Fedora: `sudo dnf install -y xorg-x11-server-Xvfb`) for the `wslg-toolbar.py`
+- **Xvfb** (`sudo apt-get install -y xvfb`; Fedora: `sudo dnf install -y xorg-x11-server-Xvfb`) for the `tv-wslg-toolbar.py`
   tests, which create emulator-like windows on a private X server. It runs on the first free
   display from `:99` up, reachable only through an abstract socket. Under WSLg `/tmp/.X11-unix`
   is read-only, and a low display number would capture the desktop's own apps. It runs with
@@ -50,7 +50,7 @@ it (cold) with `--wait-for-home -no-window -no-snapshot-save`, so every test sta
 that has settled, and stops it at the end. To add emulator flags to the boots it makes, e.g.
 another renderer where the default one crashes, set `ADT_TEST_EMULATOR_FLAGS`
 (`ADT_TEST_EMULATOR_FLAGS="-gpu swangle_indirect"`); a `-gpu` there replaces
-`start-emulator.sh`'s default. The `stop-emulator.sh` tests
+`tv-start-emulator.sh`'s default. The `tv-stop-emulator.sh` tests
 skip when the AVD was already running, since they would have to stop it. It tests one AVD per run, so to
 cover every Android version you use:
 
@@ -65,7 +65,7 @@ opened, and from API 24 on Settings' own `FallbackHome` holds the screen, and is
 resolves to, until the user is unlocked ([Differences between API
 levels](../bin/README.md#differences-between-api-levels)). So the test first brings the home app to
 the front with a HOME intent (an emulator that was already running may show another app) and waits
-for it with `wait_for_home` from `lib.sh`, what `start-emulator.sh --wait-for-home` runs, which
+for it with `wait_for_home` from `lib.sh`, what `tv-start-emulator.sh --wait-for-home` runs, which
 also names its package. On Google TV without an account that's the launcher showing its sign-in
 screen, and on API 22 with a second home app installed it's the chooser (package `android`). Then
 the test opens Settings, again whenever another app is in front, until Settings has settled there
@@ -84,7 +84,7 @@ that each key press arrived, and how far apart a long press's events are; which 
 was, and the long-press flag on the repeat, are still checked on older ones, and by the hermetic
 tests for all of them. The hermetic tests' fake `HoldKey` program and `input keyevent --longpress` record
 the key events they send, with their times, as Android would receive them (`api_level` picks
-which one `remote.sh` uses). The tier reads Android's input dump, whose recent queue keeps only
+which one `tv-remote.sh` uses). The tier reads Android's input dump, whose recent queue keeps only
 the last 10 events, window focus changes included, so it sends one key at a time, a moment after
 the one before arrived, and looks after each, merging the looks into one history. The events' order and ages, and the device's uptime
 read around each look, tell which events are new (`RecentInput` in
@@ -107,19 +107,19 @@ dumps, so it runs with the hermetic tier.
 The tier's time limits hold for an emulator starved of CPU, where `adb shell input keyevent`, a
 look at the input dump and an app's start each take many times longer than on an idle host. A
 wait ends as soon as what it waits for is there, so a long limit only makes a failure slower. Its
-limits for `start-emulator.sh` and `stop-emulator.sh` are longer than the scripts' own, computed
-from them (`ADT_BOOT_TIMEOUT`, `ADT_HOME_TIMEOUT` and `ADT_STOP_TIMEOUT`, which it passes on,
-and copies of the scripts' other waits, which [`test_conventions.py`](hermetic/test_conventions.py)
-checks against the scripts): a script always gets to
-its own limit, stops what it started and says why, whereas Python stopping `start-emulator.sh`
-would leave its emulator booting. An emulator the tier boots is stopped at the end even when its
-boot failed. To try the tier on a starved emulator, boot it on one host CPU shared with busy loops;
-the tier then reuses it:
+limits for `tv-start-emulator.sh` and `tv-stop-emulator.sh` are longer than the scripts' own,
+computed from them (`ADT_BOOT_TIMEOUT`, `ADT_HOME_TIMEOUT` and `ADT_STOP_TIMEOUT`, which it passes
+on, and copies of the scripts' other waits, which
+[`test_conventions.py`](hermetic/test_conventions.py) checks against the scripts): a script always
+gets to its own limit, stops what it started and says why, whereas Python stopping
+`tv-start-emulator.sh` would leave its emulator booting. An emulator the tier boots is stopped at
+the end even when its boot failed. To try the tier on a starved emulator, boot it on one host CPU
+shared with busy loops; the tier then reuses it:
 
 ```bash
-serial="$(taskset -c 3 bin/start-emulator.sh tv_api31 -no-window -no-snapshot-save -read-only -cores 1)"
+serial="$(taskset -c 3 bin/tv-start-emulator.sh tv_api31 -no-window -no-snapshot-save -read-only -cores 1)"
 for i in $(seq 9); do timeout 1800 taskset -c 3 bash -c 'while :; do :; done' & done
-ADT_AVD=tv_api31 tests/run.py --emulator -k test_remote_keys; kill $(jobs -p); bin/stop-emulator.sh "$serial"
+ADT_AVD=tv_api31 tests/run.py --emulator -k test_remote_keys; kill $(jobs -p); bin/tv-stop-emulator.sh "$serial"
 ```
 
 ## Layout
@@ -131,7 +131,7 @@ ADT_AVD=tv_api31 tests/run.py --emulator -k test_remote_keys; kill $(jobs -p); b
 | [`support/fake_tools.py`](support/fake_tools.py) | Fakes for `adb`, `emulator`, `avdmanager`, `android`, `sdkmanager`, `python3`, `getent`, `id`, `sg`, and SELinux's `getenforce` and `getsebool`. |
 | [`support/x11.py`](support/x11.py) | Private Xvfb server, fake emulator windows (the main window, the toolbar, and the hidden bar also titled "Emulator"; Xvfb has no window manager, so `raise_()` puts a window on top as one would when it maps it, and `set_wm_state()` and `set_frame_extents()` set `WM_STATE` and `_NET_FRAME_EXTENTS` as one would), and `WindowChurn`, a client that keeps opening and closing windows. |
 | [`support/input_dump.py`](support/input_dump.py) | Reading Android's input dispatcher from `dumpsys input`, for the emulator tier. |
-| `hermetic/test_<script>.py` | One file per script, plus [`test_conventions.py`](hermetic/test_conventions.py) for the rules all scripts follow, and [`test_input_dump.py`](hermetic/test_input_dump.py) for `support/input_dump.py`. |
+| `hermetic/test_<script>.py` | One file per script, named without its `tv-` prefix, plus [`test_conventions.py`](hermetic/test_conventions.py) for the rules all scripts follow, and [`test_input_dump.py`](hermetic/test_input_dump.py) for `support/input_dump.py`. |
 | [`emulator/test_on_emulator.py`](emulator/test_on_emulator.py) | The real-emulator tier. |
 
 ## How the hermetic tier works
@@ -161,7 +161,7 @@ class Example(ScriptTestCase):
         self.sandbox.add_avd("tv_api25")                  # AVDs, as avdmanager lays them out
         self.sandbox.add_avd("phone", tv=False)
         self.sandbox.start_emulator("phone")              # already running, takes emulator-5554
-        result = self.sandbox.run("start-emulator.sh")    # the real script
+        result = self.sandbox.run("tv-start-emulator.sh") # the real script
         self.assertSucceeded(result)
         self.assertIn("booted as emulator-5556", result.out)
         self.assertEqual(self.sandbox.running(), {"emulator-5554": "phone", "emulator-5556": "tv_api25"})
@@ -180,13 +180,13 @@ can also be the two dumps a look reads, as captured from a device; `user_unlocke
 unlocked user once HOME no longer resolves to FallbackHome), with `ADT_BACK_AFTER=1` so
 another screen gets Back after 1 s rather than 10, and `ADT_OTHER_APP_TIMEOUT` of a few seconds
 so another app's screen fails the wait sooner than after 60 s; `adb_offline` for an emulator adb can't reach, with `ADT_OFFLINE_TIMEOUT=1`
-in the script's environment so `start-emulator.sh --quick` doesn't wait 30 s, or
-`emulator_stuck` for one that won't exit, with `ADT_STOP_TIMEOUT=1` for `stop-emulator.sh`;
+in the script's environment so `tv-start-emulator.sh --quick` doesn't wait 30 s, or
+`emulator_stuck` for one that won't exit, with `ADT_STOP_TIMEOUT=1` for `tv-stop-emulator.sh`;
 `settings_unsaved_looks` (`"forever"`) for Android saving `tv_user_setup_complete` late (never), with
-`ADT_SAVE_TIMEOUT=1`, or `su_error` for an image `start-emulator.sh` can't look into;
-`api_level` 33 or more with `pending_package_write` for Android's own write that `stop-emulator.sh`
-waits for, with `ADT_SAVE_WAIT` in seconds (`earlier_package_write=False`: no write of the app
-states logged before), or `sync_error`;
+`ADT_SAVE_TIMEOUT=1`, or `su_error` for an image `tv-start-emulator.sh` can't look into;
+`api_level` 33 or more with `pending_package_write` for Android's own write that
+`tv-stop-emulator.sh` waits for, with `ADT_SAVE_WAIT` in seconds (`earlier_package_write=False`: no
+write of the app states logged before), or `sync_error`;
 `adb_lists_exited` for adb's lag in unlisting an emulator whose process has exited, with
 `sandbox.kill_emulator(serial)`, which leaves a zombie, or `emulator_already_exiting` for one
 that's shutting down when `adb emu kill` comes), `connect_device()`, `wsl()`, `selinux()` (SELinux's tools, missing by default as on Ubuntu, with a mode and the `selinuxuser_execheap` boolean) and file permissions on `sandbox.kvm`. Check the
@@ -209,11 +209,11 @@ one stays a zombie until the cleanup reaps it).
   `sandbox.py` if it's a basic system utility).
 - **Wait for a condition, not for a time.** On a busy machine a script gets everywhere several
   times later, so a test never sleeps on a fixed timer when it can wait for a condition with
-  `self.wait_until(condition)`. To type into `remote.sh` once it has handled a key, for example,
+  `self.wait_until(condition)`. To type into `tv-remote.sh` once it has handled a key, for example,
   wait until `sandbox.calls()` shows that key's `adb` call; to stop an emulator while
-  `start-emulator.sh` waits for its boot, start the script with `start_in_background()`
+  `tv-start-emulator.sh` waits for its boot, start the script with `start_in_background()`
   ([`test_start_emulator.py`](hermetic/test_start_emulator.py)) and wait until the calls show
-  its boot polls. To act while `wslg-toolbar.py show` has unmapped the toolbar, play the window
+  its boot polls. To act while `tv-wslg-toolbar.py show` has unmapped the toolbar, play the window
   manager (`EmulatorWindows.set_wm_state()`): the script goes on only once the test has set the
   toolbar's `WM_STATE` to Withdrawn. A time limit a test sets
   (`ADT_BOOT_TIMEOUT=2`) must only end what never finishes by design, not race what the script

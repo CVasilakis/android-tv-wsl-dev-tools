@@ -6,7 +6,7 @@ import android.view.KeyEvent;
 import java.lang.reflect.Method;
 
 /**
- * Holds a key the way a remote's button held down does, for remote.sh --long-press before API 30:
+ * Holds a key the way a remote's button held down does, for tv-remote.sh --long-press before API 30:
  * the key goes down; at <repeat ms> a repeat of it, flagged as a long press; at <release ms> the
  * release. All three carry the down time of the first, as a real key's do. Injected as the shell
  * user (run with app_process), into the device's input, so the window in front gets them as it

@@ -2,9 +2,9 @@
 # A TV remote in the terminal: each key press is sent to the device as an Android key. Also holds
 # a key for scripts: a long press, which `adb shell input keyevent` can't do before API 30.
 #
-# Usage:   remote.sh [adb-serial]
-#          remote.sh --long-press <key> [adb-serial]
-#          remote.sh --help
+# Usage:   tv-remote.sh [adb-serial]
+#          tv-remote.sh --long-press <key> [adb-serial]
+#          tv-remote.sh --help
 # Target:  the serial given, else $ANDROID_SERIAL, else the only running emulator. Phones and
 #          TVs connected at the same time are only used when named, so keys never go to one by
 #          accident.
@@ -13,7 +13,7 @@
 #
 # Each key is sent with `adb shell input keyevent <KEY>`: one mechanism for every Android version,
 # emulators and physical devices alike, whatever window has focus (which matters under WSLg, see
-# wslg-toolbar.py). Each call starts a Java process on the device, so each key lags a little;
+# tv-wslg-toolbar.py). Each call starts a Java process on the device, so each key lags a little;
 # quick presses queue up and arrive in order. The emulator
 # console (`adb emu event send`) would be faster, but it only exists on emulators and its key
 # events never arrive on the API 30 TV image.
@@ -28,7 +28,7 @@
 #   adb shell dumpsys input | sed -n '/RecentQueue/,/PendingEvent/p'
 #
 # Troubleshooting:
-#   "several emulators are running"  -> pass the serial: remote.sh emulator-5554
+#   "several emulators are running"  -> pass the serial: tv-remote.sh emulator-5554
 #   an error for each key            -> the device is gone, offline or unauthorized: adb devices
 #   "the long press failed"          -> the program's output follows; the device may be busy or gone
 #
@@ -38,8 +38,8 @@ set -uo pipefail
 
 usage() {
     cat <<'EOF'
-Usage: remote.sh [adb-serial]
-       remote.sh --long-press <key> [adb-serial]
+Usage: tv-remote.sh [adb-serial]
+       tv-remote.sh --long-press <key> [adb-serial]
 
 A TV remote in the terminal: each key press is sent to an emulator or Android device.
 
@@ -74,7 +74,7 @@ case "${1:-}" in
         elif [ -n "${KEY_CODES[$key]:-}" ]; then
             LONG_PRESS_CODE="${KEY_CODES[$key]}"
         else
-            echo "remote.sh: unknown key '$2'; use a key code number or one of:" \
+            echo "tv-remote.sh: unknown key '$2'; use a key code number or one of:" \
                  "$(printf '%s\n' "${!KEY_CODES[@]}" | sort | tr '\n' ' ' | sed 's/ $//')" >&2
             exit 2
         fi
@@ -91,9 +91,9 @@ SERIAL="${1:-${ANDROID_SERIAL:-}}"
 if [ -z "$SERIAL" ]; then
     mapfile -t EMULATORS < <(running_emulators)
     case ${#EMULATORS[@]} in
-        0) die "no running emulator. Start one with: $(command_for start-emulator.sh)" ;;
+        0) die "no running emulator. Start one with: $(command_for tv-start-emulator.sh)" ;;
         1) SERIAL="${EMULATORS[0]}" ;;
-        *) die "several emulators are running (${EMULATORS[*]}). Pass one: $(command_for remote.sh) <serial>" ;;
+        *) die "several emulators are running (${EMULATORS[*]}). Pass one: $(command_for tv-remote.sh) <serial>" ;;
     esac
 fi
 ADB=("$ADB" -s "$SERIAL")
@@ -122,7 +122,7 @@ long_press() {
     api="$("${ADB[@]}" shell getprop ro.build.version.sdk < /dev/null | tr -d '\r')"
     if [[ "$api" =~ ^[0-9]+$ ]] && [ "$api" -ge 30 ]; then
         "${ADB[@]}" shell input keyevent --longpress "$1" < /dev/null > /dev/null && return 0
-        echo "remote.sh: the long press failed on $SERIAL" >&2
+        echo "tv-remote.sh: the long press failed on $SERIAL" >&2
         return 1
     fi
     held_key "$1"
@@ -143,7 +143,7 @@ held_key() {
                   < /dev/null 2>&1)"
     "${ADB[@]}" shell rm -f "$device_dex" < /dev/null > /dev/null 2>&1
     if ! grep -q "Events injected: 3" <<<"$output"; then
-        echo "remote.sh: the long press failed on $SERIAL:" >&2
+        echo "tv-remote.sh: the long press failed on $SERIAL:" >&2
         tr -d '\r' <<<"${output:-adb push failed}" | grep -v '^[[:space:]]*$' | tail -n 5 >&2
         return 1
     fi

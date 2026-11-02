@@ -3,15 +3,15 @@
 The scripts, and nothing else: users may put this folder on their `PATH`
 (see [`../README.md`](../README.md#optional-put-the-scripts-on-your-path)), so helpers live in
 [`../lib/`](../lib/lib.sh). Commands below are shown by name; without `PATH` set up, call them by
-their path, e.g. `../android-tv-wsl-dev-tools/bin/start-emulator.sh`.
+their path, e.g. `../android-tv-wsl-dev-tools/bin/tv-start-emulator.sh`.
 
 | Script | Purpose |
 |---|---|
-| [`create-avd.sh`](create-avd.sh) | Creates an Android TV emulator with the right hardware settings (`tv_api25`, or `--api <level>`, or Google TV with `--google-tv`; another screen with `--size`/`--density`). |
-| [`start-emulator.sh`](start-emulator.sh) | Boots it (cold boot, or Quick Boot with `--quick`), waits until Android is ready (and with `--wait-for-home` until its home app has settled in front), applies the WSLg toolbar fix. |
-| [`stop-emulator.sh`](stop-emulator.sh) | Has Android save its recent changes, stops it and returns once it has exited, with a time limit (one emulator, or `--all`). |
-| [`remote.sh`](remote.sh) | TV remote in the terminal (D-pad, OK, Back, Home, Menu, …); holds a key as a long press on any API level (`--long-press`). |
-| [`wslg-toolbar.py`](wslg-toolbar.py) | Works around the emulator toolbar's input problems under WSLg. |
+| [`tv-create-avd.sh`](tv-create-avd.sh) | Creates an Android TV emulator with the right hardware settings (`tv_api25`, or `--api <level>`, or Google TV with `--google-tv`; another screen with `--size`/`--density`). |
+| [`tv-start-emulator.sh`](tv-start-emulator.sh) | Boots it (cold boot, or Quick Boot with `--quick`), waits until Android is ready (and with `--wait-for-home` until its home app has settled in front), applies the WSLg toolbar fix. |
+| [`tv-stop-emulator.sh`](tv-stop-emulator.sh) | Has Android save its recent changes, stops it and returns once it has exited, with a time limit (one emulator, or `--all`). |
+| [`tv-remote.sh`](tv-remote.sh) | TV remote in the terminal (D-pad, OK, Back, Home, Menu, …); holds a key as a long press on any API level (`--long-press`). |
+| [`tv-wslg-toolbar.py`](tv-wslg-toolbar.py) | Works around the emulator toolbar's input problems under WSLg. |
 
 Each one prints its usage with `--help`, and has a header comment with its usage, common errors
 and the reasons behind its less obvious lines.
@@ -25,26 +25,26 @@ Nothing about the SDK, AVD or device is hardcoded; each is taken from the first 
 | Android SDK | `$ANDROID_HOME`, `$ANDROID_SDK_ROOT`, `sdk.dir` in the `local.properties` of the project you're in (the nearest one in the current folder or above it, as Gradle does), the SDK of the `adb` on `$PATH`, `~/Android/Sdk` |
 | `adb`, `emulator`, `avdmanager`, `android` | inside that SDK (`cmdline-tools/latest`, else the newest `cmdline-tools/<version>`), else on `$PATH` |
 | AVD folder | `$ANDROID_AVD_HOME`, `$ANDROID_EMULATOR_HOME/avd`, `$ANDROID_USER_HOME/avd`, `$ANDROID_SDK_HOME/.android/avd`, `~/.android/avd`; each AVD is located through its `<name>.ini` |
-| AVD to create or boot | the name given on the command line, `$ADT_AVD`, `tv_api25` (`create-avd.sh --api <level>`: the name given, else `tv_api<level>`, or `gtv_api<level>` with `--google-tv`); `start-emulator.sh` then also accepts the only Android TV or Google TV AVD |
-| Emulator to talk to | `start-emulator.sh` matches running emulators by AVD name; `remote.sh` takes the serial given (any device), `$ANDROID_SERIAL`, or the only running emulator; `stop-emulator.sh` the AVD name or serial given, `$ANDROID_SERIAL`, or the only running emulator (never a physical device); `wslg-toolbar.py` the AVD given or the only emulator window |
+| AVD to create or boot | the name given on the command line, `$ADT_AVD`, `tv_api25` (`tv-create-avd.sh --api <level>`: the name given, else `tv_api<level>`, or `gtv_api<level>` with `--google-tv`); `tv-start-emulator.sh` then also accepts the only Android TV or Google TV AVD |
+| Emulator to talk to | `tv-start-emulator.sh` matches running emulators by AVD name; `tv-remote.sh` takes the serial given (any device), `$ANDROID_SERIAL`, or the only running emulator; `tv-stop-emulator.sh` the AVD name or serial given, `$ANDROID_SERIAL`, or the only running emulator (never a physical device); `tv-wslg-toolbar.py` the AVD given or the only emulator window |
 
 `local.properties` is the only thing the scripts read from the folder they're called from. To use
 your own TV AVD without typing its name each time: `export ADT_AVD=<name>`.
 
-## `create-avd.sh`
+## `tv-create-avd.sh`
 
-`create-avd.sh [--api <level>] [--google-tv] [--size <W>x<H>] [--density <dpi>] [--if-missing] [name]`
+`tv-create-avd.sh [--api <level>] [--google-tv] [--size <W>x<H>] [--density <dpi>] [--if-missing] [name]`
 
 ```bash
-create-avd.sh                  # tv_api25: Android 7.1 (default name: $ADT_AVD, else tv_api25)
-create-avd.sh --api 22         # tv_api22: Android 5.1, the oldest the emulator can boot
-create-avd.sh --api 28         # tv_api28: Android 9
-create-avd.sh --api 30         # tv_api30: Android 11
-create-avd.sh --api 33         # tv_api33: Android 13
-create-avd.sh --api 36         # tv_api36: Android 16
-create-avd.sh --api 30 my_tv   # the same image under another name
-create-avd.sh --google-tv --api 36   # gtv_api36: Google TV on Android 16
-create-avd.sh --size 1280x720 --density 213 tv_720p   # a 720p screen instead of 1080p
+tv-create-avd.sh                  # tv_api25: Android 7.1 (default name: $ADT_AVD, else tv_api25)
+tv-create-avd.sh --api 22         # tv_api22: Android 5.1, the oldest the emulator can boot
+tv-create-avd.sh --api 28         # tv_api28: Android 9
+tv-create-avd.sh --api 30         # tv_api30: Android 11
+tv-create-avd.sh --api 33         # tv_api33: Android 13
+tv-create-avd.sh --api 36         # tv_api36: Android 16
+tv-create-avd.sh --api 30 my_tv   # the same image under another name
+tv-create-avd.sh --google-tv --api 36   # gtv_api36: Google TV on Android 16
+tv-create-avd.sh --size 1280x720 --density 213 tv_720p   # a 720p screen instead of 1080p
 ```
 
 Creates the AVD from the Android TV image of that API level (default 25),
@@ -79,8 +79,8 @@ The TV profile has **no touchscreen** (`hw.screen=no-touch`), like a real TV.
 memory, which SELinux denies user processes when it's enforcing and the `selinuxuser_execheap`
 boolean is off, as on Fedora by default: the emulator then segfaults at startup, with nothing in
 its log. So where `getenforce` says `Enforcing` and `getsebool selinuxuser_execheap` says `off`,
-`create-avd.sh` sets `hw.gpu.mode` to `swangle_indirect`, also software rendering, and
-`start-emulator.sh` passes `-gpu swangle_indirect`; each says so.
+`tv-create-avd.sh` sets `hw.gpu.mode` to `swangle_indirect`, also software rendering, and
+`tv-start-emulator.sh` passes `-gpu swangle_indirect`; each says so.
 
 `--size <W>x<H>` and `--density <dpi>` replace the profile's screen (`hw.lcd.width`,
 `hw.lcd.height`, `hw.lcd.density`); each one given alone keeps the profile's value for the other.
@@ -103,7 +103,7 @@ for it, so `--google-tv` needs `--api`, and it refuses a level below 30.
 
 **API 21 doesn't work.** Its Android TV image (Android 5.0) has only the old goldfish kernel,
 `kernel-qemu`, and the emulator no longer has the engine that ran it: it boots only images with a
-ranchu kernel (`kernel-ranchu`, or `kernel-ranchu-64` on newer images). `create-avd.sh --api 21`
+ranchu kernel (`kernel-ranchu`, or `kernel-ranchu-64` on newer images). `tv-create-avd.sh --api 21`
 says so instead of creating an AVD that can't start. API 22 is the oldest Android TV image with a
 ranchu kernel.
 
@@ -114,15 +114,15 @@ cmdline-tools 12.0, the version on GitHub's runners, uses `$XDG_CONFIG_HOME/.and
 `XDG_CONFIG_HOME` is set, and the emulator never finds an AVD there.
 
 It never overwrites an existing AVD: it fails instead (exit 1). To recreate one:
-`avdmanager delete avd -n tv_api25 && create-avd.sh`. For scripts and CI jobs that cache their
-AVDs, `create-avd.sh --if-missing` accepts an existing AVD made from the same system image and
+`avdmanager delete avd -n tv_api25 && tv-create-avd.sh`. For scripts and CI jobs that cache their
+AVDs, `tv-create-avd.sh --if-missing` accepts an existing AVD made from the same system image and
 leaves it as it is (exit 0); one of the same name from another image, or with another `--size`
 or `--density` than the ones given, is still an error. Without `--size` or `--density`, any
 existing screen is accepted.
 
 ## Other screen sizes and densities
 
-Every AVD `create-avd.sh` makes has a 1920×1080 screen at 320 dpi (960×540 dp) unless told
+Every AVD `tv-create-avd.sh` makes has a 1920×1080 screen at 320 dpi (960×540 dp) unless told
 otherwise. To see how an app looks on other TVs there are three ways, from quickest to most
 permanent. Common TV screens:
 
@@ -151,46 +151,46 @@ but not on a 720p one (asking for 3840x2160 there gives 2560x1440). It changes w
 not the emulator window, which keeps its own size. With several emulators, add `-s <serial>`
 after `adb`.
 
-**At boot, `start-emulator.sh … -skin <W>x<H>`.** Extra flags go to the emulator, and `-skin`
+**At boot, `tv-start-emulator.sh … -skin <W>x<H>`.** Extra flags go to the emulator, and `-skin`
 sets the screen's physical size for that run only; the AVD keeps its own:
 
 ```bash
-start-emulator.sh tv_api25 -skin 1280x720
+tv-start-emulator.sh tv_api25 -skin 1280x720
 ```
 
 It sets no density: the AVD's stays (320 by default, so 1280x720 would be 640×360 dp); follow it
 with `adb shell wm density 213`.
 
-**A separate AVD, `create-avd.sh --size --density`.** For a screen you test on often, or that
+**A separate AVD, `tv-create-avd.sh --size --density`.** For a screen you test on often, or that
 is more than twice the size of an existing AVD, which `wm` can't do. Give it a name so
 it doesn't take the default one:
 
 ```bash
-create-avd.sh --api 30 --size 1280x720 --density 213 tv30_720p
-start-emulator.sh tv30_720p
+tv-create-avd.sh --api 30 --size 1280x720 --density 213 tv30_720p
+tv-start-emulator.sh tv30_720p
 ```
 
-## `start-emulator.sh`
+## `tv-start-emulator.sh`
 
-`start-emulator.sh [--quick] [--wait-for-home] [name] [emulator flags…]`
+`tv-start-emulator.sh [--quick] [--wait-for-home] [name] [emulator flags…]`
 
 ```bash
-start-emulator.sh                          # cold boot the default AVD (see Finding your setup)
-start-emulator.sh --quick                  # boot from its Quick Boot snapshot instead
-start-emulator.sh --wait-for-home          # also wait until the home app has settled (tests, CI)
-start-emulator.sh -wipe-data               # factory reset (also re-enables a disabled stock launcher)
-start-emulator.sh my_tv -gpu host          # another AVD, with hardware rendering
-EMULATOR_TOOLBAR=show start-emulator.sh    # keep a clickable side toolbar (see below)
-stop-emulator.sh                           # save recent changes, stop it (and a Quick Boot snapshot for --quick)
+tv-start-emulator.sh                          # cold boot the default AVD (see Finding your setup)
+tv-start-emulator.sh --quick                  # boot from its Quick Boot snapshot instead
+tv-start-emulator.sh --wait-for-home          # also wait until the home app has settled (tests, CI)
+tv-start-emulator.sh -wipe-data               # factory reset (also re-enables a disabled stock launcher)
+tv-start-emulator.sh my_tv -gpu host          # another AVD, with hardware rendering
+EMULATOR_TOOLBAR=show tv-start-emulator.sh    # keep a clickable side toolbar (see below)
+tv-stop-emulator.sh                           # save recent changes, stop it (and a Quick Boot snapshot for --quick)
 ```
 
 It runs `emulator -avd <name> -gpu swiftshader_indirect -no-snapshot-load -no-boot-anim -no-audio`
-in the background (`-gpu swangle_indirect` [under SELinux](#create-avdsh); a `-gpu` flag of your
+in the background (`-gpu swangle_indirect` [under SELinux](#tv-create-avdsh); a `-gpu` flag of your
 own replaces the default), logs to `${TMPDIR:-/tmp}/emulator-<name>.log`,
 finds the emulator's serial by asking each running emulator for its AVD name, waits until
 `sys.boot_completed=1` (so it can be chained with `./gradlew installDebug`), and on WSL finishes
-with `wslg-toolbar.py <name> hide`. If the emulator exits during boot, it stops waiting and prints
-how it exited (its exit status, or the signal that killed it) and the end of the log.
+with `tv-wslg-toolbar.py <name> hide`. If the emulator exits during boot, it stops waiting and
+prints how it exited (its exit status, or the signal that killed it) and the end of the log.
 
 **Already running.** An AVD that's already running isn't started again, but it may still be
 booting, e.g. started by another call or CI step a moment ago. The script then waits for its boot
@@ -285,13 +285,13 @@ lost: the next cold boot starts as if the command had never run. Measured on the
 
 So a change is safe 15 s after it at the latest. **Wait 30 s before stopping the emulator after
 a change that should stay**: twice that. `adb reboot` and `adb shell reboot -p` don't save it
-either. [`stop-emulator.sh`](#stop-emulatorsh) needs no wait: it has Android save first.
+either. [`tv-stop-emulator.sh`](#tv-stop-emulatorsh) needs no wait: it has Android save first.
 
 **Output.** stdout holds the emulator's serial (e.g. `emulator-5554`) and nothing else; every
 message goes to stderr. So scripts capture it without parsing messages:
 
 ```bash
-serial="$(start-emulator.sh)" && export ANDROID_SERIAL="$serial"
+serial="$(tv-start-emulator.sh)" && export ANDROID_SERIAL="$serial"
 ```
 
 **Without a display.** The emulator's window needs an X display: without `$DISPLAY` (a CI runner,
@@ -321,16 +321,16 @@ also `offline` until `adbd` starts, which is normal, so it's never cut short.
 problem it finds ([`../SETUP.md`](../SETUP.md#make-devkvm-writable)). When you're in the `kvm`
 group but this session predates it, it re-runs itself through `sg kvm` instead.
 
-## `stop-emulator.sh`
+## `tv-stop-emulator.sh`
 
-`stop-emulator.sh [--all] [--no-save] [name|serial]`
+`tv-stop-emulator.sh [--all] [--no-save] [name|serial]`
 
 ```bash
-stop-emulator.sh                   # $ANDROID_SERIAL, else the only running emulator
-stop-emulator.sh tv_api25          # by AVD name
-stop-emulator.sh emulator-5556     # by serial
-stop-emulator.sh --all             # every running emulator
-stop-emulator.sh --no-save --all   # every running emulator, without saving first
+tv-stop-emulator.sh                   # $ANDROID_SERIAL, else the only running emulator
+tv-stop-emulator.sh tv_api25          # by AVD name
+tv-stop-emulator.sh emulator-5556     # by serial
+tv-stop-emulator.sh --all             # every running emulator
+tv-stop-emulator.sh --no-save --all   # every running emulator, without saving first
 ```
 
 It runs `adb -s <serial> emu kill` and returns once the emulator's process has exited, so the
@@ -340,7 +340,7 @@ running emulator nor an AVD is an error, so a typo doesn't pass as "not running"
 stderr; stdout stays empty.
 
 **Saving first.** Before it stops the emulator, it has Android save the changes it hasn't saved
-yet ([why](#start-emulatorsh), "Stopping and recent changes"), then commits them to the disk
+yet ([why](#tv-start-emulatorsh), "Stopping and recent changes"), then commits them to the disk
 image with `sync`:
 
 | API level | How it has Android save | Time |
@@ -375,7 +375,7 @@ change that should stay, such as an app you disabled or a setting you changed.
 
 `adb emu kill` alone returns at once, before the emulator has exited, and
 `adb wait-for-disconnect` waits for that without a time limit. Neither can stop an emulator whose
-console doesn't answer, so a script built on them can hang. `stop-emulator.sh` always ends:
+console doesn't answer, so a script built on them can hang. `tv-stop-emulator.sh` always ends:
 
 | What happens | What it does |
 |---|---|
@@ -433,8 +433,8 @@ To test an app on more than one Android version, create one AVD per API level an
 you need; they run side by side, each on its own serial:
 
 ```bash
-create-avd.sh --api 22 && create-avd.sh --api 36        # tv_api22 (Android 5.1), tv_api36 (Android 16)
-for avd in tv_api22 tv_api25 tv_api36; do start-emulator.sh "$avd"; done
+tv-create-avd.sh --api 22 && tv-create-avd.sh --api 36  # tv_api22 (Android 5.1), tv_api36 (Android 16)
+for avd in tv_api22 tv_api25 tv_api36; do tv-start-emulator.sh "$avd"; done
 ./gradlew connectedDebugAndroidTest                     # runs on every connected device
 ```
 
@@ -443,15 +443,15 @@ are in [`../README.md`](../README.md#scope), and what differs between them in
 [Differences between API levels](#differences-between-api-levels).
 
 With several devices connected (another emulator, a phone, a TV over adb), `adb` refuses to
-guess, `remote.sh` needs the serial once several emulators run, and `./gradlew installDebug`
-installs on all of them. Set `ANDROID_SERIAL` to the serial `start-emulator.sh` prints (see
-[its output](#start-emulatorsh)) to use only that one.
+guess, `tv-remote.sh` needs the serial once several emulators run, and `./gradlew installDebug`
+installs on all of them. Set `ANDROID_SERIAL` to the serial `tv-start-emulator.sh` prints (see
+[its output](#tv-start-emulatorsh)) to use only that one.
 
 ## Controlling the TV
 
 Clicking on the Android screen does nothing, because there's no touchscreen. Use the keyboard or the terminal remote:
 
-| TV remote | Emulator window (default setup) | `remote.sh` in a terminal | adb |
+| TV remote | Emulator window (default setup) | `tv-remote.sh` in a terminal | adb |
 |---|---|---|---|
 | D-pad | Arrow keys | Arrow keys | `adb shell input keyevent DPAD_UP` (…DOWN/LEFT/RIGHT) |
 | OK | Enter | Enter | `adb shell input keyevent DPAD_CENTER` |
@@ -459,27 +459,27 @@ Clicking on the Android screen does nothing, because there's no touchscreen. Use
 | Home | Ctrl+H | h | `adb shell input keyevent HOME` |
 | Menu | Ctrl+M | m | `adb shell input keyevent MENU` |
 | Play/Pause, Volume | — | p, + / - | `adb shell input keyevent MEDIA_PLAY_PAUSE` |
-| Long press (held) | Hold the key | l, then the key | `remote.sh --long-press DPAD_CENTER` ([below](#long-presses)) |
+| Long press (held) | Hold the key | l, then the key | `tv-remote.sh --long-press DPAD_CENTER` ([below](#long-presses)) |
 
 Notes on the emulator window:
 - Click the emulator screen once so it has keyboard focus.
 - **Esc and F1 don't reach Android**: the emulator window consumes them. Use Ctrl+Backspace for Back and Ctrl+M for Menu.
 - Holding Ctrl draws a ring of circles around the mouse pointer. That's the emulator's multi-touch
-  simulator: cosmetic, it sends nothing to the TV and can't be turned off. `remote.sh` needs no Ctrl.
+  simulator: cosmetic, it sends nothing to the TV and can't be turned off. `tv-remote.sh` needs no Ctrl.
 
-`remote.sh` sends each key with `adb shell input keyevent` (the adb column above), so it works
+`tv-remote.sh` sends each key with `adb shell input keyevent` (the adb column above), so it works
 the same on every Android version, on emulators and physical devices, whatever window has focus.
 Each key lags a little, because every call starts a process on the device; quick presses queue up and arrive in order. By default it picks the only running emulator,
 ignoring physical devices; with several emulators, or for a physical TV, pass the serial
-(`remote.sh emulator-5554`) or set `ANDROID_SERIAL`.
+(`tv-remote.sh emulator-5554`) or set `ANDROID_SERIAL`.
 
 The emulator console (`adb emu event send`) would be much faster, but it only works on
 emulators, and on the API 30 Android TV image its key events never arrive (the image has no
-`goldfish_events` keyboard for the console to reach), so `remote.sh` doesn't use it.
+`goldfish_events` keyboard for the console to reach), so `tv-remote.sh` doesn't use it.
 
 ### Long presses
 
-`remote.sh --long-press <key> [serial]` holds one key and exits, on every API level. It sends
+`tv-remote.sh --long-press <key> [serial]` holds one key and exits, on every API level. It sends
 what a remote's button sends while it's held: the key goes down; after the device's long-press
 timeout (`adb shell settings get secure long_press_timeout`) a repeat, which Android flags as a
 long press (`FLAG_LONG_PRESS`); then the release. So both views, which time how long the key
@@ -488,29 +488,29 @@ is a key code number or the name of a remote's key (`DPAD_CENTER`, `BACK`, `HOME
 lists them). In the interactive remote, `l` then a key does the same.
 
 ```bash
-remote.sh --long-press DPAD_CENTER             # long press of OK
-remote.sh --long-press BACK emulator-5556      # of Back, on another emulator
+tv-remote.sh --long-press DPAD_CENTER             # long press of OK
+tv-remote.sh --long-press BACK emulator-5556      # of Back, on another emulator
 ```
 
-From API 30 on, `remote.sh` uses `adb shell input keyevent --longpress <key>`, which does just
+From API 30 on, `tv-remote.sh` uses `adb shell input keyevent --longpress <key>`, which does just
 that. Before API 30, `--longpress` sends the release at once, so the app sees a short press (OK
-opens what it's on). There `remote.sh` runs a small program of its own on the device
-([`lib/HoldKey.java`](../lib/HoldKey.java), shipped built as `lib/HoldKey.dex`, which `remote.sh` pushes to
+opens what it's on). There `tv-remote.sh` runs a small program of its own on the device
+([`lib/HoldKey.java`](../lib/HoldKey.java), shipped built as `lib/HoldKey.dex`, which `tv-remote.sh` pushes to
 `/data/local/tmp` and deletes afterwards) that injects the three events through the input system
 as the shell user, with the release one long-press timeout (500 ms when unset) after the repeat. What
 that means before API 30:
 
 - A long press takes a moment longer than the hold itself: the program starts a process on the device.
-- Nothing else runs meanwhile and no setting changes. `monkey`, which `remote.sh` used before, locked the
+- Nothing else runs meanwhile and no setting changes. `monkey`, which `tv-remote.sh` used before, locked the
   screen rotation and unlocked it again, and on API 28 left the windows that opened while it ran
   (a menu, a panel) without their window focus, so their keys went nowhere.
 
 Monkey isn't an option from API 30 on: on API 36 it adds a virtual touchscreen while it runs,
 and that configuration change recreates the app in front, which then drops the keys.
 
-## The side toolbar under WSLg (`wslg-toolbar.py`)
+## The side toolbar under WSLg (`tv-wslg-toolbar.py`)
 
-Outside WSL, `start-emulator.sh` leaves the toolbar as the emulator shows it. Under GNOME on
+Outside WSL, `tv-start-emulator.sh` leaves the toolbar as the emulator shows it. Under GNOME on
 Wayland (Fedora) the emulator runs through Xwayland and warns that Qt's "wayland" plugin isn't
 bundled, which is harmless.
 
@@ -521,15 +521,15 @@ Under WSLg the emulator's side toolbar (power, volume, Back, Home, "⋯" → Ext
 2. **It steals the keyboard.** While it's shown, keys typed into the emulator window move focus
    between the toolbar buttons instead of reaching Android.
 
-You can't have both a clickable toolbar and a working keyboard, so `wslg-toolbar.py <avd> hide|show` picks one:
+You can't have both a clickable toolbar and a working keyboard, so `tv-wslg-toolbar.py <avd> hide|show` picks one:
 
 | Mode | Keyboard in emulator window | Toolbar |
 |---|---|---|
-| `hide` (default in `start-emulator.sh`) | works | hidden |
-| `show` | goes to the toolbar (use `remote.sh`) | clickable, including "⋯" → Extended controls → *Directional pad* |
+| `hide` (default in `tv-start-emulator.sh`) | works | hidden |
+| `show` | goes to the toolbar (use `tv-remote.sh`) | clickable, including "⋯" → Extended controls → *Directional pad* |
 
-Switch at any time on a running emulator, as often as you like: `wslg-toolbar.py show`. Without an AVD
-name it acts on the only emulator window; with several, pass the name: `wslg-toolbar.py tv_api25 show`.
+Switch at any time on a running emulator, as often as you like: `tv-wslg-toolbar.py show`. Without an AVD
+name it acts on the only emulator window; with several, pass the name: `tv-wslg-toolbar.py tv_api25 show`.
 `show` unmaps the toolbar, waits until the window manager has withdrawn it, and maps it again as
 a normal window; if the window manager doesn't withdraw it within 30 s, the script says so and
 maps it anyway. Once WSLg has shown it, the script moves it beside the emulator window, where the
@@ -567,8 +567,8 @@ events that came later, with the age it had all along.
 
 Don't use `adb shell getevent > file` to check input: without a terminal its output is buffered and
 the file stays empty. Simulated host input (xdotool/XTest) doesn't reach the emulator under WSLg, so
-automated tests should send keys with `adb shell input keyevent`, like `remote.sh` does, and
-hold them with [`remote.sh --long-press`](#long-presses).
+automated tests should send keys with `adb shell input keyevent`, like `tv-remote.sh` does, and
+hold them with [`tv-remote.sh --long-press`](#long-presses).
 
 ## Differences between API levels
 
@@ -578,18 +578,18 @@ TV or Google TV; these are the differences in the images that you may run into:
 | API | Difference |
 |---|---|
 | 22 | `--quick` is slower than a cold boot. The device has no `uname`. `/sdcard` is the AVD's SD card (`/storage/sdcard`), read-only without one; from API 23 on it's internal storage, and the SD card is a removable volume (`/storage/<id>`). The stock launcher's HOME filter has no priority, so with another home app installed, Home opens the chooser; while the chooser is in front, `adb shell am start -W` of an app open behind it never returns (without `-W` it's fine). |
-| 22–23 | No `cmd` on the device (`cmd package resolve-activity`, …); it exists from API 24 on. `adb shell am start -W …` names the activity an intent opened, on its `Activity:` line (but it opens it). `dumpsys activity activities` shows the intent that started each task (`intent={…}`) and the focused activity (`mFocusedActivity`); `start-emulator.sh --wait-for-home` finds the home app that way. On API 22 an app started from the home chooser joins the chooser's stack (`stackId=0`), so the stack doesn't tell the home app. |
+| 22–23 | No `cmd` on the device (`cmd package resolve-activity`, …); it exists from API 24 on. `adb shell am start -W …` names the activity an intent opened, on its `Activity:` line (but it opens it). `dumpsys activity activities` shows the intent that started each task (`intent={…}`) and the focused activity (`mFocusedActivity`); `tv-start-emulator.sh --wait-for-home` finds the home app that way. On API 22 an app started from the home chooser joins the chooser's stack (`stackId=0`), so the stack doesn't tell the home app. |
 | 22–25 | The stock launcher is `com.google.android.leanbacklauncher`. |
-| 22–29 | `adb shell input keyevent --longpress` doesn't hold the key, so it's a short press; `remote.sh --long-press` holds it on every level ([Long presses](#long-presses)). |
-| 23, 28, 29 | The first boot of a new AVD with an SD card, as `create-avd.sh` makes them, opens a "USB drive connected" screen (`com.android.tv.settings/.device.storage.NewStorageActivity`) in front of the launcher, until Back; later boots don't. It's Android TV's Settings announcing the SD card as a new USB drive; an AVD without an SD card image doesn't show it. `start-emulator.sh --wait-for-home` presses Back for it. |
+| 22–29 | `adb shell input keyevent --longpress` doesn't hold the key, so it's a short press; `tv-remote.sh --long-press` holds it on every level ([Long presses](#long-presses)). |
+| 23, 28, 29 | The first boot of a new AVD with an SD card, as `tv-create-avd.sh` makes them, opens a "USB drive connected" screen (`com.android.tv.settings/.device.storage.NewStorageActivity`) in front of the launcher, until Back; later boots don't. It's Android TV's Settings announcing the SD card as a new USB drive; an AVD without an SD card image doesn't show it. `tv-start-emulator.sh --wait-for-home` presses Back for it. |
 | 23 on | The stock launcher's HOME filter has priority 2, so `set-home-activity` and the home chooser can't pick another home app: it only takes over while the stock one is disabled (`adb shell pm disable-user --user 0 <package>`). |
-| 24 on | Until the user is unlocked after a boot, a HOME intent resolves to Settings' `com.android.tv.settings/.system.FallbackHome` (also for `cmd package resolve-activity`), which holds the screen until the home app has started; both can last past `sys.boot_completed` being 1, when `start-emulator.sh` returns (without [`--wait-for-home`](#start-emulatorsh)). |
+| 24 on | Until the user is unlocked after a boot, a HOME intent resolves to Settings' `com.android.tv.settings/.system.FallbackHome` (also for `cmd package resolve-activity`), which holds the screen until the home app has started; both can last past `sys.boot_completed` being 1, when `tv-start-emulator.sh` returns (without [`--wait-for-home`](#tv-start-emulatorsh)). |
 | 26 on | The stock launcher is `com.google.android.tvlauncher`. On 26–29 `leanbacklauncher` is installed too, without a HOME filter. |
-| 26, 27 | The slowest cold boots up to API 28. Home doesn't leave apps until `tv_user_setup_complete` is set, which `start-emulator.sh` does ([Home on API 26 and 27](#home-on-api-26-and-27)). |
+| 26, 27 | The slowest cold boots up to API 28. Home doesn't leave apps until `tv_user_setup_complete` is set, which `tv-start-emulator.sh` does ([Home on API 26 and 27](#home-on-api-26-and-27)). |
 | 29 on | `dumpsys input` lists key events without key codes. avdmanager prints the harmless devices.xml error. |
-| 30 | `remote.sh` keys lag the most; the emulator console's key events never arrive. |
-| 28 | `adb shell monkey` leaves a window that opens while it runs without its window focus, so its keys are dropped: `remote.sh --long-press` doesn't use it. |
-| 36 | `adb shell monkey` adds a virtual touchscreen while it runs; that configuration change recreates the app in front, which drops the keys monkey sends: `remote.sh --long-press` doesn't use it. |
+| 30 | `tv-remote.sh` keys lag the most; the emulator console's key events never arrive. |
+| 28 | `adb shell monkey` leaves a window that opens while it runs without its window focus, so its keys are dropped: `tv-remote.sh --long-press` doesn't use it. |
+| 36 | `adb shell monkey` adds a virtual touchscreen while it runs; that configuration change recreates the app in front, which drops the keys monkey sends: `tv-remote.sh --long-press` doesn't use it. |
 | Google TV, all | The stock launcher is `com.google.android.apps.tv.launcherx`, with priority 2 like the others. Without a Google account it shows a sign-in screen instead of a home screen: "Add account" on 30–33, "Set up Google TV" on 34 and 36; Home opens it like a home screen. Right after a boot it can come to the front by itself, over an app just opened. |
 | Google TV, 30–33 | After a boot the launcher first shows `.coreservices.bootmode.DispatchActivity`, in a task of its own, while it decides what to show (minutes on a slow host), then brings its home task to the front, over any app opened meanwhile; its home screen then opens the sign-in screen over itself, in that task. On 34 and 36 the launcher decides inside its home screen. |
 | Google TV, 30–34 | `tvlauncher` is installed too, without a HOME filter. |
@@ -600,32 +600,32 @@ TV or Google TV; these are the differences in the images that you may run into:
 |---|---|
 | Clicks on the Android screen do nothing | expected: no touchscreen, use the keys above |
 | No side toolbar | hidden on purpose under WSL (see above) |
-| Typed keys move focus between toolbar buttons | toolbar is shown: `wslg-toolbar.py hide` |
-| Toolbar buttons ignore clicks | `wslg-toolbar.py show` |
-| `wslg-toolbar: no toolbar window found` | wrong AVD name or emulator not running; inspect with `xwininfo -root -tree \| grep qemu-system` |
-| `wslg-toolbar: no running emulator window found` | emulator not running, or started with `-no-window` |
-| `wslg-toolbar: several windows look like the toolbar` | an emulator version with another tall window titled "Emulator": compare them with `xwininfo -root -tree \| grep qemu-system` and update the script's search |
-| `wslg-toolbar.py`: `X Error of failed request: BadWindow` | the emulator's toolbar or window closed while the script changed it (the emulator exited or restarted): run it again once the emulator is up |
-| `start-emulator.sh: the emulator exited with status …` | the printed log lines say why (e.g. an unknown flag); full log in `${TMPDIR:-/tmp}/emulator-<name>.log` |
-| `start-emulator.sh: the emulator exited, killed by signal 11 (SIGSEGV)` | the emulator crashed; the log usually doesn't say why, as its last lines show a normal start. Try another renderer: `start-emulator.sh <avd> -gpu swangle_indirect` |
-| `start-emulator.sh: '<avd>' didn't finish booting within 900 s` | the host is slow: raise `ADT_BOOT_TIMEOUT`; or Android can't boot: without `--quick` if you used it, else try `-wipe-data` (factory reset) |
-| `create-avd.sh: AVD '<name>' already exists` | it never overwrites one; `--if-missing` accepts it when it's from the same system image (see [`create-avd.sh`](#create-avdsh)) |
-| `start-emulator.sh: '<avd>' booted, but its home app wasn't in front with the focus within 600 s` (with `--wait-for-home`) | the next line says what was in front: nothing focused (a host short of CPU: raise `ADT_HOME_TIMEOUT`), another app (on an emulator that had booted before: press Home, or leave out the flag), or a screen that two Backs didn't close |
-| `start-emulator.sh: '<avd>' booted, but no home app is enabled` (with `--wait-for-home`, API 24 on) | every home app is disabled, e.g. the stock launcher by `pm disable-user`: `adb shell pm list packages -d` lists the disabled apps, `adb shell pm enable <package>` enables one (see [`start-emulator.sh`](#start-emulatorsh)) |
-| `start-emulator.sh: … was stopped before it finished booting` | the AVD was already running and booting (another call started it), and was stopped while this one waited; start it again |
-| `start-emulator.sh: … adb can't reach it` (with `--quick`) | the restored snapshot left adb offline: `stop-emulator.sh <serial>`, then start it without `--quick` |
-| `Android logged no write of app states on … within 12 s` from `stop-emulator.sh` | from API 33 on: nothing was pending, or Android is late with its write, so an app enabled or disabled since its last write may be lost; on a host short of CPU, raise `ADT_SAVE_WAIT` (see [`stop-emulator.sh`](#stop-emulatorsh)) |
-| `… It's still running.` from `stop-emulator.sh` | the emulator couldn't be stopped, or, without its PID, adb still listed it after `ADT_STOP_TIMEOUT` seconds (see [`stop-emulator.sh`](#stop-emulatorsh)); kill its `qemu-system-…` process by the PID in the `pid_<PID>.ini` that `adb -s <serial> emu avd discoverypath` names (without an answer: the one in `$XDG_RUNTIME_DIR/avd/running/` whose `port.serial=` is the serial's number; a killed emulator's file stays behind, so check the PID's command line first), or in `hardware-qemu.ini.lock` in the AVD's folder, or reboot WSL (`wsl --shutdown` in Windows) |
-| The emulator dies in a long series of app starts, the host out of memory (`page allocation failure` in `dmesg`, swap full) | its `qemu-system-…` process grows with every cold start of an app, whichever app (about 130 MB each on the API 22 image), and gives nothing back while it runs: stop it and start it again between batches of starts (`stop-emulator.sh`, then `start-emulator.sh`) |
+| Typed keys move focus between toolbar buttons | toolbar is shown: `tv-wslg-toolbar.py hide` |
+| Toolbar buttons ignore clicks | `tv-wslg-toolbar.py show` |
+| `tv-wslg-toolbar: no toolbar window found` | wrong AVD name or emulator not running; inspect with `xwininfo -root -tree \| grep qemu-system` |
+| `tv-wslg-toolbar: no running emulator window found` | emulator not running, or started with `-no-window` |
+| `tv-wslg-toolbar: several windows look like the toolbar` | an emulator version with another tall window titled "Emulator": compare them with `xwininfo -root -tree \| grep qemu-system` and update the script's search |
+| `tv-wslg-toolbar.py`: `X Error of failed request: BadWindow` | the emulator's toolbar or window closed while the script changed it (the emulator exited or restarted): run it again once the emulator is up |
+| `tv-start-emulator.sh: the emulator exited with status …` | the printed log lines say why (e.g. an unknown flag); full log in `${TMPDIR:-/tmp}/emulator-<name>.log` |
+| `tv-start-emulator.sh: the emulator exited, killed by signal 11 (SIGSEGV)` | the emulator crashed; the log usually doesn't say why, as its last lines show a normal start. Try another renderer: `tv-start-emulator.sh <avd> -gpu swangle_indirect` |
+| `tv-start-emulator.sh: '<avd>' didn't finish booting within 900 s` | the host is slow: raise `ADT_BOOT_TIMEOUT`; or Android can't boot: without `--quick` if you used it, else try `-wipe-data` (factory reset) |
+| `tv-create-avd.sh: AVD '<name>' already exists` | it never overwrites one; `--if-missing` accepts it when it's from the same system image (see [`tv-create-avd.sh`](#tv-create-avdsh)) |
+| `tv-start-emulator.sh: '<avd>' booted, but its home app wasn't in front with the focus within 600 s` (with `--wait-for-home`) | the next line says what was in front: nothing focused (a host short of CPU: raise `ADT_HOME_TIMEOUT`), another app (on an emulator that had booted before: press Home, or leave out the flag), or a screen that two Backs didn't close |
+| `tv-start-emulator.sh: '<avd>' booted, but no home app is enabled` (with `--wait-for-home`, API 24 on) | every home app is disabled, e.g. the stock launcher by `pm disable-user`: `adb shell pm list packages -d` lists the disabled apps, `adb shell pm enable <package>` enables one (see [`tv-start-emulator.sh`](#tv-start-emulatorsh)) |
+| `tv-start-emulator.sh: … was stopped before it finished booting` | the AVD was already running and booting (another call started it), and was stopped while this one waited; start it again |
+| `tv-start-emulator.sh: … adb can't reach it` (with `--quick`) | the restored snapshot left adb offline: `tv-stop-emulator.sh <serial>`, then start it without `--quick` |
+| `Android logged no write of app states on … within 12 s` from `tv-stop-emulator.sh` | from API 33 on: nothing was pending, or Android is late with its write, so an app enabled or disabled since its last write may be lost; on a host short of CPU, raise `ADT_SAVE_WAIT` (see [`tv-stop-emulator.sh`](#tv-stop-emulatorsh)) |
+| `… It's still running.` from `tv-stop-emulator.sh` | the emulator couldn't be stopped, or, without its PID, adb still listed it after `ADT_STOP_TIMEOUT` seconds (see [`tv-stop-emulator.sh`](#tv-stop-emulatorsh)); kill its `qemu-system-…` process by the PID in the `pid_<PID>.ini` that `adb -s <serial> emu avd discoverypath` names (without an answer: the one in `$XDG_RUNTIME_DIR/avd/running/` whose `port.serial=` is the serial's number; a killed emulator's file stays behind, so check the PID's command line first), or in `hardware-qemu.ini.lock` in the AVD's folder, or reboot WSL (`wsl --shutdown` in Windows) |
+| The emulator dies in a long series of app starts, the host out of memory (`page allocation failure` in `dmesg`, swap full) | its `qemu-system-…` process grows with every cold start of an app, whichever app (about 130 MB each on the API 22 image), and gives nothing back while it runs: stop it and start it again between batches of starts (`tv-stop-emulator.sh`, then `tv-start-emulator.sh`) |
 | `adb devices` shows `offline` or `unauthorized` | `adb reconnect offline`; if that doesn't help, `adb kill-server && adb start-server`; else stop the emulator and cold boot it |
 | `can't tell which AVD to use` / `there's no AVD named …` | pass the AVD name or set `ADT_AVD`; the message lists the AVDs found |
 | `'avdmanager' not found` (or `emulator`, `platform-tools`) | the SDK wasn't found, or lacks that package: set `ANDROID_HOME` (see [Finding your setup](#finding-your-setup)) |
-| `adb: more than one device/emulator` | `export ANDROID_SERIAL=<serial>` (printed by `start-emulator.sh`) |
-| `Error: Could not load devices from …/devices.xml` from `create-avd.sh` | harmless, the AVD is created correctly (see [`create-avd.sh`](#create-avdsh)) |
-| `create-avd.sh: the Android TV image of API 21 has no ranchu kernel` | the emulator can't boot that image; use API 22 or newer (see [`create-avd.sh`](#create-avdsh)) |
+| `adb: more than one device/emulator` | `export ANDROID_SERIAL=<serial>` (printed by `tv-start-emulator.sh`) |
+| `Error: Could not load devices from …/devices.xml` from `tv-create-avd.sh` | harmless, the AVD is created correctly (see [`tv-create-avd.sh`](#tv-create-avdsh)) |
+| `tv-create-avd.sh: the Android TV image of API 21 has no ranchu kernel` | the emulator can't boot that image; use API 22 or newer (see [`tv-create-avd.sh`](#tv-create-avdsh)) |
 | `This AVD's configuration is missing a kernel file! … "kernel-ranchu"` from the emulator | an AVD made from an image without a ranchu kernel (API 21), e.g. by avdmanager directly: it can't boot |
-| `remote.sh` keys lag behind | expected: each key is an `adb shell input keyevent` call (see [Controlling the TV](#controlling-the-tv)) |
-| A long press with `adb shell input keyevent --longpress` acts as a short press | before API 30 it doesn't hold the key: use `remote.sh --long-press` ([Long presses](#long-presses)) |
-| `remote.sh: the long press failed on …` | the program's last lines of output follow it; usually the device is gone, offline or still booting: `adb devices` |
+| `tv-remote.sh` keys lag behind | expected: each key is an `adb shell input keyevent` call (see [Controlling the TV](#controlling-the-tv)) |
+| A long press with `adb shell input keyevent --longpress` acts as a short press | before API 30 it doesn't hold the key: use `tv-remote.sh --long-press` ([Long presses](#long-presses)) |
+| `tv-remote.sh: the long press failed on …` | the program's last lines of output follow it; usually the device is gone, offline or still booting: `adb devices` |
 | Black emulator window | if started with `--quick`, start it without |
 | `No access to /dev/kvm`, `libpulse.so.0`, `SDK location not found`, … | setup problems: [`../SETUP.md`](../SETUP.md#troubleshooting) |

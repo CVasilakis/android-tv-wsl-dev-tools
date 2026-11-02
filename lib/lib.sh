@@ -97,7 +97,7 @@ or point \$ANDROID_HOME at your SDK (see $TOOLS_DIR/SETUP.md)."
 
 # How to call one of the scripts in bin/, for messages that suggest a command: its bare name when
 # that name on $PATH is this very script, else the way the running script was called (e.g.
-# ../android-tv-wsl-dev-tools/bin/start-emulator.sh), so the suggestion can be pasted as is.
+# ../android-tv-wsl-dev-tools/bin/tv-start-emulator.sh), so the suggestion can be pasted as is.
 command_for() {
     local on_path
     on_path="$(command -v "$1" 2>/dev/null || true)"
@@ -116,7 +116,7 @@ is_wsl() { grep -qi microsoft "${ADT_PROC_VERSION:-/proc/version}" 2>/dev/null; 
 # The emulator's usual software renderer, swiftshader_indirect, works on any host, including WSLg,
 # except where SELinux denies user processes executable heap memory, which SwiftShader's JIT
 # needs: enforcing, with the selinuxuser_execheap boolean off, as on Fedora by default. There the
-# emulator segfaults at startup, with nothing in its log, so create-avd.sh and start-emulator.sh
+# emulator segfaults at startup, with nothing in its log, so tv-create-avd.sh and tv-start-emulator.sh
 # use swangle_indirect, also software rendering, which runs there. Without SELinux's tools
 # (Ubuntu), or when they can't tell, it's the usual one.
 selinux_denies_execheap() {
@@ -238,7 +238,7 @@ emulator_avd() {
 # BACK_AFTER is how long another app's screen must keep the focus to be taken as stuck: one that's
 # only passing by while the device settles has left by then. ADT_BACK_AFTER exists for the tests.
 # OTHER_APP_TIMEOUT (ADT_OTHER_APP_TIMEOUT; 0: none, only <seconds>) is far longer than any such
-# passing screen (start-emulator.sh validates it).
+# passing screen (tv-start-emulator.sh validates it).
 BACK_AFTER="${ADT_BACK_AFTER:-10}"
 OTHER_APP_TIMEOUT="${ADT_OTHER_APP_TIMEOUT:-60}"
 wait_for_home() {

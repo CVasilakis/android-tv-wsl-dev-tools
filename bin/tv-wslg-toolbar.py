@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Work around the Android Emulator's side toolbar misbehaving under WSLg.
 
-Usage: wslg-toolbar.py [avd-name] [hide|show]
-       wslg-toolbar.py --help
-       (start-emulator.sh runs it after boot with "hide", or $EMULATOR_TOOLBAR)
+Usage: tv-wslg-toolbar.py [avd-name] [hide|show]
+       tv-wslg-toolbar.py --help
+       (tv-start-emulator.sh runs it after boot with "hide", or $EMULATOR_TOOLBAR)
 Without an AVD name it acts on the only running emulator window.
 
 Problem
@@ -25,7 +25,7 @@ Modes
                   still work with the toolbar hidden.
   show            Re-map it as a plain top-level window. WSLg then gives it real coordinates
                   and its buttons are clickable, but typed keys go to the toolbar (use
-                  remote.sh for keys).
+                  tv-remote.sh for keys).
 
 You can't have both; the trade-off is documented in bin/README.md.
 
@@ -43,7 +43,7 @@ Things that look removable but aren't
   after WSLG_TOOLBAR_TIMEOUT anyway, with a warning: it receives the unmap first in any case.
   Re-mapping the toolbar of a running emulator, with its original properties put back, doesn't
   park it at (-32768, -32768) again, so a change here can only be checked on a freshly started
-  emulator (EMULATOR_TOOLBAR=show start-emulator.sh), with a real mouse.
+  emulator (EMULATOR_TOOLBAR=show tv-start-emulator.sh), with a real mouse.
 - In "show", moving the toolbar again once the window manager has mapped it (WM_STATE Normal)
   and then moved it: WSLg's window manager ignores the position asked before the map. A few
   milliseconds after marking the toolbar Normal it places it itself: over the emulator at the
@@ -67,7 +67,7 @@ Things that look removable but aren't
 - The X error handler ignoring BadWindow during the search: the search reads every window on
   the display, and any of them (a tooltip, a menu, the emulator's own startup windows) can
   close between being listed and being read. Xlib's default handler ends the program on that
-  error, and start-emulator.sh ignores this script's failure, so the toolbar would stay shown.
+  error, and tv-start-emulator.sh ignores this script's failure, so the toolbar would stay shown.
   Once the toolbar is found, every X error is fatal again, as it should be for the windows the
   script changes.
 
@@ -99,7 +99,7 @@ one window group (WM_HINTS) and WM_CLIENT_LEADER; all but the leader have WM_CLA
                                      hint, types, WM_CLASS and _MOTIF_WM_HINTS as the toolbar;
                                      the emulator itself maps it at startup, 620x102 and parked
                                      like the toolbar, and a few seconds after Android has
-                                     booted (after start-emulator.sh's "hide") unmaps it
+                                     booted (after tv-start-emulator.sh's "hide") unmaps it
                                      (WM_STATE Withdrawn) and shrinks it to 620x21
                                      (WM_NORMAL_HINTS height min = max = 21)
   "Emulator" 1x1                     the group leader; never mapped, no WM_CLASS
@@ -125,17 +125,17 @@ import os
 import sys
 import time
 
-USAGE = """Usage: wslg-toolbar.py [avd-name] [hide|show]
+USAGE = """Usage: tv-wslg-toolbar.py [avd-name] [hide|show]
 
 WSL only. Hides or shows the Android Emulator's side toolbar, which misbehaves under WSLg:
   hide (default)  keys typed into the emulator window reach Android; no toolbar
   show            the toolbar is a separate, clickable window; typed keys go to the toolbar
-                  (use remote.sh for keys)
+                  (use tv-remote.sh for keys)
 
   avd-name    the emulator to act on (default: the only running emulator)
   -h, --help  show this help
 
-start-emulator.sh runs this with "hide" after boot. Restarting the emulator undoes it.
+tv-start-emulator.sh runs this with "hide" after boot. Restarting the emulator undoes it.
 Details: bin/README.md in android-tv-wsl-dev-tools."""
 
 args = sys.argv[1:]
@@ -216,7 +216,7 @@ xlib_default_error_handler = x11.XSetErrorHandler(on_x_error)
 
 display = x11.XOpenDisplay(None)
 if not display:
-    sys.exit("wslg-toolbar: cannot open X display (is WSLg running? is $DISPLAY set?)")
+    sys.exit("tv-wslg-toolbar: cannot open X display (is WSLg running? is $DISPLAY set?)")
 d = ctypes.c_void_p(display)
 root = ctypes.c_ulong(x11.XDefaultRootWindow(d))
 
@@ -324,7 +324,7 @@ def search():
         return None, []
     if len(mains) > 1 and not AVD:
         titles = ", ".join(name(w).removeprefix("Android Emulator - ") for w in mains)
-        sys.exit(f"wslg-toolbar: several emulators are running ({titles}); pass the AVD name")
+        sys.exit(f"tv-wslg-toolbar: several emulators are running ({titles}); pass the AVD name")
     main = mains[0]
     group = group_leader(main)
     # The toolbar is titled plain "Emulator" and shares the main window's group. So do the group
@@ -346,13 +346,13 @@ if len(toolbars) > 1:
     # A new emulator build with another window that looks like the toolbar: changing the wrong
     # one would leave the toolbar as it was, so don't guess.
     ids = ", ".join(hex(w) for w in toolbars)
-    sys.exit(f"wslg-toolbar: several windows look like the toolbar ({ids}); "
+    sys.exit(f"tv-wslg-toolbar: several windows look like the toolbar ({ids}); "
              "check with `xwininfo -root -tree | grep qemu-system`")
 if not toolbars:
     # Wrong AVD name, emulator not running, or a new emulator build that titles or shapes its
     # windows differently: check with `xwininfo -root -tree | grep qemu-system`.
-    sys.exit(f"wslg-toolbar: no toolbar window found for AVD '{AVD}'" if AVD
-             else "wslg-toolbar: no running emulator window found")
+    sys.exit(f"tv-wslg-toolbar: no toolbar window found for AVD '{AVD}'" if AVD
+             else "tv-wslg-toolbar: no running emulator window found")
 
 toolbar = toolbars[0]
 tb = ctypes.c_ulong(toolbar)
@@ -366,7 +366,7 @@ def wait_for_wm_state(states, failure):
     deadline = time.monotonic() + TIMEOUT
     while wm_state(toolbar) not in states:
         if time.monotonic() >= deadline:
-            print(f"wslg-toolbar: the window manager didn't {failure}", file=sys.stderr)
+            print(f"tv-wslg-toolbar: the window manager didn't {failure}", file=sys.stderr)
             return False
         time.sleep(0.005)
     return True
@@ -419,4 +419,4 @@ if MODE == "show":
         x11.XSync(d, 0)
 
 x11.XCloseDisplay(d)
-print(f"wslg-toolbar: toolbar {'hidden' if MODE == 'hide' else 'shown as a clickable window'}")
+print(f"tv-wslg-toolbar: toolbar {'hidden' if MODE == 'hide' else 'shown as a clickable window'}")

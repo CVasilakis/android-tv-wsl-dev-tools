@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Creates an Android TV emulator for developing and testing TV apps (API 25 unless told otherwise).
 #
-# Usage:   create-avd.sh [avd-name]            (default: $ADT_AVD, else tv_api25)
-#          create-avd.sh --api 30 [avd-name]   (default: tv_api30)
-#          create-avd.sh --google-tv --api 30 [avd-name]   (Google TV image; default: gtv_api30)
-#          create-avd.sh --size 1280x720 --density 213 tv_720p   (another screen; default 1080p)
-#          create-avd.sh --if-missing [...]    (an existing AVD of that image is fine: CI caches)
-#          create-avd.sh --help
+# Usage:   tv-create-avd.sh [avd-name]            (default: $ADT_AVD, else tv_api25)
+#          tv-create-avd.sh --api 30 [avd-name]   (default: tv_api30)
+#          tv-create-avd.sh --google-tv --api 30 [avd-name]   (Google TV image; default: gtv_api30)
+#          tv-create-avd.sh --size 1280x720 --density 213 tv_720p   (another screen; default 1080p)
+#          tv-create-avd.sh --if-missing [...]    (an existing AVD of that image is fine: CI caches)
+#          tv-create-avd.sh --help
 # Result:  <avd-name>.avd and <avd-name>.ini in the folder the emulator looks for AVDs in
 #          ($ANDROID_AVD_HOME if set, ~/.android/avd by default)
 #
@@ -43,8 +43,8 @@ set -euo pipefail
 
 usage() {
     cat <<'EOF'
-Usage: create-avd.sh [--api <level>] [--google-tv] [--size <W>x<H>] [--density <dpi>]
-                     [--if-missing] [avd-name]
+Usage: tv-create-avd.sh [--api <level>] [--google-tv] [--size <W>x<H>] [--density <dpi>]
+                        [--if-missing] [avd-name]
 
 Creates an Android TV emulator (AVD) for developing TV apps: 1080p, landscape, D-pad and
 keyboard input. Never overwrites an existing AVD.
@@ -220,7 +220,7 @@ set_prop hw.cpu.ncore 4
 set_prop disk.dataPartition.size 4G       # the image's default userdata is ~550 MB: too small for many test apps
 set_prop hw.gpu.enabled yes
 # Software GL: works on any host (no GPU driver or WSLg GPU passthrough needed); swangle_indirect
-# where SELinux would make swiftshader_indirect crash (see lib.sh). start-emulator.sh passes -gpu
+# where SELinux would make swiftshader_indirect crash (see lib.sh). tv-start-emulator.sh passes -gpu
 # too, unless you pass your own.
 GPU_MODE=swiftshader_indirect
 if selinux_denies_execheap; then
@@ -239,4 +239,4 @@ if [ -n "$WIDTH" ]; then
 fi
 if [ -n "$DENSITY" ]; then set_prop hw.lcd.density "$DENSITY"; fi
 
-echo "Created AVD '$AVD_NAME' in $AVD_DIR. Start it with: $(command_for start-emulator.sh) $AVD_NAME"
+echo "Created AVD '$AVD_NAME' in $AVD_DIR. Start it with: $(command_for tv-start-emulator.sh) $AVD_NAME"

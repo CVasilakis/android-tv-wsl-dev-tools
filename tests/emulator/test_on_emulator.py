@@ -4,7 +4,7 @@ Uses the developer's own setup (SDK, AVD) exactly as the scripts find it; set AD
 the AVD. If that AVD is already running it's reused and left running; otherwise it's booted
 without a window, with --wait-for-home so the tests start on a device that has settled, with the
 emulator flags in ADT_TEST_EMULATOR_FLAGS if any, and
-stopped afterwards (without saving a snapshot, so the next normal start is unaffected). The stop-emulator.sh tests need an AVD of their own to stop, so they skip if the
+stopped afterwards (without saving a snapshot, so the next normal start is unaffected). The tv-stop-emulator.sh tests need an AVD of their own to stop, so they skip if the
 AVD was already running.
 """
 import getpass
@@ -29,16 +29,16 @@ ENABLED = os.environ.get("ADT_EMULATOR_TESTS") == "1"
 # and a look at `dumpsys input` can take 15 s (dumpsys gives up on a service after 10 s). Android
 # holds a key for up to 5 s while a window it's going to starts (5 s x ro.hw_timeout_multiplier,
 # which no tested image sets, so 1).
-KEY_TIMEOUT = 60     # from typing a key until a look sees it: remote.sh's adb call, the hold, a look
+KEY_TIMEOUT = 60     # from typing a key until a look sees it: tv-remote.sh's adb call, the hold, a look
 FOCUS_TIMEOUT = 30   # for an app's activity to come to the front (am start, the Home key)
 # For the screen in front to settle (an app's start, its window's focus, which on a starved device
 # came over 30 s after Home, and its main thread going idle, or Android's 10 s idle timeout), with
 # Settings opened again while other apps come over it, and for the input dispatcher to settle.
 SETTLE_TIMEOUT = 120
-LONG_PRESS_TIMEOUT = 180   # for remote.sh --long-press: up to 9 adb calls, the program's among them
+LONG_PRESS_TIMEOUT = 180   # for tv-remote.sh --long-press: up to 9 adb calls, the program's among them
 
 # Python's limits for the scripts, from the scripts' own: when Python stops a script on the way,
-# its emulator can be left running (start-emulator.sh starts it with nohup), so a script must
+# its emulator can be left running (tv-start-emulator.sh starts it with nohup), so a script must
 # always reach its own limits first, and clean up and say why. Each adb call they make gets
 # ADB_CALL s (adb_bounded in lib.sh: ADB_TIMEOUT s, then SIGKILL ADB_KILL_AFTER s later), and each
 # of their limits lasts up to 1 s longer (time_is_up in lib.sh). ADB_CALLS is more than either
@@ -48,26 +48,26 @@ ADB_TIMEOUT = 15
 ADB_KILL_AFTER = 5
 ADB_CALL = ADB_TIMEOUT + ADB_KILL_AFTER
 ADB_CALLS = 10
-SAVE_TIMEOUT = 30  # start-emulator.sh's, on API 26 and 27, for Android to save a setting
-TERM_WAIT = 30   # start-emulator.sh's, for an emulator it stops to exit after SIGTERM
-KILL_WAIT = 30   # stop-emulator.sh's, for a killed emulator to exit, and again for adb to unlist it
-STOP_SAVE_WAIT = 12  # stop-emulator.sh's SAVE_WAIT, from API 33 on, for Android to save app states
-BOOT_TIMEOUT = int(os.environ.get("ADT_BOOT_TIMEOUT") or 900)   # passed on to start-emulator.sh
+SAVE_TIMEOUT = 30  # tv-start-emulator.sh's, on API 26 and 27, for Android to save a setting
+TERM_WAIT = 30   # tv-start-emulator.sh's, for an emulator it stops to exit after SIGTERM
+KILL_WAIT = 30   # tv-stop-emulator.sh's, for a killed emulator to exit, and again for adb to unlist it
+STOP_SAVE_WAIT = 12  # tv-stop-emulator.sh's SAVE_WAIT, from API 33 on, for Android to save app states
+BOOT_TIMEOUT = int(os.environ.get("ADT_BOOT_TIMEOUT") or 900)   # passed on to tv-start-emulator.sh
 HOME_TIMEOUT = int(os.environ.get("ADT_HOME_TIMEOUT") or 600)   # and to its --wait-for-home
-STOP_TIMEOUT = int(os.environ.get("ADT_STOP_TIMEOUT") or 60)    # passed on to stop-emulator.sh
+STOP_TIMEOUT = int(os.environ.get("ADT_STOP_TIMEOUT") or 60)    # passed on to tv-stop-emulator.sh
 # lib.sh's wait_for_home: its limit, then its pause between two looks and a last look of up to
 # five adb calls (the API level, what HOME resolves to, two dumps, a Back).
 HOME_LIMIT = HOME_TIMEOUT + 1 + 1 + 5 * ADB_CALL if HOME_TIMEOUT else None
-# start-emulator.sh's wait for Android to save a setting, on API 26 and 27: its limit, then its
+# tv-start-emulator.sh's wait for Android to save a setting, on API 26 and 27: its limit, then its
 # pause between two looks and a last look (one adb call).
 SAVE_LIMIT = SAVE_TIMEOUT + 1 + 1 + ADB_CALL
-# start-emulator.sh: the boot limit; on API 26 and 27, the wait for Android to save a setting;
+# tv-start-emulator.sh: the boot limit; on API 26 and 27, the wait for Android to save a setting;
 # with --wait-for-home, that wait; then stopping an emulator that didn't boot or settle (SIGTERM,
 # TERM_WAIT s, then SIGKILL). No limit when a limit is 0 (the script's own "no limit").
 START_LIMIT = (BOOT_TIMEOUT + 1 + SAVE_LIMIT + HOME_LIMIT + TERM_WAIT + 1 + ADB_CALLS * ADB_CALL
                if BOOT_TIMEOUT and HOME_LIMIT else None)
 
-# Keyboard input to remote.sh -> Android KeyEvent keyCode that must arrive on the device.
+# Keyboard input to tv-remote.sh -> Android KeyEvent keyCode that must arrive on the device.
 KEYS = [("\x1b[A", 19), ("\x1b[B", 20), ("\x1b[D", 21), ("\x1b[C", 22), ("\n", 23),
         ("\x7f", 4), ("m", 82), ("p", 85), ("+", 24), ("-", 25), ("h", 3)]
 
@@ -158,14 +158,14 @@ def exited(pid):
 
 
 def start_script(*args):
-    """Runs start-emulator.sh, which gives up on a boot before Python gives up on it."""
-    return subprocess.run([str(BIN / "start-emulator.sh"), *args], capture_output=True, text=True,
+    """Runs tv-start-emulator.sh, which gives up on a boot before Python gives up on it."""
+    return subprocess.run([str(BIN / "tv-start-emulator.sh"), *args], capture_output=True, text=True,
                           timeout=START_LIMIT, env={**os.environ, "ADT_BOOT_TIMEOUT": str(BOOT_TIMEOUT),
                                                     "ADT_HOME_TIMEOUT": str(HOME_TIMEOUT)})
 
 
 def wait_for_home(serial):
-    """lib.sh's wait_for_home, which start-emulator.sh --wait-for-home runs: waits until the home
+    """lib.sh's wait_for_home, which tv-start-emulator.sh --wait-for-home runs: waits until the home
     app's screen is at the top, done starting, with the focus, at two looks in a row. Returns its
     package, or None and what was in front instead."""
     result = subprocess.run(["bash", "-c", f'source {LIB}\nwait_for_home "$1" "$2"', "bash", serial,
@@ -182,14 +182,14 @@ def start(avd, *flags):
 
 
 def stop(target, stop_timeout=STOP_TIMEOUT):
-    """Runs stop-emulator.sh, which returns once the emulator has exited, with Python's limit
+    """Runs tv-stop-emulator.sh, which returns once the emulator has exited, with Python's limit
     longer than its longest run: the save before the stop (from API 33 on, STOP_SAVE_WAIT s,
     its pause between two looks and a last look; up to API 31, a pause of 1 s), stop_timeout s for
     the emulator to exit (after adb emu kill, or SIGTERM), KILL_WAIT for it to exit after SIGKILL,
     KILL_WAIT again for adb to unlist it, and its adb calls."""
     save = STOP_SAVE_WAIT + 1 + 1 + ADB_CALL
     limit = save + stop_timeout + 2 * KILL_WAIT + 3 + ADB_CALLS * ADB_CALL
-    return subprocess.run([str(BIN / "stop-emulator.sh"), target], capture_output=True, text=True,
+    return subprocess.run([str(BIN / "tv-stop-emulator.sh"), target], capture_output=True, text=True,
                           timeout=limit, env={**os.environ, "ADT_STOP_TIMEOUT": str(stop_timeout)})
 
 
@@ -237,13 +237,13 @@ class OnTheRealEmulator(unittest.TestCase):
         cls.serial = serial_of(cls.avd)
         cls.started_here = cls.serial is None
         if cls.started_here:
-            # stop-emulator.sh waits until it has exited: the next test class may boot the same
+            # tv-stop-emulator.sh waits until it has exited: the next test class may boot the same
             # AVD. A class cleanup, not tearDownClass, which isn't called when setUpClass fails,
             # and registered before the boot, which can fail with the emulator still running.
             cls.addClassCleanup(stop, cls.avd)
             cls.start_result = start(cls.avd, "--wait-for-home")
             if cls.start_result.returncode != 0:
-                raise RuntimeError(f"start-emulator.sh failed:\n{cls.start_result.stdout}"
+                raise RuntimeError(f"tv-start-emulator.sh failed:\n{cls.start_result.stdout}"
                                    f"{cls.start_result.stderr}")
             cls.serial = serial_of(cls.avd)
             cls.focus_after_start = focus(subprocess.run(
@@ -296,7 +296,7 @@ class OnTheRealEmulator(unittest.TestCase):
         self.assertIn(f"booted as {self.serial}", self.start_result.stderr)
 
     def test_start_waits_for_home_until_the_home_app_has_the_focus(self):
-        # What was in front when start-emulator.sh --wait-for-home returned.
+        # What was in front when tv-start-emulator.sh --wait-for-home returned.
         if not self.started_here:
             self.skipTest(f"{self.avd} was already running")
         home = re.search(r"The home app \((\S+)\) is in front", self.start_result.stderr)
@@ -352,7 +352,7 @@ class OnTheRealEmulator(unittest.TestCase):
                 self.adb_shell("am", "start", "-a", "android.settings.SETTINGS")
 
     def test_remote_home_key_leaves_an_app(self):
-        # start-emulator.sh first: on API 26 and 27 it's what makes Home work (see its header),
+        # tv-start-emulator.sh first: on API 26 and 27 it's what makes Home work (see its header),
         # and an emulator that was already running may not have been started by it.
         start_script(self.avd)
         # The package Home opens: the home app, whose sign-in screen Google TV without an account
@@ -367,7 +367,7 @@ class OnTheRealEmulator(unittest.TestCase):
         home, shown = wait_for_home(self.serial)
         self.assertTrue(home, f"the home app didn't settle in front within {HOME_TIMEOUT} s: {shown}")
         self.open_settings(home)
-        result = subprocess.run([str(BIN / "remote.sh"), self.serial], input="hq",
+        result = subprocess.run([str(BIN / "tv-remote.sh"), self.serial], input="hq",
                                 capture_output=True, text=True, timeout=60)
         self.assertEqual(result.returncode, 0, result.stderr)
         # The home app's activity in front is enough: its window may not have focus yet.
@@ -378,12 +378,12 @@ class OnTheRealEmulator(unittest.TestCase):
             time.sleep(0.2)
 
     def test_remote_keys_arrive_as_the_right_android_keys(self):
-        # One key at a time, typed into one remote.sh as a person would, looking at the recent
+        # One key at a time, typed into one tv-remote.sh as a person would, looking at the recent
         # queue until the key is there before typing the next: see RecentInput.
         details = int(self.adb_shell("getprop", "ro.build.version.sdk")) < 29
         self.wait_until_input_is_settled()
         received = RecentInput(self.adb_shell)
-        remote = subprocess.Popen([str(BIN / "remote.sh"), self.serial], stdin=subprocess.PIPE,
+        remote = subprocess.Popen([str(BIN / "tv-remote.sh"), self.serial], stdin=subprocess.PIPE,
                                   stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
         self.addCleanup(remote.kill)
         expected = []
@@ -412,12 +412,12 @@ class OnTheRealEmulator(unittest.TestCase):
                                             ("system", "user_rotation"), ("secure", "long_press_timeout"))}
         self.wait_until_input_is_settled()
         received = RecentInput(self.adb_shell)
-        remote = subprocess.Popen([str(BIN / "remote.sh"), "--long-press", "DPAD_UP", self.serial],
+        remote = subprocess.Popen([str(BIN / "tv-remote.sh"), "--long-press", "DPAD_UP", self.serial],
                                   stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
         self.addCleanup(remote.kill)
         deadline = time.monotonic() + LONG_PRESS_TIMEOUT
         while remote.poll() is None:   # looks while the key is held, too: see RecentInput
-            self.assertLess(time.monotonic(), deadline, "remote.sh --long-press didn't finish")
+            self.assertLess(time.monotonic(), deadline, "tv-remote.sh --long-press didn't finish")
             received.look()
             time.sleep(0.1)
         self.assertEqual(remote.returncode, 0, remote.stderr.read())

@@ -1,9 +1,9 @@
-"""A private X server and fake emulator windows, for testing wslg-toolbar.py for real.
+"""A private X server and fake emulator windows, for testing tv-wslg-toolbar.py for real.
 
 XServer starts Xvfb (a virtual X server with no screen) on a free display from :99 up. $SCRIPT_TESTS_DISPLAY
 uses an existing display instead, e.g. ":0" to watch the windows appear under WSLg.
 EmulatorWindows recreates the window structure the Android Emulator shows (see the docstring of
-wslg-toolbar.py) through Xlib, and reads back what the script did to it. On a display with a window
+tv-wslg-toolbar.py) through Xlib, and reads back what the script did to it. On a display with a window
 manager (WSLg's), mapping a window only asks the window manager to map it, which it does a little
 later, so EmulatorWindows waits for it (Xvfb has no window manager and maps windows at once).
 Nor does anything on Xvfb set the WM_STATE and _NET_FRAME_EXTENTS a window manager keeps on the

@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
 # Boots the development emulator and returns once Android has finished booting, so it can be
-# chained: start-emulator.sh && ./gradlew installDebug
+# chained: tv-start-emulator.sh && ./gradlew installDebug
 #
-# Usage:   start-emulator.sh [--quick] [--wait-for-home] [avd-name] [extra emulator flags...]
-#            start-emulator.sh                       # the default AVD (see below), cold boot
-#            start-emulator.sh --quick               # boot from the Quick Boot snapshot instead
-#            start-emulator.sh --wait-for-home       # return once the home app has settled in front
-#            start-emulator.sh -wipe-data            # default AVD, factory reset
-#            start-emulator.sh my_tv -gpu host       # another AVD, hardware rendering
-#          EMULATOR_TOOLBAR=show start-emulator.sh   # keep a clickable side toolbar (WSL)
-#          start-emulator.sh --help
+# Usage:   tv-start-emulator.sh [--quick] [--wait-for-home] [avd-name] [extra emulator flags...]
+#            tv-start-emulator.sh                       # the default AVD (see below), cold boot
+#            tv-start-emulator.sh --quick               # boot from the Quick Boot snapshot instead
+#            tv-start-emulator.sh --wait-for-home       # return once the home app has settled in front
+#            tv-start-emulator.sh -wipe-data            # default AVD, factory reset
+#            tv-start-emulator.sh my_tv -gpu host       # another AVD, hardware rendering
+#          EMULATOR_TOOLBAR=show tv-start-emulator.sh   # keep a clickable side toolbar (WSL)
+#          tv-start-emulator.sh --help
 # Which AVD: the name given, else $ADT_AVD, else tv_api25 if it exists, else the only
 #          Android TV AVD. Anything else is an error that lists the AVDs.
 # Output:  the emulator's serial (e.g. emulator-5554), alone on stdout, so scripts can capture it:
-#          serial="$(start-emulator.sh)". Every message goes to stderr.
+#          serial="$(tv-start-emulator.sh)". Every message goes to stderr.
 # Log:     ${TMPDIR:-/tmp}/emulator-<avd-name>.log  (look here first if the window never appears)
-# Stop:    stop-emulator.sh <avd-name|serial>   (returns once it has exited; the emulator saves
+# Stop:    tv-stop-emulator.sh <avd-name|serial>   (returns once it has exited; the emulator saves
 #          a Quick Boot snapshot, which --quick boots from)
 #
 # Cold boot or Quick Boot: a cold boot (the default, -no-snapshot-load) starts Android from scratch
@@ -96,13 +96,13 @@ set -euo pipefail
 
 usage() {
     cat <<'EOF'
-Usage: start-emulator.sh [--quick] [--wait-for-home] [avd-name] [emulator flags...]
+Usage: tv-start-emulator.sh [--quick] [--wait-for-home] [avd-name] [emulator flags...]
 
 Boots an Android TV emulator in the background and returns once Android is ready, so it can be
-chained: start-emulator.sh && ./gradlew installDebug. Cold boot by default.
+chained: tv-start-emulator.sh && ./gradlew installDebug. Cold boot by default.
 
 Prints the emulator's serial (e.g. emulator-5554) on stdout and every message on stderr, so
-serial="$(start-emulator.sh)" captures it. Without $DISPLAY it adds -no-window.
+serial="$(tv-start-emulator.sh)" captures it. Without $DISPLAY it adds -no-window.
 
   --quick         boot from the Quick Boot snapshot saved when the emulator was last stopped
                   (faster); if adb can't reach the restored emulator for 30 s, reconnect adb once,
@@ -137,7 +137,7 @@ If the AVD is already running, it isn't started again: the script waits until it
 then prints its serial. On the Android TV images of API 26 and 27, it then marks the TV's
 setup as complete (tv_user_setup_complete), without which the Home key doesn't leave apps, and
 waits until Android has saved it (once per AVD). The emulator keeps running after this script
-exits; stop it with: stop-emulator.sh <avd-name|serial>
+exits; stop it with: tv-stop-emulator.sh <avd-name|serial>
 EOF
 }
 case "${1:-}" in
@@ -197,7 +197,7 @@ is_tv_avd() {
     dir="$(avd_dir "$1")" && grep -Eq '^tag\.ids? *=.*(android-tv|google-tv)' "$dir/config.ini"
 }
 
-# Pick the AVD. tv_api25 is what create-avd.sh makes; a collaborator's own TV AVD is used when
+# Pick the AVD. tv_api25 is what tv-create-avd.sh makes; a collaborator's own TV AVD is used when
 # it's the only one, so nobody has to rename theirs.
 mapfile -t AVDS < <(list_avds)
 [ -n "$AVD_NAME" ] || AVD_NAME="${ADT_AVD:-}"
@@ -217,8 +217,8 @@ if [ -z "$AVD_NAME" ] || ! in_list "$AVD_NAME" "${AVDS[@]}"; then
     else problem="can't tell which AVD to use: no tv_api25 and not exactly one Android TV AVD."; fi
     die "$problem
 AVDs found: ${AVDS[*]:-none}
-Pass a name ($(command_for start-emulator.sh) <avd-name>), set ADT_AVD, or create one with
-$(command_for create-avd.sh)."
+Pass a name ($(command_for tv-start-emulator.sh) <avd-name>), set ADT_AVD, or create one with
+$(command_for tv-create-avd.sh)."
 fi
 
 # KVM is mandatory for x86 images (without it the emulator exits with "x86 emulation currently
@@ -250,7 +250,7 @@ and to keep that across restarts:
     fi
     ME="$(id -un)"
     if [[ " $(id -nG "$ME" 2>/dev/null || true) " == *" kvm "* ]] && [ -z "${_IN_SG_KVM:-}" ]; then
-        exec sg kvm -c "_IN_SG_KVM=1 $(printf '%q ' "$BIN_DIR/start-emulator.sh" "$AVD_NAME" \
+        exec sg kvm -c "_IN_SG_KVM=1 $(printf '%q ' "$BIN_DIR/tv-start-emulator.sh" "$AVD_NAME" \
             ${QUICK:+--quick} ${WAIT_FOR_HOME:+--wait-for-home} "$@")"
     fi
     die "No access to $KVM_DEVICE. Run: sudo usermod -aG kvm $ME"
@@ -284,7 +284,7 @@ if [ -z "$SERIAL" ] && [ -z "${DISPLAY:-}" ] && ! in_list -no-window "$@"; then
 fi
 
 # -gpu swiftshader_indirect: software rendering, works on any host including WSLg (see
-#   create-avd.sh); swangle_indirect where SELinux would make it crash (see lib.sh). Left out
+#   tv-create-avd.sh); swangle_indirect where SELinux would make it crash (see lib.sh). Left out
 #   when the caller passes their own -gpu.
 # -no-audio: sound is rarely needed; one less host integration (PulseAudio) to go wrong.
 # -no-boot-anim: faster cold boots.
@@ -365,7 +365,7 @@ check_timeout() {
     if [ -z "$STARTED_HERE" ]; then
         die "'$AVD_NAME' ($SERIAL) didn't finish booting within $BOOT_TIMEOUT s.
 It wasn't started by this script, so it's left running. Stop it with:
-  $(command_for stop-emulator.sh) $SERIAL
+  $(command_for tv-stop-emulator.sh) $SERIAL
 On a slow host, set ADT_BOOT_TIMEOUT to wait longer (0: no limit)."
     fi
     last_lines="$(tail -n 15 "$LOG")"
@@ -374,7 +374,7 @@ On a slow host, set ADT_BOOT_TIMEOUT to wait longer (0: no limit)."
 of $LOG:
 $last_lines
 On a slow host, set ADT_BOOT_TIMEOUT to wait longer (0: no limit). If it never boots, try a
-factory reset: $(command_for start-emulator.sh) $AVD_NAME -wipe-data"
+factory reset: $(command_for tv-start-emulator.sh) $AVD_NAME -wipe-data"
 }
 
 # A boot can take minutes with nothing to show, which in a CI log looks like a hang (see the
@@ -421,7 +421,7 @@ check_offline() {
     fi
     die "'$AVD_NAME' ($SERIAL) was restored from its Quick Boot snapshot, but adb can't reach it
 (still offline after adb reconnect). Stop it and start it without --quick, for a cold boot:
-  $(command_for stop-emulator.sh) $SERIAL && $(command_for start-emulator.sh) $AVD_NAME"
+  $(command_for tv-stop-emulator.sh) $SERIAL && $(command_for tv-start-emulator.sh) $AVD_NAME"
 }
 
 # adbd answers long before the package manager is up, and installing at that point fails, so wait
@@ -569,11 +569,11 @@ fi
 
 # Under WSLg the side toolbar can't be clicked, and while it's shown it takes keyboard focus away
 # from the emulator screen (typed keys never reach Android). Hiding it is the default because
-# keyboard control matters more for a TV app. See wslg-toolbar.py for details. Skipped outside
+# keyboard control matters more for a TV app. See tv-wslg-toolbar.py for details. Skipped outside
 # WSL (not needed) and with -no-window (there's no toolbar). '|| true': a failure here must not
 # report the already-booted emulator as failed.
 if [ -n "$STARTED_HERE" ] && is_wsl && ! in_list -no-window "$@"; then
-    python3 "$BIN_DIR/wslg-toolbar.py" "$AVD_NAME" "${EMULATOR_TOOLBAR:-hide}" >&2 || true
+    python3 "$BIN_DIR/tv-wslg-toolbar.py" "$AVD_NAME" "${EMULATOR_TOOLBAR:-hide}" >&2 || true
 fi
 
 # The only line on stdout (see the header).

@@ -82,11 +82,11 @@ DEFAULT_BEHAVIOR = {
                                   # system settings a newly booted emulator starts with (the TV
                                   # images' values)
     "settings_put_error": None,   # `adb shell settings put` prints this and exits 1
-    "settings_unsaved_looks": 0,  # start-emulator.sh's look (as root) at whether Android has saved
+    "settings_unsaved_looks": 0,  # tv-start-emulator.sh's look (as root) at whether Android has saved
                                   # tv_user_setup_complete=1 to disk sees it unsaved this many
                                   # times, then saved once it's set; "forever": never saved
     "su_error": None,             # that look prints this instead (e.g. an image without su)
-    "pending_package_write": None,  # from API 33 on (api_level), stop-emulator.sh waits for
+    "pending_package_write": None,  # from API 33 on (api_level), tv-stop-emulator.sh waits for
                                   # Android's own write of the app states: seconds after the
                                   # first `adb shell logcat -b events` call until a
                                   # commit_sys_config_file event for package-user-0 shows; None:
@@ -497,7 +497,7 @@ def package_write_events():
 
 
 def saved_look(serial, emulators, command):
-    """start-emulator.sh's look, as root, at settings_secure.xml: "saved" (after a sync, which the
+    """tv-start-emulator.sh's look, as root, at settings_secure.xml: "saved" (after a sync, which the
     command must end with) once tv_user_setup_complete=1 is set and settings_unsaved_looks looks
     have seen it unsaved; nothing before (grep -q finds nothing); su_error instead, if set."""
     knobs = behavior()
@@ -645,7 +645,7 @@ def input_long_press(serial, emulators, code):
 
 def hold_key(serial, words):
     """`CLASSPATH=<dex> app_process /system/bin HoldKey <code> <repeat ms> <release ms>`: the program
-    remote.sh pushes for a long press before API 30. It needs its dex pushed to the device, and
+    tv-remote.sh pushes for a long press before API 30. It needs its dex pushed to the device, and
     injects a down, a repeat flagged as a long press and a release, all with the down time of the
     first, at the times given (ms from the first)."""
     output = behavior()["hold_key_output"]
@@ -834,7 +834,7 @@ def avdmanager(args):
 
 def getent(args):
     if args == ["group", "kvm"]:
-        # The gid decides whether the kvm group owns the device: start-emulator.sh compares it
+        # The gid decides whether the kvm group owns the device: tv-start-emulator.sh compares it
         # with the device's own gid, and a mismatch means joining the group can't grant access.
         gid = behavior()["kvm_group_gid"]
         if gid is None:
@@ -891,8 +891,8 @@ def id_(args):
 
 
 def python3(args):
-    # Stands in for wslg-toolbar.py, which reports what it did on stdout.
-    print("wslg-toolbar: toolbar hidden")
+    # Stands in for tv-wslg-toolbar.py, which reports what it did on stdout.
+    print("tv-wslg-toolbar: toolbar hidden")
     sys.exit(behavior()["python3_exit"])
 
 

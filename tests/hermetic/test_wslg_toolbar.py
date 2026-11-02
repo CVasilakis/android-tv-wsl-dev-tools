@@ -1,4 +1,4 @@
-"""wslg-toolbar.py: hiding and showing the emulator toolbar on a real (virtual) X server."""
+"""tv-wslg-toolbar.py: hiding and showing the emulator toolbar on a real (virtual) X server."""
 import subprocess
 import sys
 import time
@@ -7,7 +7,7 @@ import unittest
 from support import x11
 from support.sandbox import BIN
 
-SCRIPT = str(BIN / "wslg-toolbar.py")
+SCRIPT = str(BIN / "tv-wslg-toolbar.py")
 
 
 def env(display=None, timeout="0.5"):
@@ -139,7 +139,7 @@ class OnAnXServer(unittest.TestCase):
         self.assertEqual(self.windows.position(toolbar), (400, 0), "beside the emulator")
 
     def test_show_of_a_hidden_toolbar_has_nothing_to_wait_for(self):
-        # As after start-emulator.sh's "hide": the window manager has withdrawn the toolbar
+        # As after tv-start-emulator.sh's "hide": the window manager has withdrawn the toolbar
         # already, and the unmap changes nothing it would mark.
         _, toolbar, _ = self.windows.emulator("tv_api25")
         self.manage(toolbar)

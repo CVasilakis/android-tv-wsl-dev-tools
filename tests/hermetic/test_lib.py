@@ -131,32 +131,32 @@ class CalledFromAnywhere(ScriptTestCase):
         for how in self.WAYS:
             for cwd in (self.sandbox.project, elsewhere):
                 with self.subTest(how=how, cwd=cwd.name):
-                    result = self.sandbox.run("start-emulator.sh", how=how, cwd=cwd)
+                    result = self.sandbox.run("tv-start-emulator.sh", how=how, cwd=cwd)
                     self.assertSucceeded(result)
                     serial = next(iter(self.sandbox.running()))
-                    self.assertSucceeded(self.sandbox.run("remote.sh", input="h", how=how, cwd=cwd))
+                    self.assertSucceeded(self.sandbox.run("tv-remote.sh", input="h", how=how, cwd=cwd))
                     self.sandbox.stop_emulators()
                     self.assertIn(serial, result.out)
 
     def test_suggested_commands_are_bare_names_when_on_path(self):
         for how in ("path", "symlink"):
             with self.subTest(how=how):
-                result = self.sandbox.run("remote.sh", how=how)
-                self.assertFailed(result, "Start one with: start-emulator.sh\n")
+                result = self.sandbox.run("tv-remote.sh", how=how)
+                self.assertFailed(result, "Start one with: tv-start-emulator.sh\n")
 
     def test_suggested_commands_use_the_path_the_user_typed(self):
-        result = self.sandbox.run("remote.sh", how="relative")
-        self.assertFailed(result, "Start one with: ../tools/bin/start-emulator.sh\n")
+        result = self.sandbox.run("tv-remote.sh", how="relative")
+        self.assertFailed(result, "Start one with: ../tools/bin/tv-start-emulator.sh\n")
 
     def test_a_different_script_of_the_same_name_on_path_is_not_suggested(self):
-        # Another project's start-emulator.sh on $PATH isn't this one, so the path is suggested.
+        # Another project's tv-start-emulator.sh on $PATH isn't this one, so the path is suggested.
         other = self.sandbox.root / "other-tools"
         other.mkdir()
-        (other / "start-emulator.sh").write_text("#!/bin/sh\n")
-        (other / "start-emulator.sh").chmod(0o755)
-        result = self.sandbox.run("remote.sh", how="relative",
+        (other / "tv-start-emulator.sh").write_text("#!/bin/sh\n")
+        (other / "tv-start-emulator.sh").chmod(0o755)
+        result = self.sandbox.run("tv-remote.sh", how="relative",
                                   env={"PATH": f"{other}:{self.sandbox.bin}"})
-        self.assertFailed(result, "Start one with: ../tools/bin/start-emulator.sh\n")
+        self.assertFailed(result, "Start one with: ../tools/bin/tv-start-emulator.sh\n")
 
 
 class AvdDiscovery(ScriptTestCase):
@@ -392,7 +392,7 @@ def idle(look):
 
 
 class WaitForHome(ScriptTestCase):
-    """wait_for_home <serial> <seconds> [<backs>] (what start-emulator.sh --wait-for-home runs) on
+    """wait_for_home <serial> <seconds> [<backs>] (what tv-start-emulator.sh --wait-for-home runs) on
     dumps the emulators produced: the home screen is settled when the top activity is in the home
     app's task, resumed and idle, the focused activity, and its own window has the focus, at two
     looks in a row. ADT_BACK_AFTER=1 here, so another app's screen gets Back after 1 s, not 10."""

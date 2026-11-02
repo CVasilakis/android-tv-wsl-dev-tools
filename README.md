@@ -48,12 +48,13 @@ tools don't provide.
 1. Clone this repository anywhere, for example next to your projects.
 2. Follow [`SETUP.md`](SETUP.md), skipping the parts you already have (an Android Studio SDK or
    AVD works as is). It ends with booting the emulator from your project.
-3. Call the scripts by their path from any folder (`../android-tv-wsl-dev-tools/bin/remote.sh`),
+3. Call the scripts by their path from any folder (`../android-tv-wsl-dev-tools/bin/tv-remote.sh`),
    or put them on your `PATH`.
 
 ### Optional: put the scripts on your `PATH`
 
-To type `start-emulator.sh` instead of its path, either add `bin/` to your `PATH` (in `~/.bashrc`):
+To type `tv-start-emulator.sh` instead of its path, either add `bin/` to your `PATH` (in
+`~/.bashrc`):
 
 ```bash
 export PATH="$PATH:$HOME/android-tv-wsl-dev-tools/bin"
@@ -70,6 +71,10 @@ holds only the commands, so nothing else lands on your `PATH`. Messages that sug
 (e.g. "Start one with: …") show its bare name when it's on your `PATH`, and otherwise the path
 you called the script by, so they can be pasted as is.
 
+The commands carry a `tv-` prefix so they can share your `PATH` with the scripts of
+android-wsl-dev-tools, the same kind of tools for phone and tablet emulators, whose
+commands start with `mobile-`.
+
 ## Versions
 
 Releases are git tags named `vMAJOR.MINOR.PATCH` ([semantic versioning](https://semver.org)), with
@@ -77,7 +82,8 @@ release notes on GitHub. `main` can change at any time, so anything automated sh
 tag, or a full commit SHA.
 
 The version covers the scripts' names, options and defaults as their `--help` shows them
-(including the AVD `create-avd.sh` creates), where they look for the SDK and AVDs, the environment
-variables they read, their exit statuses, and `start-emulator.sh`'s stdout (the serial alone). Breaking any of these is a new major version; new options or tested API levels are
-a new minor one. Messages, [`lib/lib.sh`](lib/lib.sh) and [`tests/`](tests/README.md) can change in
+(including the AVD `tv-create-avd.sh` creates), where they look for the SDK and AVDs, the
+environment variables they read, their exit statuses, and `tv-start-emulator.sh`'s stdout (the
+serial alone). Breaking any of these is a new major version; new options or tested API levels are a
+new minor one. Messages, [`lib/lib.sh`](lib/lib.sh) and [`tests/`](tests/README.md) can change in
 any release.

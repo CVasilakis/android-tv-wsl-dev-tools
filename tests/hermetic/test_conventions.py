@@ -73,11 +73,11 @@ class Conventions(unittest.TestCase):
                                              "swangle_indirect", "-cores", "2", "--wait-for-home")
 
     def test_the_emulator_tier_copies_the_scripts_current_time_limits(self):
-        # The tier's limits for start-emulator.sh and stop-emulator.sh are built from these values
+        # The tier's limits for tv-start-emulator.sh and tv-stop-emulator.sh are built from these values
         # of the scripts. With a value grown in a script only, Python could stop the script
         # halfway and leave its emulator running.
         lib, start, stop = (path.read_text() for path in
-                            (LIB, BIN / "start-emulator.sh", BIN / "stop-emulator.sh"))
+                            (LIB, BIN / "tv-start-emulator.sh", BIN / "tv-stop-emulator.sh"))
         stop_emulator = re.search(r"^stop_emulator\(\) \{\n.*?^\}", start, re.M | re.S)
         scripts = {
             "ADB_TIMEOUT": (lib, r'^ADB_TIMEOUT="\$\{ADT_ADB_TIMEOUT:-(\d+)\}"'),

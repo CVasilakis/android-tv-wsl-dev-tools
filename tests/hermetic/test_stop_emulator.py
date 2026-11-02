@@ -1,4 +1,4 @@
-"""stop-emulator.sh: which emulator it stops, that it returns only once the emulator's process has
+"""tv-stop-emulator.sh: which emulator it stops, that it returns only once the emulator's process has
 exited, and what it does when the emulator doesn't exit."""
 import subprocess
 import time
@@ -32,7 +32,7 @@ class StopTestCase(ScriptTestCase):
 class WhichEmulator(StopTestCase):
     def test_stops_the_only_running_emulator(self):
         serial = self.sandbox.start_emulator("tv_api25")
-        result = self.sandbox.run("stop-emulator.sh")
+        result = self.sandbox.run("tv-stop-emulator.sh")
         self.assertSucceeded(result)
         self.assertEqual(self.sandbox.running(), {})
         self.assertEqual(self.kills(), [serial])
@@ -42,20 +42,20 @@ class WhichEmulator(StopTestCase):
     def test_by_avd_name_leaves_the_others_running(self):
         phone = self.sandbox.start_emulator("phone")
         tv = self.sandbox.start_emulator("tv_api25")
-        self.assertSucceeded(self.sandbox.run("stop-emulator.sh", "tv_api25"))
+        self.assertSucceeded(self.sandbox.run("tv-stop-emulator.sh", "tv_api25"))
         self.assertEqual(self.sandbox.running(), {phone: "phone"})
         self.assertEqual(self.kills(), [tv])
 
     def test_by_serial(self):
         first = self.sandbox.start_emulator("tv_api25")
         second = self.sandbox.start_emulator("tv_api30")
-        self.assertSucceeded(self.sandbox.run("stop-emulator.sh", second))
+        self.assertSucceeded(self.sandbox.run("tv-stop-emulator.sh", second))
         self.assertEqual(self.sandbox.running(), {first: "tv_api25"})
 
     def test_android_serial_picks_one(self):
         first = self.sandbox.start_emulator("tv_api25")
         second = self.sandbox.start_emulator("tv_api30")
-        self.assertSucceeded(self.sandbox.run("stop-emulator.sh", env={"ANDROID_SERIAL": first}))
+        self.assertSucceeded(self.sandbox.run("tv-stop-emulator.sh", env={"ANDROID_SERIAL": first}))
         self.assertEqual(self.sandbox.running(), {second: "tv_api30"})
 
     def test_refuses_to_guess_between_several_emulators(self):
@@ -63,10 +63,10 @@ class WhichEmulator(StopTestCase):
         second = self.sandbox.start_emulator("tv_api30")
         for how in ("absolute", "path"):
             with self.subTest(how=how):
-                result = self.sandbox.run("stop-emulator.sh", how=how)
+                result = self.sandbox.run("tv-stop-emulator.sh", how=how)
                 self.assertFailed(result, f"{first} (tv_api25), {second} (tv_api30)", code=1)
-                command = "stop-emulator.sh" if how == "path" else str(
-                    self.sandbox.tools / "bin" / "stop-emulator.sh")
+                command = "tv-stop-emulator.sh" if how == "path" else str(
+                    self.sandbox.tools / "bin" / "tv-stop-emulator.sh")
                 self.assertIn(f"Pass one: {command} <avd-name|serial>, or stop them all with --all",
                               result.err)
         self.assertEqual(len(self.sandbox.running()), 2)
@@ -76,7 +76,7 @@ class WhichEmulator(StopTestCase):
         self.sandbox.start_emulator("tv_api25")
         self.sandbox.start_emulator("phone")
         self.sandbox.connect_device("R58M123ABC")
-        result = self.sandbox.run("stop-emulator.sh", "--all")
+        result = self.sandbox.run("tv-stop-emulator.sh", "--all")
         self.assertSucceeded(result)
         self.assertEqual(self.sandbox.running(), {})
         self.assertEqual(result.err.count("Stopped "), 2)
@@ -89,22 +89,22 @@ class WhichEmulator(StopTestCase):
         for env in ({}, {"ANDROID_SERIAL": "R58M123ABC"}):
             with self.subTest(env=env):
                 args = () if env else ("R58M123ABC",)
-                result = self.sandbox.run("stop-emulator.sh", *args, env=env)
+                result = self.sandbox.run("tv-stop-emulator.sh", *args, env=env)
                 self.assertFailed(result, "'R58M123ABC' is a device, not an emulator", code=1)
         self.assertEqual(self.kills(), [])
 
     def test_an_unknown_avd_name_is_an_error(self):
         # A typo must not pass as "not running".
-        result = self.sandbox.run("stop-emulator.sh", "tv_api2")
+        result = self.sandbox.run("tv-stop-emulator.sh", "tv_api2")
         self.assertFailed(result, "there's no AVD named 'tv_api2'", code=1)
 
     def test_wrong_arguments(self):
         for args in (("--bogus",), ("--all", "tv_api25"), ("tv_api25", "tv_api30"),
                      ("--no-save", "--all", "tv_api25")):
             with self.subTest(args=args):
-                result = self.sandbox.run("stop-emulator.sh", *args)
+                result = self.sandbox.run("tv-stop-emulator.sh", *args)
                 self.assertEqual(result.code, 2, result.output)
-                self.assertIn("Usage: stop-emulator.sh", result.err)
+                self.assertIn("Usage: tv-stop-emulator.sh", result.err)
 
 
 class SavesFirst(StopTestCase):
@@ -126,7 +126,7 @@ class SavesFirst(StopTestCase):
     def test_up_to_api_31_writes_at_once_then_syncs(self):
         self.sandbox.set_behavior(api_level=31)
         serial = self.sandbox.start_emulator("tv_api30")
-        result = self.sandbox.run("stop-emulator.sh", "tv_api30")
+        result = self.sandbox.run("tv-stop-emulator.sh", "tv_api30")
         self.assertSucceeded(result)
         self.assertEqual(self.shell_calls(serial),
                          ["getprop sys.boot_completed", "dumpsys package write", "sync"])
@@ -138,7 +138,7 @@ class SavesFirst(StopTestCase):
         self.sandbox.set_behavior(api_level=36, pending_package_write=2)
         serial = self.sandbox.start_emulator("tv_api30")
         started = time.monotonic()
-        result = self.sandbox.run("stop-emulator.sh", "tv_api30", env={"ADT_SAVE_WAIT": "10"})
+        result = self.sandbox.run("tv-stop-emulator.sh", "tv_api30", env={"ADT_SAVE_WAIT": "10"})
         took = time.monotonic() - started
         self.assertSucceeded(result)
         self.assertIn("Waiting up to 10 s for Android to save app states changed in the last 10 s",
@@ -154,7 +154,7 @@ class SavesFirst(StopTestCase):
         self.sandbox.set_behavior(api_level=34)
         serial = self.sandbox.start_emulator("tv_api30")
         started = time.monotonic()
-        result = self.sandbox.run("stop-emulator.sh", "tv_api30", env={"ADT_SAVE_WAIT": "2"})
+        result = self.sandbox.run("tv-stop-emulator.sh", "tv_api30", env={"ADT_SAVE_WAIT": "2"})
         self.assertSucceeded(result)
         self.assertGreaterEqual(time.monotonic() - started, 2)
         self.assertEqual(self.shell_calls(serial)[-1], "sync")
@@ -164,7 +164,7 @@ class SavesFirst(StopTestCase):
         # Without a logged write it can't tell "nothing was pending" from "Android is late".
         self.sandbox.set_behavior(api_level=33)
         serial = self.sandbox.start_emulator("tv_api30")
-        result = self.sandbox.run("stop-emulator.sh", "tv_api30", env={"ADT_SAVE_WAIT": "1"})
+        result = self.sandbox.run("tv-stop-emulator.sh", "tv_api30", env={"ADT_SAVE_WAIT": "1"})
         self.assertSucceeded(result)
         self.assertNotIn("Saved", result.err)
         self.assertIn(f"Android logged no write of app states on 'tv_api30' ({serial}) within 1 s: "
@@ -178,7 +178,7 @@ class SavesFirst(StopTestCase):
         # On a host short of CPU, Android's write came 21.6 s after the change, past the default.
         self.sandbox.set_behavior(api_level=34, pending_package_write=4)
         self.sandbox.start_emulator("tv_api30")
-        result = self.sandbox.run("stop-emulator.sh", "tv_api30", env={"ADT_SAVE_WAIT": "1"})
+        result = self.sandbox.run("tv-stop-emulator.sh", "tv_api30", env={"ADT_SAVE_WAIT": "1"})
         self.assertSucceeded(result)
         self.assertNotIn("Saved", result.err)
         self.assertIn("(it writes 10 s after a change, but later on a host short of CPU, and "
@@ -189,14 +189,14 @@ class SavesFirst(StopTestCase):
     def test_without_any_logged_write_it_names_no_time(self):
         self.sandbox.set_behavior(api_level=36, earlier_package_write=False)
         self.sandbox.start_emulator("tv_api30")
-        result = self.sandbox.run("stop-emulator.sh", "tv_api30", env={"ADT_SAVE_WAIT": "1"})
+        result = self.sandbox.run("tv-stop-emulator.sh", "tv_api30", env={"ADT_SAVE_WAIT": "1"})
         self.assertSucceeded(result)
         self.assertIn("an app enabled or disabled isn't saved", result.err)
         self.assertNotIn("Saved", result.err)
 
     def test_nothing_to_save_on_a_read_only_emulator(self):
         serial = self.sandbox.start_emulator("tv_api30", "-read-only")
-        result = self.sandbox.run("stop-emulator.sh", serial)
+        result = self.sandbox.run("tv-stop-emulator.sh", serial)
         self.assertSucceeded(result)
         self.assertEqual(self.shell_calls(serial), [])
         self.assertIn("is -read-only, so it keeps no changes: nothing to save", result.err)
@@ -204,7 +204,7 @@ class SavesFirst(StopTestCase):
     def test_an_emulator_that_does_not_answer_is_stopped_unsaved(self):
         self.sandbox.set_behavior(adb_hangs={"getprop": 1})
         serial = self.sandbox.start_emulator("tv_api30")
-        result = self.sandbox.run("stop-emulator.sh", "tv_api30", env={"ADT_ADB_TIMEOUT": "1"})
+        result = self.sandbox.run("tv-stop-emulator.sh", "tv_api30", env={"ADT_ADB_TIMEOUT": "1"})
         self.assertSucceeded(result)
         self.assertEqual(self.shell_calls(serial), ["getprop sys.boot_completed"])
         self.assertIn("didn't answer as a booted device, so changes Android hasn't saved yet are "
@@ -214,7 +214,7 @@ class SavesFirst(StopTestCase):
     def test_says_so_when_sync_fails(self):
         self.sandbox.set_behavior(sync_error="sync: permission denied")
         self.sandbox.start_emulator("tv_api30")
-        result = self.sandbox.run("stop-emulator.sh", "tv_api30")
+        result = self.sandbox.run("tv-stop-emulator.sh", "tv_api30")
         self.assertSucceeded(result)
         self.assertIn("(sync failed); they may be lost", result.err)
 
@@ -224,7 +224,7 @@ class SavesFirst(StopTestCase):
             with self.subTest(how=how):
                 serial = self.sandbox.start_emulator("tv_api30")
                 target = "tv_api30" if how == "name" else serial
-                result = self.sandbox.run("stop-emulator.sh", "--no-save", target)
+                result = self.sandbox.run("tv-stop-emulator.sh", "--no-save", target)
                 self.assertSucceeded(result)
                 self.assertEqual(self.shell_calls(serial), [], "no getprop, dumpsys or sync")
                 self.assertIn(f"Not saving on 'tv_api30' ({serial}) (--no-save): changes Android "
@@ -237,7 +237,7 @@ class SavesFirst(StopTestCase):
         first = self.sandbox.start_emulator("tv_api25")
         second = self.sandbox.start_emulator("tv_api30")
         started = time.monotonic()
-        result = self.sandbox.run("stop-emulator.sh", "--all", "--no-save",
+        result = self.sandbox.run("tv-stop-emulator.sh", "--all", "--no-save",
                                   env={"ADT_SAVE_WAIT": "10"})
         self.assertSucceeded(result)
         self.assertLess(time.monotonic() - started, 6, "no wait for Android's write")
@@ -248,7 +248,7 @@ class SavesFirst(StopTestCase):
         self.assertEqual(self.sandbox.running(), {})
 
     def test_rejects_a_save_wait_that_is_not_a_number(self):
-        result = self.sandbox.run("stop-emulator.sh", env={"ADT_SAVE_WAIT": "soon"})
+        result = self.sandbox.run("tv-stop-emulator.sh", env={"ADT_SAVE_WAIT": "soon"})
         self.assertFailed(result, "ADT_SAVE_WAIT must be a number of seconds, not 'soon'", code=1)
 
 
@@ -258,7 +258,7 @@ class NotRunning(StopTestCase):
     def test_no_emulator_at_all(self):
         for args in ((), ("--all",)):
             with self.subTest(args=args):
-                result = self.sandbox.run("stop-emulator.sh", *args)
+                result = self.sandbox.run("tv-stop-emulator.sh", *args)
                 self.assertSucceeded(result)
                 self.assertIn("No emulator is running.", result.err)
 
@@ -266,7 +266,7 @@ class NotRunning(StopTestCase):
         self.sandbox.start_emulator("tv_api30")
         for target in ("tv_api25", "emulator-5560"):
             with self.subTest(target=target):
-                result = self.sandbox.run("stop-emulator.sh", target)
+                result = self.sandbox.run("tv-stop-emulator.sh", target)
                 self.assertSucceeded(result)
                 self.assertIn(f"'{target}' isn't running.", result.err)
         self.assertEqual(self.kills(), [])
@@ -277,7 +277,7 @@ class NotRunning(StopTestCase):
         # belong to another process: that process must not be touched.
         other = self.a_process()
         self.lock(self.tv).write_bytes(str(other.pid).encode().ljust(8, b"\0"))
-        result = self.sandbox.run("stop-emulator.sh", "tv_api25", env={"ADT_STOP_TIMEOUT": "1"})
+        result = self.sandbox.run("tv-stop-emulator.sh", "tv_api25", env={"ADT_STOP_TIMEOUT": "1"})
         self.assertSucceeded(result)
         self.assertIn("'tv_api25' isn't running.", result.err)
         self.assertIsNone(other.poll(), "a process that isn't the emulator was stopped")
@@ -294,10 +294,10 @@ class NotRunning(StopTestCase):
         stale.parent.mkdir(parents=True, exist_ok=True)
         stale.write_text(f"avd.name=tv_api25\nport.serial={serial[9:]}\n")
         env = {"ADT_ADB_TIMEOUT": "1", "ADT_STOP_TIMEOUT": "1"}
-        result = self.sandbox.run("stop-emulator.sh", "tv_api25", env=env)
+        result = self.sandbox.run("tv-stop-emulator.sh", "tv_api25", env=env)
         self.assertSucceeded(result)
         self.assertIn("'tv_api25' isn't running.", result.err)
-        result = self.sandbox.run("stop-emulator.sh", serial, env=env)
+        result = self.sandbox.run("tv-stop-emulator.sh", serial, env=env)
         self.assertFailed(result, "its process wasn't found to kill it. It's still running.",
                           code=1)
         self.assertIsNone(other.poll(), "a process that isn't the emulator was stopped")
@@ -306,7 +306,7 @@ class NotRunning(StopTestCase):
         gone = subprocess.Popen(["true"])
         gone.wait()
         self.lock(self.tv).write_bytes(str(gone.pid).encode().ljust(8, b"\0"))
-        result = self.sandbox.run("stop-emulator.sh", "tv_api25")
+        result = self.sandbox.run("tv-stop-emulator.sh", "tv_api25")
         self.assertSucceeded(result)
         self.assertEqual(result.err, "'tv_api25' isn't running.\n")
 
@@ -329,7 +329,7 @@ class AlreadyExiting(StopTestCase):
             with self.subTest(reap=reap):
                 serial = self.sandbox.start_emulator("tv_api25")
                 self.sandbox.kill_emulator(serial, reap=reap)
-                result = self.sandbox.run("stop-emulator.sh", serial)
+                result = self.sandbox.run("tv-stop-emulator.sh", serial)
                 self.assertSucceeded(result)
                 self.assertEqual(result.err, f"'{serial}' didn't answer adb emu kill, and adb no "
                                  "longer lists it: it was exiting already. Its process wasn't "
@@ -340,7 +340,7 @@ class AlreadyExiting(StopTestCase):
         exited = self.sandbox.start_emulator("tv_api25")
         other = self.sandbox.start_emulator("tv_api30")
         self.sandbox.kill_emulator(exited)
-        result = self.sandbox.run("stop-emulator.sh", "--all")
+        result = self.sandbox.run("tv-stop-emulator.sh", "--all")
         self.assertSucceeded(result)
         self.assertIn(f"'{exited}' didn't answer adb emu kill, and adb no longer lists it",
                       result.err)
@@ -356,7 +356,7 @@ class AlreadyExiting(StopTestCase):
                                   emulator_discoverable=False, emulator_discovery_file=False)
         serial = self.sandbox.start_emulator("tv_api25")
         pid = self.sandbox.emulator_pid(serial)
-        result = self.sandbox.run("stop-emulator.sh", "tv_api25")
+        result = self.sandbox.run("tv-stop-emulator.sh", "tv_api25")
         self.assertSucceeded(result)
         self.assertFalse(self.sandbox.alive(pid))
         self.assertIn(f"'tv_api25' ({serial}) didn't answer adb emu kill, and adb no longer lists "
@@ -371,7 +371,7 @@ class WaitsForTheProcess(StopTestCase):
         serial = self.sandbox.start_emulator("tv_api25")
         pid = self.sandbox.emulator_pid(serial)
         self.assertTrue(self.lock(self.tv).exists())
-        self.assertSucceeded(self.sandbox.run("stop-emulator.sh", "tv_api25"))
+        self.assertSucceeded(self.sandbox.run("tv-stop-emulator.sh", "tv_api25"))
         self.assertFalse(self.sandbox.alive(pid), "returned while the emulator still ran")
         self.assertFalse(self.lock(self.tv).exists())
         self.assertEqual(self.sandbox.running(), {})
@@ -381,7 +381,7 @@ class WaitsForTheProcess(StopTestCase):
         self.sandbox.set_behavior(emulator_lock_file=False, emulator_exit_delay=1)
         serial = self.sandbox.start_emulator("tv_api25", "-read-only")
         pid = self.sandbox.emulator_pid(serial)
-        result = self.sandbox.run("stop-emulator.sh", "tv_api25")
+        result = self.sandbox.run("tv-stop-emulator.sh", "tv_api25")
         self.assertSucceeded(result)
         self.assertFalse(self.sandbox.alive(pid), "returned while the emulator still ran")
         self.assertEqual(result.err, f"'tv_api25' ({serial}) is -read-only, so it keeps no changes: "
@@ -393,7 +393,7 @@ class WaitsForTheProcess(StopTestCase):
         first = self.sandbox.start_emulator("tv_api25", "-read-only")
         second = self.sandbox.start_emulator("tv_api25", "-read-only")
         pid = self.sandbox.emulator_pid(second)
-        result = self.sandbox.run("stop-emulator.sh", second)
+        result = self.sandbox.run("tv-stop-emulator.sh", second)
         self.assertSucceeded(result)
         self.assertFalse(self.sandbox.alive(pid), "returned while the emulator still ran")
         self.assertEqual(result.err, f"'tv_api25' ({second}) is -read-only, so it keeps no changes: "
@@ -406,7 +406,7 @@ class WaitsForTheProcess(StopTestCase):
         self.sandbox.set_behavior(emulator_lock_file=False, emulator_discoverable=False,
                                   emulator_discovery_file=False)
         serial = self.sandbox.start_emulator("tv_api25")
-        result = self.sandbox.run("stop-emulator.sh", "tv_api25")
+        result = self.sandbox.run("tv-stop-emulator.sh", "tv_api25")
         self.assertSucceeded(result)
         self.assertIn(f"adb no longer lists 'tv_api25' ({serial}), but its process wasn't found, "
                       "so it may still be exiting.", result.err)
@@ -416,7 +416,7 @@ class WaitsForTheProcess(StopTestCase):
         self.sandbox.set_behavior(emulator_stuck=True)
         serial = self.sandbox.start_emulator("tv_api25")
         pid = self.sandbox.emulator_pid(serial)
-        result = self.sandbox.run("stop-emulator.sh", env={"ADT_STOP_TIMEOUT": "1"})
+        result = self.sandbox.run("tv-stop-emulator.sh", env={"ADT_STOP_TIMEOUT": "1"})
         self.assertSucceeded(result)
         self.assertFalse(self.sandbox.alive(pid))
         self.assertIn(f"'tv_api25' ({serial}) didn't exit within 1 s of adb emu kill, so it was "
@@ -427,7 +427,7 @@ class WaitsForTheProcess(StopTestCase):
         # it would end at the next.
         self.sandbox.set_behavior(emulator_stuck=True, adb_late=["emu_kill"])
         self.sandbox.start_emulator("tv_api25")
-        result = self.sandbox.run("stop-emulator.sh", env={"ADT_STOP_TIMEOUT": "1"})
+        result = self.sandbox.run("tv-stop-emulator.sh", env={"ADT_STOP_TIMEOUT": "1"})
         self.assertSucceeded(result)
         self.assertIn("killed (SIGKILL)", result.err)
         calls = self.sandbox.calls("adb")
@@ -440,7 +440,7 @@ class WaitsForTheProcess(StopTestCase):
         serial = self.sandbox.start_emulator("tv_api25")
         pid = self.sandbox.emulator_pid(serial)
         started = time.monotonic()
-        result = self.sandbox.run("stop-emulator.sh", "tv_api25",
+        result = self.sandbox.run("tv-stop-emulator.sh", "tv_api25",
                                   env={"ADT_ADB_TIMEOUT": "1", "ADT_STOP_TIMEOUT": "20"})
         self.assertSucceeded(result)
         self.assertFalse(self.sandbox.alive(pid))
@@ -452,7 +452,7 @@ class WaitsForTheProcess(StopTestCase):
         self.sandbox.set_behavior(emulator_hidden=True)
         serial = self.sandbox.start_emulator("tv_api25")
         pid = self.sandbox.emulator_pid(serial)
-        result = self.sandbox.run("stop-emulator.sh", "tv_api25")
+        result = self.sandbox.run("tv-stop-emulator.sh", "tv_api25")
         self.assertSucceeded(result)
         self.assertFalse(self.sandbox.alive(pid))
         self.assertIn("'tv_api25' isn't listed by adb, or its console doesn't answer, so it was "
@@ -463,7 +463,7 @@ class WaitsForTheProcess(StopTestCase):
         self.sandbox.set_behavior(adb_hangs={"avd_name": 99, "emu_kill": 99})
         serial = self.sandbox.start_emulator("tv_api25")
         pid = self.sandbox.emulator_pid(serial)
-        result = self.sandbox.run("stop-emulator.sh", "tv_api25",
+        result = self.sandbox.run("tv-stop-emulator.sh", "tv_api25",
                                   env={"ADT_ADB_TIMEOUT": "1", "ADT_STOP_TIMEOUT": "1"})
         self.assertSucceeded(result)
         self.assertFalse(self.sandbox.alive(pid))
@@ -473,7 +473,7 @@ class WaitsForTheProcess(StopTestCase):
         self.sandbox.set_behavior(adb_hangs={"avd_name": 99, "emu_kill": 99},
                                   emulator_discovery_file=False)
         serial = self.sandbox.start_emulator("tv_api25")
-        result = self.sandbox.run("stop-emulator.sh", serial,
+        result = self.sandbox.run("tv-stop-emulator.sh", serial,
                                   env={"ADT_ADB_TIMEOUT": "1", "ADT_STOP_TIMEOUT": "1"})
         self.assertFailed(result, f"'{serial}' didn't answer adb emu kill, and its process wasn't "
                           "found to kill it. It's still running.", code=1)
@@ -488,7 +488,7 @@ class WaitsForTheProcess(StopTestCase):
                 self.sandbox.set_behavior(emulator_lock_file=False, emulator_console_hangs=True)
                 serial = self.sandbox.start_emulator("tv_api25")
                 pid = self.sandbox.emulator_pid(serial)
-                result = self.sandbox.run("stop-emulator.sh", *[target] if target else [],
+                result = self.sandbox.run("tv-stop-emulator.sh", *[target] if target else [],
                                           env={"ADT_ADB_TIMEOUT": "1", "ADT_STOP_TIMEOUT": "20"})
                 self.assertSucceeded(result)
                 self.assertFalse(self.sandbox.alive(pid))
@@ -498,7 +498,7 @@ class WaitsForTheProcess(StopTestCase):
     def test_a_hung_read_only_emulator_by_serial_says_its_avd(self):
         self.sandbox.set_behavior(emulator_lock_file=False, emulator_console_hangs=True)
         serial = self.sandbox.start_emulator("tv_api25")
-        result = self.sandbox.run("stop-emulator.sh", serial,
+        result = self.sandbox.run("tv-stop-emulator.sh", serial,
                                   env={"ADT_ADB_TIMEOUT": "1", "ADT_STOP_TIMEOUT": "20"})
         self.assertSucceeded(result)
         self.assertIn(f"'tv_api25' ({serial}) didn't answer adb emu kill, so it was stopped with "
@@ -509,7 +509,7 @@ class WaitsForTheProcess(StopTestCase):
         hung = self.sandbox.start_emulator("tv_api25")
         self.sandbox.set_behavior(emulator_console_hangs=False)
         other = self.sandbox.start_emulator("tv_api25")
-        result = self.sandbox.run("stop-emulator.sh", hung,
+        result = self.sandbox.run("tv-stop-emulator.sh", hung,
                                   env={"ADT_ADB_TIMEOUT": "1", "ADT_STOP_TIMEOUT": "20"})
         self.assertSucceeded(result)
         self.assertEqual(self.sandbox.running(), {other: "tv_api25"})
@@ -521,7 +521,7 @@ class WaitsForTheProcess(StopTestCase):
         self.sandbox.set_behavior(emulator_lock_file=False, emulator_console_hangs=True)
         first = self.sandbox.start_emulator("tv_api25")
         second = self.sandbox.start_emulator("tv_api25")
-        result = self.sandbox.run("stop-emulator.sh", "tv_api25",
+        result = self.sandbox.run("tv-stop-emulator.sh", "tv_api25",
                                   env={"ADT_ADB_TIMEOUT": "1", "ADT_STOP_TIMEOUT": "1"})
         self.assertFailed(result, f"'tv_api25' runs as several emulators whose consoles don't "
                           f"answer ({first}, {second}): name the one to stop by its serial.",
@@ -535,7 +535,7 @@ class WaitsForTheProcess(StopTestCase):
                                   emulator_discovery_file=False)
         serial = self.sandbox.start_emulator("tv_api25")
         self.lock(self.tv).unlink()
-        result = self.sandbox.run("stop-emulator.sh", env={"ADT_STOP_TIMEOUT": "1"})
+        result = self.sandbox.run("tv-stop-emulator.sh", env={"ADT_STOP_TIMEOUT": "1"})
         self.assertFailed(result, f"'tv_api25' ({serial}) didn't exit within 1 s of adb emu kill, "
                           "and its process wasn't found to kill it. It's still running.", code=1)
         self.assertEqual(self.sandbox.running(), {serial: "tv_api25"})
@@ -548,11 +548,11 @@ class WaitsForTheProcess(StopTestCase):
         self.sandbox.set_behavior(emulator_stuck=False, emulator_discoverable=True,
                                   emulator_discovery_file=True)
         other = self.sandbox.start_emulator("tv_api30")
-        result = self.sandbox.run("stop-emulator.sh", "--all", env={"ADT_STOP_TIMEOUT": "1"})
+        result = self.sandbox.run("tv-stop-emulator.sh", "--all", env={"ADT_STOP_TIMEOUT": "1"})
         self.assertEqual(result.code, 1, result.output)
         self.assertIn(f"Stopped 'tv_api30' ({other}).", result.err)
         self.assertEqual(self.sandbox.running(), {stuck: "tv_api25"})
 
     def test_rejects_a_time_limit_that_is_not_a_number(self):
-        result = self.sandbox.run("stop-emulator.sh", env={"ADT_STOP_TIMEOUT": "1m"})
+        result = self.sandbox.run("tv-stop-emulator.sh", env={"ADT_STOP_TIMEOUT": "1m"})
         self.assertFailed(result, "ADT_STOP_TIMEOUT must be a number of seconds, not '1m'", code=1)

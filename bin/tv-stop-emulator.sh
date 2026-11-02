@@ -2,13 +2,13 @@
 # Stops a running emulator and returns once its process has exited, so the same AVD can be started
 # again right away, and a script or agent never waits on the emulator without a time limit.
 #
-# Usage:   stop-emulator.sh [--all] [--no-save] [avd-name|serial]
-#            stop-emulator.sh                    # $ANDROID_SERIAL, else the only running emulator
-#            stop-emulator.sh tv_api25           # by AVD name
-#            stop-emulator.sh emulator-5556      # by serial
-#            stop-emulator.sh --all              # every running emulator
-#            stop-emulator.sh --no-save --all    # every running emulator, without saving first
-#          stop-emulator.sh --help
+# Usage:   tv-stop-emulator.sh [--all] [--no-save] [avd-name|serial]
+#            tv-stop-emulator.sh                    # $ANDROID_SERIAL, else the only running emulator
+#            tv-stop-emulator.sh tv_api25           # by AVD name
+#            tv-stop-emulator.sh emulator-5556      # by serial
+#            tv-stop-emulator.sh --all              # every running emulator
+#            tv-stop-emulator.sh --no-save --all    # every running emulator, without saving first
+#          tv-stop-emulator.sh --help
 # Exit:    0 once the emulator has exited (or, when its process can't be found, once adb no
 #          longer lists it, which it then says), and also when it wasn't running, so it's safe to
 #          call just in case; 1 if it couldn't be stopped; 2 for wrong arguments. Physical devices
@@ -64,7 +64,7 @@ set -euo pipefail
 
 usage() {
     cat <<'EOF'
-Usage: stop-emulator.sh [--all] [--no-save] [avd-name|serial]
+Usage: tv-stop-emulator.sh [--all] [--no-save] [avd-name|serial]
 
 Stops a running emulator and returns once its process has exited, so the AVD can be started
 again right away. First it has Android save changes it hasn't saved yet (a setting, an app
@@ -351,7 +351,7 @@ stop() {
             echo "$label $problem, and its process wasn't found to kill it. It's still running." >&2
             if [ -z "$name" ]; then
                 echo "Name its AVD instead, so its process can be found:" \
-                     "$(command_for stop-emulator.sh) <avd-name>" >&2
+                     "$(command_for tv-stop-emulator.sh) <avd-name>" >&2
             fi
             return 1
         fi
@@ -392,7 +392,7 @@ else
             0) ;;
             1) TARGETS+=("${SERIALS[0]} $(avd_of "${SERIALS[0]}")") ;;
             *) die "several emulators are running: $(describe).
-Pass one: $(command_for stop-emulator.sh) <avd-name|serial>, or stop them all with --all." ;;
+Pass one: $(command_for tv-stop-emulator.sh) <avd-name|serial>, or stop them all with --all." ;;
         esac
     elif [[ "$TARGET" =~ ^emulator-[0-9]+$ ]]; then
         TARGETS+=("$TARGET $(if is_listed "$TARGET"; then avd_of "$TARGET"; fi)")

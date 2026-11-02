@@ -7,7 +7,7 @@ body:
     attributes:
       label: Command
       description: The command you ran, with its arguments.
-      placeholder: start-emulator.sh tv_api30 --quick
+      placeholder: tv-start-emulator.sh tv_api30 --quick
     validations:
       required: true
   - type: textarea
@@ -15,7 +15,7 @@ body:
     attributes:
       label: Output
       description: >
-        Everything the script printed. For start-emulator.sh, also the end of the emulator's log,
+        Everything the script printed. For tv-start-emulator.sh, also the end of the emulator's log,
         ${TMPDIR:-/tmp}/emulator-<avd>.log.
       render: text
     validations:

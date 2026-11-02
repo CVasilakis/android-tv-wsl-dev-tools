@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds HoldKey.dex from HoldKey.java: the program remote.sh --long-press runs on a device before
+# Builds HoldKey.dex from HoldKey.java: the program tv-remote.sh --long-press runs on a device before
 # API 30. Run it after changing HoldKey.java, and commit both. Needs a JDK's javac and, from the
 # Android SDK (found as the other scripts find it), build-tools' d8 and a platform's android.jar.
 set -euo pipefail
