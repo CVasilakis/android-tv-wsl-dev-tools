@@ -270,6 +270,8 @@ Notes before you use it:
 - **Package ids take `/` or `;`**: `android sdk list` prints `platforms/android-36`, and both
   `android sdk install "platforms;android-36"` and `.../android-36` work. This document keeps the
   `;` form, which is also what Gradle error messages and `package.xml` use.
+- **It doesn't fall back to IPv4.** On a host whose IPv6 doesn't reach Google, it waits without a
+  word ([what to do](#troubleshooting)).
 - **It exits 0 when a package doesn't exist**, printing only `Package … not found.` on stdout, so
   `android sdk install <typo> && …` carries on as if it had worked. Check with
   `android sdk list --no-metrics` rather than trusting the exit status.
@@ -424,6 +426,14 @@ The tests need only Python 3.10+; two optional tools enable more of them. See
 - **`Package … not found.`** from `android sdk install`, and the setup carries on regardless: a
   typo in a package id. The command exits 0 anyway, so check with `android sdk list --no-metrics`
   ([The `android` CLI](#the-android-cli)).
+- **`android sdk install` or `android sdk list` sits there without a word**, while a
+  `repo-index…tmp.part` in `/tmp` stays at 0 bytes: the host has an IPv6 address, but IPv6 doesn't
+  reach Google (seen under WSL's mirrored networking), and the `android` CLI waits on it without
+  falling back to IPv4 as `curl` does. `curl -6 -sI -m 10 https://dl.google.com/` timing out while
+  `curl -4 …` answers confirms it. Install with `sdkmanager --install "<package>"…` (in
+  `cmdline-tools/latest/bin`) instead: up to cmdline-tools 22.0 it's a Java program of its own,
+  which uses IPv4. From 23.0 on it runs the `android` CLI ([The `android` CLI](#the-android-cli)),
+  so there the fix is the host's network.
 - **`WARNING: The SDK Manager CLI tool (sdkmanager) is deprecated`**: use `android sdk` instead;
   the table in [The `android` CLI](#the-android-cli) maps the old commands to the new ones.
 - **`SDK location not found`** during a build, although `echo $ANDROID_HOME` works in your

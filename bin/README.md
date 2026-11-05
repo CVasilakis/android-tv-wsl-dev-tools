@@ -82,6 +82,14 @@ its log. So where `getenforce` says `Enforcing` and `getsebool selinuxuser_exech
 `tv-create-avd.sh` sets `hw.gpu.mode` to `swangle_indirect`, also software rendering, and
 `tv-start-emulator.sh` passes `-gpu swangle_indirect`; each says so.
 
+That renderer offers apps fewer EGL configurations: on API 36 it has RGBA 8888 and RGB 888, each
+with a 24-bit depth buffer, and nothing with fewer bits per colour, where `swiftshader_indirect`
+also has RGB 565. An app whose config chooser insists on one it doesn't offer, as older game
+engines insist on exactly RGB 565, gets none, and its `GLSurfaceView` throws
+`IllegalArgumentException` in `eglCreateContext` as it starts. With `selinuxuser_execheap` on
+(`sudo setsebool -P selinuxuser_execheap 1`, which loosens SELinux for every user process), the
+scripts go back to `swiftshader_indirect`; that hasn't been tried on an SELinux host here.
+
 `--size <W>x<H>` and `--density <dpi>` replace the profile's screen (`hw.lcd.width`,
 `hw.lcd.height`, `hw.lcd.density`); each one given alone keeps the profile's value for the other.
 The size is landscape, width first: a taller one is refused, because Android TV would rotate its
@@ -608,6 +616,7 @@ TV or Google TV; these are the differences in the images that you may run into:
 | `tv-wslg-toolbar.py`: `X Error of failed request: BadWindow` | the emulator's toolbar or window closed while the script changed it (the emulator exited or restarted): run it again once the emulator is up |
 | `tv-start-emulator.sh: the emulator exited with status …` | the printed log lines say why (e.g. an unknown flag); full log in `${TMPDIR:-/tmp}/emulator-<name>.log` |
 | `tv-start-emulator.sh: the emulator exited, killed by signal 11 (SIGSEGV)` | the emulator crashed; the log usually doesn't say why, as its last lines show a normal start. Try another renderer: `tv-start-emulator.sh <avd> -gpu swangle_indirect` |
+| An app with an OpenGL ES view crashes as it starts: `FATAL EXCEPTION: GLThread` and `IllegalArgumentException` in `eglCreateContext` (`adb logcat -b crash`), on a host where the AVD renders with `swangle_indirect` | its EGL config chooser accepts none of that renderer's configurations, e.g. it insists on RGB 565 ([under SELinux](#tv-create-avdsh)) |
 | `tv-start-emulator.sh: '<avd>' didn't finish booting within 900 s` | the host is slow: raise `ADT_BOOT_TIMEOUT`; or Android can't boot: without `--quick` if you used it, else try `-wipe-data` (factory reset) |
 | `tv-create-avd.sh: AVD '<name>' already exists` | it never overwrites one; `--if-missing` accepts it when it's from the same system image (see [`tv-create-avd.sh`](#tv-create-avdsh)) |
 | `tv-start-emulator.sh: '<avd>' booted, but its home app wasn't in front with the focus within 600 s` (with `--wait-for-home`) | the next line says what was in front: nothing focused (a host short of CPU: raise `ADT_HOME_TIMEOUT`), another app (on an emulator that had booted before: press Home, or leave out the flag), or a screen that two Backs didn't close |
